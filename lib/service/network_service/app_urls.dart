@@ -1,0 +1,25 @@
+class AppUrls {
+  /// Base URL for all API .
+  // static const String baseUrl = 'http://192.168.1.50:7878/api/';
+  //  static const String baseUrl = "http://192.168.1.35:8080/api/";
+  //   static const String baseUrl = "http://192.168.1.35:8080/api/";
+   static const String baseUrl = "http://192.168.24.158:5000/api/";
+
+
+
+  /// Auth endpoints
+  static const String login = 'UserLogin/userLoginValidate';
+
+  /// Failure endpoints
+  static const String jeInboxList = 'JECorrectivesMaintenance/jeinboxlist';
+  static const String jeChangeNotification = 'JECorrectivesMaintenance/jeChangeNotification';
+  static const String getFaultMaster = 'JECorrectivesMaintenance/getFaultMaster';
+  static const String getFunctionEqDetailsById = 'JECorrectivesMaintenance/getFunctionEqDetailsById';
+  static const String updateChangeNotificationJE = 'JECorrectivesMaintenance/updateChangeNotificationJE';
+  static const String getRootCauseAndActionList = 'JECorrectivesMaintenance/getRootCauseAndActionList';
+  static const String getFunctionLocEquipmentNoByDeptIdJI = 'JECorrectivesMaintenance/getFunctionLocEquipmentNoByDeptIdJI';
+  static const String getFunctionLocEquipmentNoByDeptId = 'JECorrectivesMaintenance/getFunctionLocEquipmentNoByDeptId';
+  static const String createStationFailure = 'StationCorrectivesMaintenance/createStationNotification';
+  static const String getStationName = 'Lookup/GetLookup_StationName';
+  static const String getMasterData = 'mobileAppAPI/GetMasterData';
+}
