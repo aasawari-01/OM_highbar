@@ -1,0 +1,2445 @@
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:get/get.dart';
+import 'package:om_mobile/constants/colors.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
+import 'package:om_mobile/feature/failure/view/maintenance_history_screen.dart';
+import '../../../service/network_service/app_urls.dart';
+import '../../../utils/responsive_helper.dart';
+import '../../../utils/widgets/cust_button.dart';
+import '../../../utils/widgets/cust_date_time_picker.dart';
+import '../../../utils/widgets/cust_dropdown.dart';
+import '../../../utils/widgets/cust_text.dart';
+import '../../../utils/widgets/cust_textfield.dart';
+import '../../../utils/widgets/cust_toggle.dart';
+import '../../../utils/widgets/custom_app_bar.dart';
+import '../../../constants/app_constants.dart';
+import '../controller/create_failure_controller.dart';
+import '../../../utils/widgets/cust_data_card.dart';
+import '../../../service/session_controller.dart';
+import '../model/failure_detail_response.dart';
+
+class CreateFailureScreen extends StatefulWidget {
+  final String failureType;
+  final String? failureNo;
+  final String? notificationCode;
+  const CreateFailureScreen({Key? key, this.failureType = "Maintenance", this.failureNo,this.notificationCode}) : super(key: key);
+
+  @override
+  _CreateFailureScreenState createState() => _CreateFailureScreenState();
+}
+
+class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTickerProviderStateMixin {
+  late final CreateFailureController controller;
+  final _formKey = GlobalKey<FormState>();
+
+  @override
+  void initState() {
+    super.initState();
+    if (Get.isRegistered<CreateFailureController>()) {
+      Get.delete<CreateFailureController>();
+    }
+    controller = Get.put(CreateFailureController());
+    controller.failureCategory.value = widget.failureType;
+    controller.failureDescriptionController.clear();
+    if (widget.failureNo != null) {
+      controller.loadFailureDetails(widget.failureNo!);
+    } else if (widget.failureType == "Station") {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        controller.fetchAndShowStationPopup();
+      });
+    }
+  }
+
+  /// Station Controller create only.
+  bool get _isStationCreate => widget.failureType == 'Station' && widget.failureNo == null;
+
+  /// JE Change Notification — Maintenance, Station, OCC, Depot (existing failure).
+  bool get _isJeChangeNotification => widget.failureNo != null;
+
+  @override
+  void dispose() {
+    super.dispose();
+  }
+
+  void _showMeasurementDialog() {
+    Get.dialog(
+      Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CustText.body("Measurement Reading", fontWeightName: FontWeight.bold),
+                  IconButton(onPressed: () => Get.back(), icon: const Icon(Icons.close, size: 20)),
+                ],
+              ),
+              const Divider(),
+              Expanded(
+                child: Obx(() => ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: controller.measurementPointsList.length,
+                  itemBuilder: (context, index) {
+                    final item = controller.measurementPointsList[index];
+                    return CustDataCard(
+                      items: [
+                        DataCardItem(label: 'Measurement Point', value: item['measPoint']?.toString() ?? '-', isFullWidth: true),
+                        DataCardItem(label: 'Description', value: item['measPointDesc']?.toString() ?? '-'),
+                        DataCardItem(label: 'Unit', value: item['unitOfMeasurement']?.toString() ?? '-'),
+                        DataCardItem(label: 'Lower Limit', value: item['lowerRangeLimit']?.toString() ?? '-'),
+                        DataCardItem(label: 'Upper Limit', value: item['upperRangeLimit']?.toString() ?? '-'),
+                      ],
+                      bottomAction: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                CustText.detailLabel("Before Reading"),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: item['beforeReading'],
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    hintText: "Reading",
+                                    hintStyle: const TextStyle(fontSize: 12),
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.orangeColor)),
+                                  ),
+                                  onChanged: (v) => controller.updateMeasurementReading(index, 'beforeReading', v),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                CustText.detailLabel("After Reading"),
+                                const SizedBox(height: 8),
+                                TextFormField(
+                                  initialValue: item['afterReading'],
+                                  keyboardType: TextInputType.number,
+                                  decoration: InputDecoration(
+                                    hintText: "Reading",
+                                    hintStyle: const TextStyle(fontSize: 12),
+                                    isDense: true,
+                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.orangeColor)),
+                                  ),
+                                  onChanged: (v) => controller.updateMeasurementReading(index, 'afterReading', v),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                )),
+              ),
+              const SizedBox(height: 20),
+              Align(
+                alignment: Alignment.centerRight,
+                child: CustButton(
+                  name: "Save Changes",
+                  size: 150,
+                  onSelected: (_) => Get.back(),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showActionByDialog() {
+    Get.dialog(
+      Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Header
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 16, 8, 0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    CustText(
+                      name: 'Action By',
+                      size: 18,
+                      color: AppColors.textColor3,
+                      fontWeightName: FontWeight.bold,
+                    ),
+                    IconButton(
+                      onPressed: () => Get.back(),
+                      icon: const Icon(Icons.close, size: 22),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1),
+              // List
+              Flexible(
+                child: Obx(() {
+                  final list = controller.notificationHistoryList;
+                  if (list.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('No action history available.', style: TextStyle(color: Colors.grey)),
+                    );
+                  }
+                  return ListView.separated(
+                    padding: const EdgeInsets.all(16),
+                    shrinkWrap: true,
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 12),
+                    itemBuilder: (context, index) {
+                      final item = list[index];
+                      return CustDataCard(
+                        items: [
+                          DataCardItem(label: 'Action By', value: item.actionBy ?? '-', isFullWidth: true),
+                          DataCardItem(label: 'Status', value: item.statusName ?? '-', isFullWidth: true),
+                          DataCardItem(label: 'Action Date And Time', value: item.actionOn ?? '-', isFullWidth: true),
+                          DataCardItem(label: 'Remark', value: item.remark ?? '-', isFullWidth: true),
+                        ],
+                      );
+                    },
+                  );
+                }),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: AppColors.appBarColor,
+      appBar: CustomAppBar(
+        title: _isJeChangeNotification
+            ? 'Edit ${widget.failureType} Failure'
+            : 'Create ${widget.failureType} Failure',
+        showDrawer: false,
+        onLeadingPressed: () => Navigator.pop(context),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const CircleAvatar(
+                  radius: 16,
+                  backgroundColor: AppColors.white1,
+                ),
+                Positioned(
+                  right: 0,
+                  bottom: 5,
+                  child: Container(
+                    width: 10,
+                    height: 10,
+                    decoration: BoxDecoration(
+                      color: AppColors.green,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: AppColors.white1, width: 1.5),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          color: AppColors.white1,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(20),
+            topRight: Radius.circular(20),
+          ),
+        ),
+        child: Obx(() {
+          if (controller.isLoading.value) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          return Form(
+            key: _formKey,
+            child: Obx(() {
+              if (_isStationCreate) {
+                return _buildStationCreateForm(context);
+              }
+              return _buildJeChangeNotificationForm(context);
+            }),
+          );
+        }),
+      ),
+    );
+  }
+
+  /// JE edit form — Maintenance, Station, OCC, Depot (matches web "Change Notification JE").
+  Widget _buildJeChangeNotificationForm(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(AppConstants.screenPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+                  Row(
+                    children: [
+                      CustText.sectionHeader(
+                        _isJeChangeNotification
+                            ? "Failure Details"
+                            : "Failure Details",
+                        color: AppColors.orangeColor,
+                      ),
+                       Spacer(),
+                       GestureDetector(
+                         onTap: _showActionByDialog,
+                         child: Icon(TablerIcons.hand_click, size: 24, color: AppColors.black),
+                       ),
+                      SizedBox(width: 10),
+                      GestureDetector(
+                           onTap: () => Get.to(()=> MaintenanceHistoryScreen()),
+                          child: Icon(TablerIcons.history,size: 24,color: AppColors.black))
+                    ],
+                  ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Obx(() => CustText.body(
+                  "Failure No.: ${widget.notificationCode??""} ${controller.mainStatusName.value==null?"":"(${controller.mainStatusName.value ?? ''})"}",
+                  size: 18,
+                  color: AppColors.textColor7,
+                  fontWeightName: FontWeight.w600,
+                )),
+                const SizedBox(height: AppConstants.sectionSpacing),
+
+                Obx(() => _buildToggleItem(
+                    "Basic Information", controller.isBasicInfoVisible.value, (val) =>
+                    controller.isBasicInfoVisible.value = val)),
+                Obx(() => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (controller.isBasicInfoVisible.value) ...[
+                      Obx(() => Row(
+                  children: [
+                    Expanded(child: CustDropdown(
+                      label: "Priority",
+                        hint: "Priority" ,
+                        items: controller.priorityTypeList.map((e) => e.label ?? '').toList(),
+                        selectedValue: controller.selectedPriority.value,
+                        onChanged: (value) => controller.selectedPriority.value = value,
+                        enabled: false,
+                       )),
+                    const SizedBox(width: AppConstants.elementSpacing),
+                    Expanded(child: CustDropdown(
+                      label: "Department",
+                      hint: "Department" ,
+                      items: controller.departmentList.map((e) => e.label ?? '').toList().isNotEmpty 
+                          ? controller.departmentList.map((e) => e.label ?? '').toList() 
+                          : Get.find<SessionController>().departments.map((e) => e.deptName ?? '').toList(),
+                      selectedValue: controller.selectedDepartment.value ?? Get.find<SessionController>().selectedDepartment.value?.deptName,
+                      onChanged: (value) => controller.selectedDepartment.value = value,
+                      enabled: false,
+                    )),
+                  ],
+                )),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustText.formLabel("Failure Description:"),
+                Obx(() {
+                  if (controller.notificationHistoryList.isNotEmpty) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
+                        Container(
+                          width: double.infinity,
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: Colors.grey.shade200),
+                          ),
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            physics: const NeverScrollableScrollPhysics(),
+                            itemCount: controller.notificationHistoryList.length,
+                            separatorBuilder: (context, index) => Divider(
+                              height: 1,
+                              color: Colors.grey.shade200,
+                            ),
+                            itemBuilder: (context, index) {
+                              final item = controller.notificationHistoryList[index];
+                              return Padding(
+                                padding: const EdgeInsets.all(12.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    CustText(
+                                      name: item.remark ?? "",
+                                      size: 13,
+                                      color: AppColors.textColor2,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Expanded(
+                                          child: CustText(
+                                            name: item.actionBy ?? "Unknown User",
+                                            size: 11,
+                                            color: AppColors.textColor4,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        CustText(
+                                          name: item.actionOn ?? "",
+                                          size: 11,
+                                          color: AppColors.textColor4,
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  }
+                  return const SizedBox.shrink();
+                }),
+                const SizedBox(height: AppConstants.labelSpacing),
+                CustomTextField(
+                  controller: controller.failureDescriptionController,
+                  hintText: "Enter description",
+                  maxLines: 4,
+                  enabled: controller.isJE || controller.isTechnician,
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Obx(() => Column(
+                  children: [
+                    CustDropdown(label: 'Location',
+                        hint: 'Select location',
+                        items: controller.locationTypeList.map((e) => e.label ?? '').toList(),
+                        selectedValue: controller.selectedLocation.value,
+                        enabled: controller.isJE,
+                        onChanged: (value) {
+                          controller.onLocationChanged(value);
+                        }),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustDropdown(label: 'Functional Location',
+                        hint: 'Select functional location',
+                        items: controller.functionalLocationList.map((e) => e.label ?? '').toList(),
+                        selectedValue: controller.selectedFunctionalLocation.value,
+                        enabled: controller.isJE,
+                        onChanged: (value) {
+                            controller.onFunctionalLocationChanged(value);
+                        }),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustDropdown(
+                      label: 'Equipment Number',
+                      hint: controller.isEquipmentLoading.value ? 'Loading...' : 'Select equipment number',
+                      items: controller.equipmentList.map((e) => e.label ?? '').toList(),
+                      selectedValue: controller.selectedEquipmentNumber.value,
+                      enabled: controller.isJE && !controller.isEquipmentLoading.value,
+                      onChanged: (value) => controller.onEquipmentChanged(value),
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustDateTimePicker(
+                      label: "Actual Failure Occurrence",
+                      hint: "Actual Failure Occurrence",
+                      selectedDateTime: controller.selectedFailureOccurrenceDate.value,
+                      enabled: false,
+                      onDateTimeSelected: (value) => controller.selectedFailureOccurrenceDate.value = value,
+                    ),
+                    // const SizedBox(height: AppConstants.elementSpacing),
+                    // CustDropdown(
+                    //   label: "Person Responsible",
+                    //   hint: "Person Responsible" ,
+                    //   items: controller.userList.map((e) => e.label ?? '').toList(),
+                    //   selectedValue: controller.selectedPersonResponsible.value,
+                    //   onChanged: (value) => controller.selectedPersonResponsible.value = value,
+                    //   enabled: false,
+                    // ),
+                  ],
+                )),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Obx(() => CustDropdown(label: 'Notification Type',
+                    hint: 'Select Type',
+                    items: controller.notificationTypeList.map((e) => e.label ?? '').toList(),
+                    selectedValue: controller.selectedNotificationType.value,
+                    enabled: controller.isJE,
+                    onChanged: (v) => controller.selectedNotificationType.value = v)),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(controller: controller.subLocationController,label: "Sub Location", enabled: controller.isJE,),
+                const SizedBox(height: AppConstants.elementSpacing),
+                    ],
+                  ],
+                )),
+                Obx(() => _buildToggleItem(
+                    "Service Affected", controller.isServiceAffected.value, (val) =>
+                    controller.isServiceAffected.value = val, enabled: controller.isJE)),
+                Obx(() => Column(
+                  children: [
+                    if (controller.isServiceAffected.value) ...[
+                      Row(
+                        children: [
+                          Expanded(child: CustomTextField(label: "Train Delay In Min.", controller: controller.trainDelayMinController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(child: CustomTextField(label: "Train Delay (NOS)", controller: controller.trainDelayNosController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(child: CustomTextField(label: "Train Cancel (NOS)", controller: controller.trainCancelNosController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(child: CustomTextField(label: "Train Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, keyboardType: TextInputType.number, enabled: controller.isJE),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                    ],
+                  ],
+                )),
+                Obx(() => _buildToggleItem(
+                    "Passenger Deboarding", controller.isPassengerDeboarding.value, (val) =>
+                    controller.isPassengerDeboarding.value = val, enabled: controller.isJE)),
+                Obx(() => Column(
+                  children: [
+                    if (controller.isPassengerDeboarding.value) ...[
+                      CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, keyboardType: TextInputType.number, enabled: controller.isJE),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                    ],
+                  ],
+                )),
+                if(widget.failureType != "Maintenance")
+                Obx(() => _buildToggleItem(
+                    "Passenger Affected", controller.isPassengerAffected.value, (val) =>
+                    controller.isPassengerAffected.value = val, enabled: controller.isJE )),
+                Obx(() => Column(
+                  children: [
+                    if (controller.isPassengerAffected.value) ...[
+                      CustomTextField(
+                        label: "Number Of Passenger Affected",
+                        controller: controller.passengersAffectedCountController,
+                        keyboardType: TextInputType.number,
+                        enabled: controller.isJE,
+                        hintText: "Enter number of Passenger Affected",
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: CustomTextField(
+                              label: "Trapped Duration (In Min)",
+                              controller: controller.trappedDurationController,
+                              keyboardType: TextInputType.number,
+                              enabled: controller.isJE,
+                              hintText: "Enter Trapped Duration",
+                            ),
+                          ),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                            child: CustomTextField(
+                              label: "Rescued Duration (In Min)",
+                              controller: controller.rescuedDurationController,
+                              keyboardType: TextInputType.number,
+                              enabled: controller.isJE,
+                              hintText: "Enter Rescued Duration",
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                    ],
+                  ],
+                )),
+                Obx(() => _buildToggleItem("PTW Required?", controller.isPtwRequired.value, (val) =>
+                    controller.isPtwRequired.value = val, enabled: controller.isJE || controller.isTechnician)),
+                Obx(() => Column(
+                  children: [
+                    if (controller.isPtwRequired.value) ...[
+                      const SizedBox(height: AppConstants.labelSpacing),
+                      CustomTextField(controller: controller.ptwNumberController,label: "PTW Number", enabled: controller.isJE || controller.isTechnician,keyboardType: TextInputType.number,)
+                    ],
+                  ],
+                )),
+                const SizedBox(height: AppConstants.sectionSpacing),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(horizontal: AppConstants.elementSpacing, vertical: AppConstants.labelSpacing + 4),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: AppColors.textFieldFillColor),
+                    borderRadius: BorderRadius.circular(AppConstants.inputRadius),
+                  ),
+                  child: CustText.body("Failure Rectification Details (RCA)",
+                      color: AppColors.orangeColor,
+                      fontWeightName: FontWeight.w500),
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Column(
+                  children: [
+                    Obx(() => CustDropdown(label: 'Object Part',
+                        hint: 'Object Part',
+                        items: controller.objectDataList.map((e) => e.label ?? '').toList(),
+                        selectedValue: controller.selectedObjectPart.value,
+                        enabled: controller.isJE || controller.isTechnician,
+                        onChanged: (v) {
+                            final trimmedV = v?.toString().trim().toLowerCase();
+                            debugPrint("Object Part Selected: '$trimmedV'");
+                            controller.selectedObjectPart.value = v; // Keep original label for UI
+                            controller.selectedFault.value = null; // Reset fault when object changes
+                            final obj = controller.objectDataList.firstWhere(
+                              (e) => e.label?.trim().toLowerCase() == trimmedV, 
+                              orElse: () => LabelValue(value: "0")
+                            );
+                            debugPrint("Object ID: ${obj.value}");
+                            if (obj.value != "0") {
+                              controller.fetchFaults(obj.value!);
+                            } else {
+                              controller.faultTypeList.clear();
+                            }
+                        })),
+                    Obx(() => controller.selectedObjectPart.value != null ? Column(
+                      children: [
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        CustomTextField(controller: controller.objectPartTextController, label: "Object Part Text", enabled: controller.isJE || controller.isTechnician,),
+                      ],
+                    ) : const SizedBox.shrink()),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    Obx(() => CustDropdown(label: 'Fault',
+                        hint: controller.isFaultLoading.value ? 'Loading...' : 'Fault',
+                        items: controller.isFaultLoading.value ? [] : controller.faultTypeList.map((e) => e.label ?? '').toList(),
+                        selectedValue: controller.selectedFault.value,
+                        enabled: (controller.isJE || controller.isTechnician) && !controller.isFaultLoading.value,
+                        onChanged: (v) => controller.selectedFault.value = v)),
+                    Obx(() => controller.selectedFault.value != null ? Column(
+                      children: [
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        CustomTextField(controller: controller.faultTextController, label: "Fault Text", enabled: controller.isJE || controller.isTechnician,),
+                      ],
+                    ) : const SizedBox.shrink()),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: CustButton(
+                        name: "Add",
+                        size: 100,
+                        onSelected: (controller.isJE || controller.isTechnician) ? (_) => controller.addRcaDetail() : null,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Obx(() => Column(
+                  children: controller.rcaDetailsList.asMap().entries
+                    .map((entry) => _buildRcaDetailCard(entry.value, entry.key))
+                    .toList(),
+                )),
+                Obx(() => _buildSparePartReplaceSection(enabled: controller.isJE || controller.isTechnician)),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Obx(() => _buildJointInspectionSection(enabled: controller.isJE)),
+                Obx(() => controller.showMeasurementButton.value ? Padding(
+                  padding: const EdgeInsets.only(top: AppConstants.elementSpacing, bottom: AppConstants.elementSpacing),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: CustButton(
+                      name: "Measurement Reading",
+                      size: 200,
+                      onSelected: (_) => _showMeasurementDialog(),
+                    ),
+                  ),
+                ) : const SizedBox.shrink()),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Row(
+                      children: [
+                        CustText.sectionHeader("Attachments: ", color: AppColors.textColor3),
+                        const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.red, fontSize: 12)),
+                      ],
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.labelSpacing),
+                Row(
+                  children: [
+                    CustText.body("After ", fontWeightName: FontWeight.w500),
+                    const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(width: AppConstants.sectionSpacing),
+                    _buildUploadButton(controller.afterFiles, enabled: controller.isJE || controller.isTechnician),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Obx(() => Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: controller.afterFiles
+                      .map<Widget>((file) => _buildAttachmentItem(file['name']!, file['size']!, controller.afterFiles, file))
+                      .toList(),
+                )),
+                const SizedBox(height: AppConstants.sectionSpacing),
+                Row(
+                  children: [
+                    CustText.body("Upload RCA ", fontWeightName: FontWeight.w500),
+                    const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                    const SizedBox(width: AppConstants.sectionSpacing),
+                    _buildUploadButton(controller.rcaFiles, enabled: controller.isJE || controller.isTechnician),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Obx(() => Wrap(
+                  spacing: 12,
+                  runSpacing: 12,
+                  children: controller.rcaFiles
+                      .map<Widget>((file) => _buildAttachmentItem(file['name']!, file['size']!, controller.rcaFiles, file))
+                      .toList(),
+                )),
+                const SizedBox(height: AppConstants.sectionSpacing),
+                const Divider(),
+                const SizedBox(height: AppConstants.sectionSpacing),
+                CustText.sectionHeader("Display Uploaded Images:", color: AppColors.textColor3),
+                const SizedBox(height: AppConstants.labelSpacing),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CustText.body("Before:"),
+                          const SizedBox(height: 8),
+                          Obx(() => Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: controller.beforeImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
+                          )),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CustText.body("After:"),
+                          const SizedBox(height: 8),
+                          Obx(() => Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: controller.afterImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
+                          )),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CustText.body("RCA:"),
+                          const SizedBox(height: 8),
+                          Obx(() => Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: controller.rcaImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
+                          )),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.sectionSpacing),
+                Obx(() => Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CustomTextField(
+                      label: "Failure Rectification Details *",
+                      controller: controller.failureRectificationDetailsController,
+                      hintText: "Enter Rectification Details",
+                      enabled: controller.isJE,
+                      maxLines: 4,
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) {
+                          return "Failure Rectification Details is required";
+                        }
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustDropdown(
+                      label: "User Status",
+                      hint: "Select",
+                      items: controller.userStatusList.map((e) => e.label ?? '').toList(),
+                      selectedValue: controller.selectedUserStatus.value,
+                      enabled: controller.isJE,
+                      onChanged: (v) => controller.selectedUserStatus.value = v,
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    if (controller.selectedUserStatus.value == "Under Observation") ...[
+                      CustDateTimePicker(
+                        label: "Under Observation Date *",
+                        hint: "DD/MM/YYYY hh:mm",
+                        selectedDateTime: controller.selectedUnderObservationDate.value,
+                        enabled: controller.isJE,
+                        firstDate: DateTime.now(),
+                        validator: (val) {
+                          if (controller.selectedUserStatus.value == "Under Observation" &&
+                              controller.selectedUnderObservationDate.value == null) {
+                            return "Under Observation Date is required";
+                          }
+                          return null;
+                        },
+                        onDateTimeSelected: (dt) => controller.selectedUnderObservationDate.value = dt,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                    ],
+                    CustDateTimePicker(
+                      label: "Failure Attended",
+                      hint: "DD/MM/YYYY hh:mm",
+                      selectedDateTime: controller.selectedFailureAttendedDate.value ?? DateTime.now(),
+                      enabled: controller.isJE,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now(),
+                      onDateTimeSelected: (dateTime) {
+                        controller.selectedFailureAttendedDate.value = dateTime;
+                      },
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustDateTimePicker(
+                      label: "Actual Failure Rectified",
+                      hint: "DD/MM/YYYY hh:mm",
+                      selectedDateTime: controller.selectedActualFailureRectifiedDate.value ?? DateTime.now(),
+                      enabled: controller.isJE,
+                      firstDate: DateTime.now(),
+                      lastDate: DateTime.now(),
+                      onDateTimeSelected: (dateTime) {
+                        controller.selectedActualFailureRectifiedDate.value = dateTime;
+                      },
+                    ),
+                  ],
+                )),
+                const SizedBox(height: AppConstants.sectionSpacing),
+                Row(
+                  children: [
+                    Expanded(
+                      child: CustOutlineButton(
+                        name: "Cancel",
+                        size: double.infinity,
+                        sHeight: AppConstants.buttonHeight,
+                        onSelected: (_) => Navigator.pop(context),
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.elementSpacing),
+                    Expanded(
+                      child: CustButton(
+                        name: "Submit",
+                        sHeight: AppConstants.buttonHeight,
+                        size: double.infinity,
+                        onSelected: (_) => _submitForm(),
+                      ),
+                    ),
+                  ],
+                )
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStationCreateForm(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(AppConstants.screenPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustText.sectionHeader("Failure Details", color: AppColors.orangeColor),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => Row(
+              children: [
+                Expanded(
+                  child: CustDropdown(
+                    label: "Priority",
+                    hint: "Select...",
+                    items: controller.priorityTypeList.map((e) => e.label ?? '').toList(),
+                    selectedValue: controller.selectedPriority.value,
+                    onChanged: (v) => controller.selectedPriority.value = v,
+                  ),
+                ),
+                const SizedBox(width: AppConstants.elementSpacing),
+                Expanded(
+                  child: CustDropdown(
+                    label: "Department",
+                    hint: "Select...",
+                    items: controller.departmentList.map((e) => e.label ?? '').toList().isNotEmpty
+                        ? controller.departmentList.map((e) => e.label ?? '').toList()
+                        : Get.find<SessionController>().departments.map((e) => e.deptName ?? '').toList(),
+                    selectedValue: controller.selectedDepartment.value ??
+                        Get.find<SessionController>().selectedDepartment.value?.deptName,
+                    onChanged: (v) => controller.selectedDepartment.value = v,
+                  ),
+                ),
+              ],
+            )),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustomTextField(
+              label: "Failure Description",
+              controller: controller.failureDescriptionController,
+              hintText: "Enter failure description",
+              maxLines: 4,
+              maxLength: 500,
+              enabled: controller.isStationController,
+              validator: (val) {
+                if (val == null || val.trim().isEmpty) {
+                  return "Failure Description is required";
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => CustDropdown(
+              label: "Location",
+              hint: "Select...",
+              items: controller.locationTypeList.map((e) => e.label ?? '').toList(),
+              selectedValue: controller.selectedLocation.value,
+              onChanged: (value) {
+                controller.onLocationChanged(value);
+              },
+            )),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => CustDropdown(
+              label: "Functional Location",
+              hint: "Select...",
+              items: controller.functionalLocationList.map((e) => e.label ?? '').toList(),
+              selectedValue: controller.selectedFunctionalLocation.value,
+              onChanged: (v) => controller.onFunctionalLocationChanged(v),
+            )),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustomTextField(
+              label: "Sub Location",
+              controller: controller.subLocationController,
+              hintText: "Enter Sub Location",
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Row(
+              children: [
+                Expanded(
+                  child: CustomTextField(
+                    label: "System",
+                    controller: controller.systemController,
+                    hintText: "Enter System",
+                  ),
+                ),
+                const SizedBox(width: AppConstants.elementSpacing),
+                Expanded(
+                  child: CustomTextField(
+                    label: "Train Id",
+                    controller: controller.trainIdController,
+                    hintText: "Enter Train Id",
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustDateTimePicker(
+              label: "Actual Failure Occurrence",
+              hint: "DD/MM/YYYY hh:mm",
+              selectedDateTime: controller.selectedFailureOccurrenceDate.value,
+              onDateTimeSelected: (dt) => controller.selectedFailureOccurrenceDate.value = dt,
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => CustDropdown(
+              label: "Failure Reported by",
+              hint: "Select...",
+              items: controller.userList.map((e) => e.label ?? '').toList(),
+              selectedValue: controller.selectedFailureReportedBy.value,
+              onChanged: (v) => controller.selectedFailureReportedBy.value = v,
+            )),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustDateTimePicker(
+              label: "Actual Failure Completed Date & Time",
+              hint: "DD/MM/YYYY hh:mm",
+              selectedDateTime: controller.selectedFailureCompletedDate.value,
+              enabled: false,
+              onDateTimeSelected: (dt) => controller.selectedFailureCompletedDate.value = dt,
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => CustDropdown(
+              label: "Failure Category Type",
+              hint: "Select...",
+              items: controller.corrNotificationTypeList.map((e) => e.label ?? '').toList(),
+              selectedValue: controller.selectedFailureCategoryType.value,
+              onChanged: (v) => controller.selectedFailureCategoryType.value = v,
+            )),
+            const SizedBox(height: AppConstants.sectionSpacing),
+            Obx(() => _buildToggleItem(
+              "Trip Affected",
+              controller.isServiceAffected.value,
+              (val) => controller.isServiceAffected.value = val,
+            )),
+            Obx(() {
+              if (!controller.isServiceAffected.value) return const SizedBox.shrink();
+              return Column(
+                children: [
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trip Delay Upline (NOS)", controller: controller.tripDelayUplineController, keyboardType: TextInputType.number, hintText: "Enter Trip Delay Upline")),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Trip Cancel (NOS)", controller: controller.trainCancelNosController, keyboardType: TextInputType.number, hintText: "Enter Trip Cancel")),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trip Delay Downline (NOS)", controller: controller.tripDelayDownlineController, keyboardType: TextInputType.number, hintText: "Enter Trip Delay Downline")),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Trip Delay in Min.", controller: controller.trainDelayMinController, keyboardType: TextInputType.number, hintText: "Enter Trains Delayed In Min")),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trip Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, keyboardType: TextInputType.number, hintText: "Enter Train Withdrawal")),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, keyboardType: TextInputType.number, hintText: "Enter Train Replace")),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => _buildToggleItem("Passenger Deboarding", controller.isPassengerDeboarding.value, (val) => controller.isPassengerDeboarding.value = val)),
+                  Obx(() {
+                    if (!controller.isPassengerDeboarding.value) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: AppConstants.elementSpacing),
+                      child: CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, keyboardType: TextInputType.number, hintText: "Enter Number Of Train Deboarded"),
+                    );
+                  }),
+                ],
+              );
+            }),
+            const SizedBox(height: AppConstants.sectionSpacing),
+            Obx(() => _buildToggleItem("Passenger Affected", controller.isPassengerAffected.value, (val) => controller.isPassengerAffected.value = val)),
+            Obx(() {
+              if (!controller.isPassengerAffected.value) return const SizedBox.shrink();
+              return Column(
+                children: [
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(label: "Number Of Passenger Affected", controller: controller.passengersAffectedCountController, keyboardType: TextInputType.number, hintText: "Enter number of Passenger Affected"),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trapped Duration", controller: controller.trappedDurationController, hintText: "Enter Trapped Duration")),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Rescued Duration", controller: controller.rescuedDurationController, hintText: "Enter Rescued Duration")),
+                    ],
+                  ),
+                ],
+              );
+            }),
+            const SizedBox(height: AppConstants.sectionSpacing),
+            Row(
+              children: [
+                CustText.sectionHeader("Attachments: ", color: AppColors.textColor3),
+                const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.red, fontSize: 12)),
+              ],
+            ),
+            const SizedBox(height: AppConstants.labelSpacing),
+            Row(
+              children: [
+                CustText.body("Before ", fontWeightName: FontWeight.w500),
+                const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                const SizedBox(width: AppConstants.sectionSpacing),
+                _buildUploadButton(controller.beforeFiles, enabled: true),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Obx(() => Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: controller.beforeFiles
+                  .map<Widget>((file) => _buildAttachmentItem(file['name']!, file['size']!, controller.beforeFiles, file))
+                  .toList(),
+            )),
+            const SizedBox(height: AppConstants.sectionSpacing),
+            Row(
+              children: [
+                Expanded(
+                  child: CustOutlineButton(
+                    name: "Cancel",
+                    size: double.infinity,
+                    borderRadius: AppConstants.inputRadius,
+                    onSelected: (_) => Navigator.pop(context),
+                  ),
+                ),
+                const SizedBox(width: AppConstants.elementSpacing),
+                Expanded(
+                  child: CustButton(
+                    name: "Save",
+                    size: double.infinity,
+                    borderRadius: AppConstants.inputRadius,
+                    onSelected: (_) => _submitForm(),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildToggleItem(String title, bool value,
+      ValueChanged<bool> onChanged, {bool enabled = true}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppConstants.labelSpacing),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: AppConstants.elementSpacing, vertical: AppConstants.labelSpacing),
+        decoration: BoxDecoration(
+          border: Border.all(color: AppColors.textFieldFillColor),
+          borderRadius: BorderRadius.circular(AppConstants.inputRadius),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(child: CustText.body(title,
+                color: enabled ? AppColors.orangeColor : Colors.grey,
+                fontWeightName: FontWeight.w500)),
+            YesNoToggle(value: value, onChanged: onChanged, enabled: enabled),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUploadedImagePreview(String path) {
+    return Container(
+      width: 100,
+      height: 100,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Image.network(
+          "${AppUrls.baseUrl.replaceAll('/api/', '/')}$path",
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.grey),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildUploadButton(List<Map<String, dynamic>> targetList, {bool enabled = true}) {
+    return CustButton(name: "Upload", size: 100, onSelected: enabled ? (_) {
+      _showUploadPopup(targetList);
+    } : null,);
+  }
+
+  void _showUploadPopup(List<Map<String, dynamic>> targetList) {
+    Get.dialog(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: GestureDetector(
+                  onTap: () => Get.back(),
+                  child: const Icon(Icons.close, color: Colors.black, size: 24),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _uploadPopupOption(
+                    icon: TablerIcons.camera,
+                    onTap: () async {
+                      try {
+                        Get.back();
+                        final ImagePicker picker = ImagePicker();
+                        final XFile? image = await picker.pickImage(
+                            source: ImageSource.camera);
+                        if (image != null) {
+                          final bytes = await image.readAsBytes();
+                          final sizeInMb = bytes.length / (1024 * 1024);
+                          targetList.add({
+                            'name': image.name,
+                            'size': '${sizeInMb.toStringAsFixed(1)} MB',
+                            'path': image.path,
+                          });
+                        }
+                      } catch (e) {
+                        debugPrint("Error picking image: $e");
+                        Get.snackbar("Error",
+                            "Could not capture photo. Please check camera permissions.");
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 30),
+                  _uploadPopupOption(
+                    icon: TablerIcons.paperclip,
+                    onTap: () async {
+                      try {
+                        Get.back();
+                        final FilePickerResult? result = await FilePicker
+                            .platform.pickFiles();
+                        if (result != null) {
+                          for (var file in result.files) {
+                            final sizeInMb = file.size / (1024 * 1024);
+                            targetList.add({
+                              'name': file.name,
+                              'size': '${sizeInMb.toStringAsFixed(1)} MB',
+                              'path': file.path,
+                            });
+                          }
+                        }
+                      } catch (e) {
+                        debugPrint("Error picking file: $e");
+                        Get.snackbar("Error", "Could not pick file.");
+                      }
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
+              CustText.body(
+                "Upload Files or Take Photos",
+                size: 16,
+                color: AppColors.textColor7,
+                fontWeightName: FontWeight.w600,
+              ),
+              const SizedBox(height: AppConstants.labelSpacing),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _uploadPopupOption(
+      {required IconData icon, required VoidCallback onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 50,
+        height: 50,
+        decoration: BoxDecoration(
+          color: AppColors.buttonOutlineColor,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Icon(icon, color: Colors.black, size: 25),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAttachmentItem(String name, String size,
+      List<Map<String, dynamic>> targetList, Map<String, dynamic> file) {
+    return GestureDetector(
+      onTap: () => _showFilePreview(file),
+      child: Container(
+        width: (MediaQuery
+            .of(context)
+            .size
+            .width - 44) / 2,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF7F7F7),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            Container(
+              height: 30,
+              width: 30,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE2E8F7),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                  TablerIcons.photo, color: AppColors.textColor7, size: 18),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CustText(
+                      name: name, size: 14, color: Colors.black87, maxLines: 1),
+                  CustText(name: size, size: 12, color: Colors.black54),
+                ],
+              ),
+            ),
+            GestureDetector(
+              onTap: () {
+                targetList.remove(file);
+              },
+              child: const Icon(Icons.close, size: 20, color: Colors.black54),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showFilePreview(Map<String, dynamic> file) {
+    final String path = file['path'] ?? '';
+    final String name = file['name'] ?? 'File Preview';
+    final bool isImage = name.toLowerCase().endsWith('.jpg') ||
+        name.toLowerCase().endsWith('.jpeg') ||
+        name.toLowerCase().endsWith('.png');
+
+    Get.dialog(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(20),
+        child: Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: CustText(name: name,
+                    size: 16,
+                    color: Colors.black,
+                    fontWeightName: FontWeight.bold),
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.black),
+                  onPressed: () => Get.back(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: isImage && path.isNotEmpty
+                    ? Image.file(
+                  File(path),
+                  fit: BoxFit.contain,
+                )
+                    : Column(
+                  children: [
+                    const Icon(TablerIcons.file_description, size: 80,
+                        color: Colors.grey),
+                    const SizedBox(height: 16),
+                    CustText(name: "Preview not available for this file type",
+                        size: 14,
+                        color: Colors.grey),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionCard(
+      {required String priority, required String status, required String actionBy, required String dateTime, required String remarks}) {
+    return Container(
+      padding: const EdgeInsets.all(AppConstants.cardPadding),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2)),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    CustText.detailLabel("Priority: "),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                            color: AppColors.orangeColor.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(AppConstants.inputRadius)),
+                        child: CustText(
+                          name: priority,
+                          size: 14,
+                          color: AppColors.orangeColor,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    CustText.detailLabel("Status: "),
+                    Flexible(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(AppConstants.inputRadius)),
+                        child: CustText(
+                          name: status,
+                          size: 14,
+                          color: Colors.red,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustText.detailLabel("Action By"),
+          CustText.detailValue(actionBy),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustText.detailLabel("Action Date and Time:"),
+          CustText.detailValue(dateTime),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustText.detailLabel("Remarks"),
+          CustText.detailValue(""),
+        ],
+      ),
+    );
+  }
+
+  void _submitForm() {
+    if (_formKey.currentState?.validate() ?? false) {
+      if (!controller.isStation && controller.isRcaRequired.value && controller.rcaDetailsList.isEmpty) {
+        Get.snackbar(
+          "Validation Error",
+          "At least one RCA detail is required.",
+          backgroundColor: Colors.red.withOpacity(0.9),
+          colorText: Colors.white,
+          snackPosition: SnackPosition.BOTTOM,
+        );
+        return;
+      }
+      controller.submitFailure(isCreate: widget.failureNo == null);
+    } else {
+      Get.snackbar(
+        "Validation Error",
+        "Please fill all compulsory fields marked with *",
+        backgroundColor: Colors.red.withOpacity(0.9),
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
+  }
+
+
+  Widget _buildRcaDetailCard(Map<String, dynamic> item, int index) {
+    final List<Map<String, dynamic>> rootCauses = item['rootCauses'] ?? [];
+    final List<Map<String, dynamic>> actionTakens = item['actionTakens'] ?? [];
+
+    return Obx(() {
+      final bool isExpanded = controller.isExpandedRca[index] ?? false;
+      return Container(
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: AppColors.white1,
+          borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+          border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.03),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CustText.detailLabel("Object Part"),
+                        const SizedBox(height: AppConstants.labelSpacing),
+                        CustText.detailValue(item['objectPart']!),
+                      ],
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 24),
+                        onPressed: () => controller.removeRcaDetail(item),
+                      ),
+                      IconButton(
+                        icon: Icon(isExpanded ? TablerIcons.chevron_up : TablerIcons.chevron_down, color: AppColors.orangeColor),
+                        onPressed: () => controller.toggleRcaExpansion(index),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            if (isExpanded) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CustText.detailLabel("Object Text"),
+                    const SizedBox(height: AppConstants.labelSpacing),
+                    CustText.detailValue(item['objectPartText']!),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustText.detailLabel("Fault"),
+                    const SizedBox(height: AppConstants.labelSpacing),
+                    CustText.detailValue(item['fault']!),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustText.detailLabel("Fault Text"),
+                    const SizedBox(height: AppConstants.labelSpacing),
+                    CustText.detailValue(item['faultText'] ?? "N/A"),
+                    
+                    if (rootCauses.isNotEmpty || actionTakens.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      DefaultTabController(
+                        length: 2,
+                        child: Column(
+                          children: [
+                            TabBar(
+                              labelColor: AppColors.orangeColor,
+                              unselectedLabelColor: Colors.grey,
+                              indicatorColor: AppColors.orangeColor,
+                              indicatorSize: TabBarIndicatorSize.tab,
+                              onTap: (index) {
+                                // Optional: handle tab switch if needed
+                              },
+                              tabs: const [
+                                Tab(text: "Root Cause"),
+                                Tab(text: "Action Taken"),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            Builder(
+                              builder: (context) {
+                                final tabController = DefaultTabController.of(context);
+                                return AnimatedBuilder(
+                                  animation: tabController,
+                                  builder: (context, _) {
+                                    final bool isRootCauseTab = tabController.index == 0;
+                                    final currentList = isRootCauseTab ? rootCauses : actionTakens;
+                                    final currentLabel = isRootCauseTab ? "Root Cause" : "Action Taken";
+                                    
+                                    return Column(
+                                      children: currentList.asMap().entries.map((entry) => _buildRcaSubItem(
+                                        label: currentLabel,
+                                        value: entry.value[isRootCauseTab ? 'rootCause' : 'actionTaken'],
+                                        text: entry.value[isRootCauseTab ? 'rootCauseText' : 'actionTakenText'],
+                                        imagePath: entry.value['imagePath'],
+                                        onDelete: () => isRootCauseTab 
+                                          ? controller.removeRootCauseFromRca(index, entry.key)
+                                          : controller.removeActionTakenFromRca(index, entry.key),
+                                      )).toList(),
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: CustButton(
+                name: "Add RCA",
+                size: 100,
+                onSelected: (_) async {
+                  final objectPartId = item['ObjectPartId']?.toString() ?? "0";
+                  final faultId = item['FaultId']?.toString() ?? "0";
+                  await controller.fetchRootCauseAndAction(objectPartId, faultId);
+                  _showAddRcaPopup(index);
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    });
+  }
+
+  Widget _buildRcaSubItem({
+    required String label,
+    required String value,
+    required String text,
+    String? imagePath,
+    required VoidCallback onDelete,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8F9FB),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CustText.detailLabel(label),
+                const SizedBox(height: AppConstants.labelSpacing),
+                CustText.detailValue(value),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustText.detailLabel("$label Text"),
+                const SizedBox(height: AppConstants.labelSpacing),
+                CustText.detailValue(text),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            children: [
+              if (imagePath != null && imagePath.isNotEmpty)
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    File(imagePath),
+                    width: 60,
+                    height: 60,
+                    fit: BoxFit.cover,
+                  ),
+                )
+              else
+                Container(
+                  width: 60,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
+                  child: const Icon(Icons.image_outlined, color: Colors.grey, size: 24),
+                ),
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: onDelete,
+                child: const Icon(TablerIcons.trash, color: Colors.red, size: 20),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showAddRcaPopup(int index) {
+    Get.dialog(
+      DefaultTabController(
+        length: 2,
+        child: Dialog(
+          backgroundColor: AppColors.white1,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.cardRadius)),
+          child: Container(
+            width: double.infinity,
+            constraints: const BoxConstraints(maxHeight: 600),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.close, color: AppColors.iconColor,size: AppConstants.iconSize,),
+                        onPressed: () {
+                          controller.clearPopupState();
+                          Get.back();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                TabBar(
+                  labelColor: const Color(0xFF4285F4),
+                  unselectedLabelColor: const Color(0xFF6C7A9C),
+                  indicatorColor: const Color(0xFF4285F4),
+                  indicatorSize: TabBarIndicatorSize.tab,
+                  tabs: [
+                    _buildTabWithBadge("Root Cause", controller.tempPopupRootCauses),
+                    _buildTabWithBadge("Action Taken", controller.tempPopupActionTakens),
+                  ],
+                ),
+                Flexible(
+                  child: TabBarView(
+                    children: [
+                      _buildPopupTab(
+                        index: index,
+                        isRootCause: true,
+                        dropdownLabel: "Root Cause",
+                        dropdownHint: "Select Root Cause",
+                        items: controller.rootCauseList.map((e) => e.label ?? '').toList(),
+                        controller: controller.popupRootCauseTextController,
+                        files: controller.popupRootCauseFiles,
+                        tempList: controller.tempPopupRootCauses,
+                        onAddClick: () => controller.addToTempRootCauses(),
+                        onSave: () {
+                          controller.savePopupDataToRca(index);
+                          Get.back();
+                        },
+                      ),
+                      _buildPopupTab(
+                        index: index,
+                        isRootCause: false,
+                        dropdownLabel: "Action Taken",
+                        dropdownHint: "Select Action Taken",
+                        items: controller.actionTakenList.map((e) => e.label ?? '').toList(),
+                        controller: controller.popupActionTakenTextController,
+                        files: controller.popupActionTakenFiles,
+                        tempList: controller.tempPopupActionTakens,
+                        onAddClick: () => controller.addToTempActionTakens(),
+                        onSave: () {
+                          controller.savePopupDataToRca(index);
+                          Get.back();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPopupTab({
+    required int index,
+    required bool isRootCause,
+    required String dropdownLabel,
+    required String dropdownHint,
+    required List<String> items,
+    required TextEditingController controller,
+    required List<Map<String, dynamic>> files,
+    required RxList<Map<String, dynamic>> tempList,
+    required VoidCallback onAddClick,
+    required VoidCallback onSave,
+  }) {
+    final createController = Get.find<CreateFailureController>();
+    return Column(
+      children: [
+        Expanded(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CustDropdown(
+                  label: dropdownLabel,
+                  hint: dropdownHint,
+                  items: items,
+                  onChanged: (v) {
+                    if (isRootCause) {
+                      createController.selectedPopupRootCause.value = v;
+                    } else {
+                      createController.selectedPopupActionTaken.value = v;
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: CustomTextField(
+                        label: "$dropdownLabel Text",
+                        controller: controller,
+                      ),
+                    ),
+                    // const SizedBox(width: 12),
+                    // GestureDetector(
+                    //   onTap: () => _showUploadPopup(files),
+                    //   child: Padding(
+                    //     padding: const EdgeInsets.only(bottom: 12.0),
+                    //     child: Icon(TablerIcons.paperclip, color: AppColors.orangeColor, size: 28),
+                    //   ),
+                    // ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Obx(() => Wrap(
+                  spacing: 8,
+                  children: files.map((file) => Chip(
+                    label: Text(file['name'], style: const TextStyle(fontSize: 10)),
+                    onDeleted: () => files.remove(file),
+                  )).toList(),
+                )),
+                const SizedBox(height: 12),
+                CustButton(name: "Add", size: 100,sHeight: 40,onSelected:(_) =>  onAddClick(),),
+
+                // Align(
+                //   alignment: Alignment.centerRight,
+                //   child: GestureDetector(
+                //     onTap: onAddClick,
+                //     child: Container(
+                //       width: 40,
+                //       height: 40,
+                //       decoration: const BoxDecoration(
+                //         color: AppColors.orangeColor,
+                //         shape: BoxShape.circle,
+                //         boxShadow: [
+                //           BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
+                //         ],
+                //       ),
+                //       child: const Icon(TablerIcons.plus, color: AppColors.white1, size: AppConstants.iconSize),
+                //     ),
+                //   ),
+                // ),
+                const SizedBox(height: 24),
+                Obx(() => Column(
+                  children: tempList.asMap().entries.map((entry) => _buildRcaSubItem(
+                    label: isRootCause ? "Root Cause" : "Action Taken",
+                    value: entry.value[isRootCause ? 'rootCause' : 'actionTaken'],
+                    text: entry.value[isRootCause ? 'rootCauseText' : 'actionTakenText'],
+                    imagePath: entry.value['imagePath'],
+                    onDelete: () => tempList.removeAt(entry.key),
+                  )).toList(),
+                )),
+              ],
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: CustButton(
+            name: "Save",
+            size: double.infinity,
+            sHeight: 40,
+            onSelected: (_) => onSave(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTabWithBadge(String title, RxList list) {
+    return Tab(
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              title,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // const SizedBox(width: AppConstants.labelSpacing),
+          // Container(
+          //   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+          //   decoration: BoxDecoration(
+          //     border: Border.all(color: Colors.grey.shade300, width: 1),
+          //     borderRadius: BorderRadius.circular(20),
+          //   ),
+          //   child: CustText.body(
+          //     list.length.toString(),
+          //     size: 10,
+          //     color: const Color(0xFF8E99B2),
+          //     fontWeightName: FontWeight.w600,
+          //   ),
+          // ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSparePartReplaceSection({bool enabled = true}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CustDropdown(
+          label: "Failure Type",
+          hint: "Select...",
+          items: controller.materialTypeList,
+          selectedValue: controller.selectedMaterialType.value,
+          enabled: enabled,
+          onChanged: (v) => controller.selectedMaterialType.value = v!,
+        ),
+        if (controller.selectedMaterialType.value.toLowerCase() == "other") ...[
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustomTextField(label: "Other", controller: controller.failureTypeController, enabled: enabled),
+        ],
+        if (controller.selectedMaterialType.value == "Hardware") ...[
+          const SizedBox(height: AppConstants.elementSpacing),
+          _buildToggleItem("Spare Part Replace", controller.isSparePartReplaced.value, (val) => controller.isSparePartReplaced.value = val, enabled: enabled),
+        ],
+        if (controller.selectedMaterialType.value == "Hardware" && controller.isSparePartReplaced.value) ...[
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustDropdown(
+            label: "Material Code & Description",
+            hint: "Select...",
+            items: controller.materialDataList.map((e) => e.label ?? '').toList(),
+            selectedValue: controller.selectedMaterialCode.value,
+            enabled: enabled,
+            onChanged: (v) {
+              controller.selectedMaterialCode.value = v;
+              controller.uomController.text = "NO";
+            },
+          ),
+           const SizedBox(height: AppConstants.elementSpacing),
+           CustomTextField(label: "Unit of Measurement", controller: controller.uomController, enabled: false),
+           const SizedBox(width: AppConstants.elementSpacing),
+           CustDropdown(
+             label: "Store Location",
+             hint: "Select...",
+             items: controller.storageLocationList.map((e) => e.label ?? '').toList(),
+             selectedValue: controller.selectedStoreLocation.value,
+             enabled: enabled,
+             onChanged: (v) {
+               controller.selectedStoreLocation.value = v;
+               controller.balanceQtyController.text = "0.00";
+               },
+             ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          Row(
+            children: [
+              Expanded(child: CustomTextField(label: "Balance Quantity", controller: controller.balanceQtyController, enabled: false)),
+              const SizedBox(width: AppConstants.elementSpacing),
+              Expanded(child: CustomTextField(label: "Required Quantity", controller: controller.requiredQtyController, hintText: "Enter Required Quantity", enabled: enabled)),
+            ],
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          Obx(() => CustButton(
+            name: controller.editingReplacedMaterialIndex.value >= 0 ? "Update Material" : "Add Material",
+            size: 150,
+            onSelected: enabled ? (_) => controller.addReplacedMaterial() : null,
+          )),
+          const SizedBox(height: AppConstants.elementSpacing),
+          if (controller.replacedMaterialsList.isNotEmpty) _buildReplacedMaterialTable(enabled: enabled),
+        ],
+        if (controller.selectedMaterialType.value == "Hardware") ...[
+          const SizedBox(height: AppConstants.elementSpacing),
+          _buildMaterialDismantleSection(enabled: controller.isJE),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildReplacedMaterialTable({bool enabled = true}) {
+    return Obx(() => Column(
+      children: controller.replacedMaterialsList.asMap().entries.map((entry) {
+        final index = entry.key;
+        final item = entry.value;
+        final isExpanded = controller.isExpandedReplaced[index] ?? false;
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: AppColors.white1,
+            borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+            border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CustText.detailLabel("Material Description"),
+                          const SizedBox(height: AppConstants.labelSpacing),
+                          CustText.detailValue(item['materialCode'] ?? ""),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        if (enabled) ...[
+                          IconButton(
+                            icon: const Icon(TablerIcons.pencil, color: AppColors.orangeColor, size: 20),
+                            onPressed: () => controller.editReplacedMaterial(index),
+                            padding: const EdgeInsets.only(right: 12),
+                            constraints: const BoxConstraints(),
+                          ),
+                          IconButton(
+                            icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 20),
+                            onPressed: () => controller.removeReplacedMaterial(index),
+                            padding: const EdgeInsets.only(right: 12),
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                        IconButton(
+                          icon: Icon(isExpanded ? TablerIcons.chevron_up : TablerIcons.chevron_down, color: AppColors.orangeColor, size: 20),
+                          onPressed: () => controller.toggleReplacedExpansion(index),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (isExpanded) ...[
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final double width = (constraints.maxWidth - 10) / 2;
+                      Widget buildCol(String label, String value) {
+                        return SizedBox(
+                          width: width,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CustText.detailLabel(label),
+                              const SizedBox(height: 2),
+                              CustText.detailValue(value),
+                            ],
+                          ),
+                        );
+                      }
+                      return Wrap(
+                        runSpacing: 10,
+                        spacing: 10,
+                        children: [
+                          buildCol("Unit of Measurement", item['uom'] ?? ""),
+                          buildCol("Storage Location", item['storeLocation'] ?? ""),
+                          buildCol("Balance Qty", item['balanceQty']?.toString() ?? ""),
+                          buildCol("Required Qty", item['requiredQty']?.toString() ?? ""),
+                          buildCol("Issued Qty", item['issuedQty']?.toString() ?? "0"),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CustText.detailLabel("Used Qty"),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        initialValue: item['usedQty']?.toString() ?? "0",
+                        enabled: enabled,
+                        decoration: InputDecoration(
+                          hintText: "Enter Used Quantity",
+                          hintStyle: const TextStyle(fontSize: 12),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.orangeColor)),
+                        ),
+                        keyboardType: TextInputType.number,
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return "Used Qty is required";
+                          }
+                          return null;
+                        },
+                        onChanged: (val) {
+                          controller.replacedMaterialsList[index]['usedQty'] = val;
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      }).toList(),
+    ));
+  }
+
+  Widget _buildMaterialDismantleSection({bool enabled = true}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildToggleItem("Material Dismantle", controller.isMaterialDismantle.value, (val) => controller.isMaterialDismantle.value = val, enabled: enabled),
+        if (controller.isMaterialDismantle.value) ...[
+          const SizedBox(height: AppConstants.elementSpacing),
+          Obx(() {
+            final sparePartItems = controller.replacedMaterialsList
+                .map((e) => e['materialCode'] as String? ?? '')
+                .where((e) => e.isNotEmpty)
+                .toList();
+            return CustDropdown(
+              label: "Material Code & Description",
+              hint:  "Select...",
+              items: sparePartItems,
+              selectedValue: controller.selectedDismantleMaterialCode.value,
+              enabled: enabled && sparePartItems.isNotEmpty,
+              onChanged: (v) => controller.selectedDismantleMaterialCode.value = v,
+            );
+          }),
+          const SizedBox(height: AppConstants.elementSpacing),
+               CustomTextField(label: "Old Serial Number", controller: controller.oldSerialNumberController, hintText: "Enter Old Series Number", enabled: enabled),
+               const SizedBox(height: AppConstants.elementSpacing),
+               CustDateTimePicker(
+                 label: "Old Serial No Dismantle Date",
+                 hint: "DD/MM/YYYY hh:mm",
+                 selectedDateTime: controller.oldSerialDismantleDate.value,
+                 enabled: enabled,
+                 lastDate: DateTime.now(),
+                 onDateTimeSelected: (dt) => controller.oldSerialDismantleDate.value = dt,
+               ),
+           const SizedBox(height: AppConstants.elementSpacing),
+           Column(
+             mainAxisSize: MainAxisSize.min,
+             children: [
+               CustomTextField(label: "New Serial Number", controller: controller.newSerialNumberController, hintText: "Enter New Series Number", enabled: enabled),
+               const SizedBox(height: AppConstants.elementSpacing),
+               CustDateTimePicker(
+                 label: "New Serial No Installation Date",
+                 hint: "DD/MM/YYYY hh:mm",
+                 selectedDateTime: controller.newSerialInstallationDate.value,
+                 enabled: enabled,
+                 lastDate: DateTime.now(),
+                 onDateTimeSelected: (dt) => controller.newSerialInstallationDate.value = dt,
+               ),
+             ],
+           ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          Obx(() => CustButton(
+            name: controller.editingDismantleMaterialIndex.value >= 0 ? "Update" : "Add",
+            size: 100,
+            onSelected: enabled ? (_) => controller.addDismantleMaterial() : null,
+          )),
+          const SizedBox(height: AppConstants.elementSpacing),
+          if (controller.dismantleMaterialsList.isNotEmpty) _buildDismantleMaterialTable(enabled: enabled),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildDismantleMaterialTable({bool enabled = true}) {
+    return Obx(() => Column(
+      children: controller.dismantleMaterialsList.asMap().entries.map((entry) {
+        final index = entry.key;
+        final item = entry.value;
+        final isExpanded = controller.isExpandedDismantle[index] ?? false;
+        
+        String dismantleDate = "";
+        if (item['dismantleDateRaw'] != null) {
+          dismantleDate = item['dismantleDateRaw'];
+        } else if (item['dismantleDate'] != null) {
+          dismantleDate = "${item['dismantleDate'].day}/${item['dismantleDate'].month}/${item['dismantleDate'].year}";
+        }
+
+        String installDate = "";
+        if (item['installationDateRaw'] != null) {
+          installDate = item['installationDateRaw'];
+        } else if (item['installationDate'] != null) {
+          installDate = "${item['installationDate'].day}/${item['installationDate'].month}/${item['installationDate'].year}";
+        }
+
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: AppColors.white1,
+            borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+            border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CustText.detailLabel("Material Description"),
+                          const SizedBox(height: AppConstants.labelSpacing),
+                          CustText.detailValue(item['materialCode'] ?? ""),
+                        ],
+                      ),
+                    ),
+                    Row(
+                      children: [
+                        if (enabled) ...[
+                          IconButton(
+                            icon: const Icon(TablerIcons.pencil, color: AppColors.orangeColor, size: 20),
+                            onPressed: () => controller.editDismantleMaterial(index),
+                            padding: const EdgeInsets.only(right: 12),
+                            constraints: const BoxConstraints(),
+                          ),
+                          IconButton(
+                            icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 20),
+                            onPressed: () => controller.removeDismantleMaterial(index),
+                            padding: const EdgeInsets.only(right: 12),
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                        IconButton(
+                          icon: Icon(isExpanded ? TablerIcons.chevron_up : TablerIcons.chevron_down, color: AppColors.orangeColor, size: 20),
+                          onPressed: () => controller.toggleDismantleExpansion(index),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              if (isExpanded)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final double width = (constraints.maxWidth - 10) / 2;
+                      Widget buildCol(String label, String value) {
+                        return SizedBox(
+                          width: width,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CustText.detailLabel(label),
+                              const SizedBox(height: 2),
+                              CustText.detailValue(value),
+                            ],
+                          ),
+                        );
+                      }
+                      return Wrap(
+                        runSpacing: 10,
+                        spacing: 10,
+                        children: [
+                          buildCol("Old Serial Number", item['oldSerialNo'] ?? ""),
+                          buildCol("Dismantle Date", dismantleDate),
+                          buildCol("New Serial Number", item['newSerialNo'] ?? ""),
+                          buildCol("Installation Date", installDate),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      }).toList(),
+    ));
+  }
+
+  Widget _buildJointInspectionSection({bool enabled = true}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildToggleItem("Joint Inspection", controller.isJointInspection.value, (val) => controller.isJointInspection.value = val, enabled: enabled),
+        if (controller.isJointInspection.value) ...[
+          const SizedBox(height: AppConstants.elementSpacing),
+          Row(
+            children: [
+              Expanded(child: CustDropdown(
+                label: "Department",
+                hint: "Select...",
+                items: controller.jointInspectionDepartments.map((e) => e.label ?? '').toList(),
+                selectedValue: controller.selectedJointDept.value,
+                enabled: enabled,
+                onChanged: (v) {
+                  controller.selectedJointDept.value = v;
+                  controller.selectedJointAssignTo.value = null;
+                  controller.jointUserList.clear();
+                  if (v != null) {
+                    final dept = controller.jointInspectionDepartments.firstWhere(
+                      (e) => e.label == v,
+                      orElse: () => LabelValue(value: "0"),
+                    );
+                    if (dept.value != "0" && dept.value != null) {
+                      controller.fetchJointInspectionUsers(dept.value!);
+                    }
+                  }
+                },
+              )),
+              const SizedBox(width: AppConstants.elementSpacing),
+              Expanded(child: Obx(() => CustDropdown(
+                label: "Assign To",
+                hint: controller.isJointUserLoading.value ? "Loading..." : "Select...",
+                items: controller.jointUserList.map((e) => e.label ?? '').toList(),
+                selectedValue: controller.selectedJointAssignTo.value,
+                enabled: enabled && !controller.isJointUserLoading.value,
+                onChanged: (v) => controller.selectedJointAssignTo.value = v,
+              ))),
+            ],
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustomTextField(label: "Joint Inspection Remark", controller: controller.jointInspectionRemarkController, maxLines: 3, enabled: enabled),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustButton(name: "Add", size: 100, onSelected: enabled ? (_) => controller.addJointInspectionHistory() : null),
+          const SizedBox(height: AppConstants.elementSpacing),
+          if (controller.jointInspectionHistoryList.isNotEmpty) _buildJointInspectionTable(enabled: enabled),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildJointInspectionTable({bool enabled = true}) {
+    return Column(
+      children: controller.jointInspectionHistoryList.asMap().entries.map((entry) {
+        final index = entry.key;
+        final item = entry.value;
+        return CustDataCard(
+          items: [
+            DataCardItem(label: 'Department', value: item['department'] ?? ""),
+            DataCardItem(label: 'Assigned To', value: item['assignedTo'] ?? ""),
+            DataCardItem(label: 'Assigned Date/Time', value: item['assignedDateTime'] ?? "", isFullWidth: true),
+            DataCardItem(label: 'Remark', value: item['remark'] ?? "", isFullWidth: true),
+            DataCardItem(label: 'User Remark', value: (item['userRemark'] != null && item['userRemark'].toString().isNotEmpty) ? item['userRemark'] : "N/A", isFullWidth: true),
+            DataCardItem(label: 'Status', value: item['status'] ?? "", isFullWidth: true),
+          ],
+          onEdit: enabled ? () {} : null,
+          onDelete: enabled ? () => controller.removeJointInspectionHistory(index) : null,
+        );
+      }).toList(),
+    );
+  }
+}
+
+
+
+class DashedBorderPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+  final double dashWidth;
+  final double dashSpace;
+
+  DashedBorderPainter({
+    required this.color,
+    required this.strokeWidth,
+    required this.dashWidth,
+    required this.dashSpace,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = strokeWidth
+      ..style = PaintingStyle.stroke;
+
+    final path = Path()
+      ..moveTo(0, 0)
+      ..lineTo(size.width, 0)
+      ..lineTo(size.width, size.height)
+      ..lineTo(0, size.height)
+      ..close();
+
+    final dashPath = Path();
+    final dashCount = (size.width / (dashWidth + dashSpace)).floor();
+    final dashCountVertical = (size.height / (dashWidth + dashSpace)).floor();
+
+    for (int i = 0; i < dashCount; i++) {
+      final startX = i * (dashWidth + dashSpace);
+      dashPath.moveTo(startX, 0);
+      dashPath.lineTo(startX + dashWidth, 0);
+    }
+
+    for (int i = 0; i < dashCountVertical; i++) {
+      final startY = i * (dashWidth + dashSpace);
+      dashPath.moveTo(size.width, startY);
+      dashPath.lineTo(size.width, startY + dashWidth);
+    }
+
+    for (int i = 0; i < dashCount; i++) {
+      final startX = i * (dashWidth + dashSpace);
+      dashPath.moveTo(startX, size.height);
+      dashPath.lineTo(startX + dashWidth, size.height);
+    }
+
+    // Draw left vertical dashes
+    for (int i = 0; i < dashCountVertical; i++) {
+      final startY = i * (dashWidth + dashSpace);
+      dashPath.moveTo(0, startY);
+      dashPath.lineTo(0, startY + dashWidth);
+    }
+
+    canvas.drawPath(dashPath, paint);
+  }
+
+  @override
+  bool shouldRepaint(CustomPainter oldDelegate) => false;
+}

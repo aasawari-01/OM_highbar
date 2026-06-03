@@ -19,4 +19,26 @@ class AppStrings {
   static const String save = 'Save';
   static const String delete = 'Delete';
   static const String edit = 'Edit';
+
+  // Login View 
+  static const String signIn = 'Sign In';
+  static const String enterCredentials = 'Please enter your credentials to access the App';
+  static const String emailId = 'Email ID';
+  static const String enterEmailId = 'Enter Email ID';
+  static const String password = 'Password';
+  static const String enterPassword = 'Enter Password';
+  static const String rememberMe = 'Remember Me';
+  static const String loggingIn = 'Logging in...';
+  static const String copyright = '© Copyright Mahametro ';
+  static const String allRightsReserved = ', All rights reserved.';
+  // Edit Profile Drawer
+  static const String editRoleDeptLine = 'Edit Role, Dept. & Line';
+  static const String editRoleSubtitle = 'Please select your Line, Role and Department.';
+  static const String selectLine = 'Select Line';
+  static const String selectYourLine = 'Select your line';
+  static const String selectDepartment = 'Select Department';
+  static const String chooseYourDepartment = 'Choose your department';
+  static const String selectRole = 'Select Role';
+  static const String chooseYourRole = 'Choose your role';
+  static const String saveAndContinue = 'Save and Continue';
 }

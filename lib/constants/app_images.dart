@@ -59,4 +59,11 @@ class AppAssets {
   static const String service = 'assets/images/service.png';
   static const String service_bg = 'assets/images/service_bg.png';
 
+  // Metro App Images
+  static const String metroImage = "assets/images/login_image/metro_image.png";
+  static const String whiteBg = "assets/images/login_image/white_bg.png";
+  static const String nagpurMetroLogo = "assets/images/login_image/Nagpur_Metro_Logo.png";
+  static const String puneMetroLogo = "assets/images/login_image/PuneMetro_logo.png";
+  static const String thaneMetroLogo = "assets/images/login_image/thane_metro_logo.png";
+
 }

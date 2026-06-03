@@ -1,15 +1,15 @@
 class Validator{
 
-  static String validateEmail(String value) {
+  static String? validateEmail(String? value) {
     String pattern =
         r'^(([^<>()[\]\\.,;:\s@\"]+(\.[^<>()[\]\\.,;:\s@\"]+)*)|(\".+\"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$';
-    RegExp regExp =  RegExp(pattern);
-    if (value.isEmpty) {
-      return "Email is Required";
+    RegExp regExp = RegExp(pattern);
+    if (value == null || value.isEmpty) {
+      return "Please Enter Email ID";
     } else if (!regExp.hasMatch(value)) {
       return "Invalid Email ID";
     } else {
-      return '';
+      return null;
     }
   }
 
@@ -17,46 +17,21 @@ class Validator{
     String pattern = r'(^[a-zA-Z0-9]*$)';
     RegExp regExp =  RegExp(pattern);
     if (value.isEmpty) {
-      return "No is Required";
+      return "Please Enter Account No";
     } else if (!regExp.hasMatch(value)) {
-      return "Please enter valid No";
+      return "Please Enter Valid Account No";
     } else {
       return '';
     }
   }
 
-  static String validatePassword(String value) {
-    /*
-    * r'^
-  (?=.*[A-Z])       // should contain at least one upper case
-  (?=.*[a-z])       // should contain at least one lower case
-  (?=.*?[0-9])          // should contain at least one digit
- (?=.*?[!@#\$&*~]).{8,}  // should contain at least one Special character
-$
-* */
-
-    //  Jan9ua@ry
-
-    String pattern = r'^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[!@#\$&*~]).{8,}$';
-    RegExp regex =  RegExp(pattern);
-    print(value);
-    if (value.isEmpty) {
-      return 'Please enter password';
-    } else if (value.length < 7) {
-      return "You need at least 8 charecter";
-    } else {
-      if (!regex.hasMatch(value)) {
-        /*  showDialog(context: context,
-            builder: (BuildContext context) =>
-                CustomDialog("Check Net connected"));*/
-
-       return 'Please enter valid password';
-       // 'Password required \nAt least one upper case, \nAt least one lower case character, \nAt least one digit and \nAt least one Special character.\nEx.(Jan9ua@ry)';
-      //  return null;
-      }else {
-        return '';
-      }
+  static String? validatePassword(String? value) {
+    if (value == null || value.isEmpty) {
+      return 'Please Enter Password';
+    } else if (value.length < 6) {
+      return "Password must be at least 6 characters";
     }
+    return null;
   }
 
   static String validateConfirmPassword(String value, String value2) {
@@ -65,15 +40,13 @@ $
     RegExp regex =  RegExp(pattern);
     print(value);
     if (value.isEmpty) {
-      return 'Enter confirm password';
+      return 'Please Enter Confirm Password';
     } else if (value.length < 7) {
-      return "You need at least 8 charecter";
+      return "Password must be at least 8 characters";
     } else if (!regex.hasMatch(value)) {
-        return 'Enter valid confirm password';
-        // 'Password required \nAt least one upper case, \nAt least one lower case character, \nAt least one digit and \nAt least one Special character.\nEx.(Jan9ua@ry)';
-
+        return 'Please Enter Valid Confirm Password';
     }else if(value != value2){
-      return 'Password and Confirm Password does not match';
+      return 'Password and Confirm Password do not match';
     }else {
         return '';
       }
@@ -83,11 +56,11 @@ $
     String patttern = r'(^[0-9]*$)';
     RegExp regExp =  RegExp(patttern);
     if (value.length == 0) {
-      return "Phone Number required";
+      return "Please Enter Phone Number";
     } else if (value.length != 9) {
-      return "Enter phone number";
+      return "Please Enter Valid Phone Number";
     } else if (!regExp.hasMatch(value)) {
-      return "Phone Number must be digits";
+      return "Phone Number must contain only digits";
     }
     return '';
   }
@@ -96,27 +69,24 @@ $
     String patttern = r'(^[a-zA-Z 0-9.,_-]*$)';
     RegExp regExp =  RegExp(patttern);
     if (value.length <= 3) {
-      return "Enter name";
+      return "Please Enter Name";
     } else if (!regExp.hasMatch(value)) {
-      return "Enter valid name";
+      return "Please Enter Valid Name";
     }
     return '';
   }
 
   static String validateMeetUpName(String value) {
     if (value.length <= 3) {
-      return "Enter name";
+      return "Please Enter Name";
     }
     return '';
   }
 
   static String validateDescription(String value) {
     if (value.length <= 3) {
-      return "Enter Description";
+      return "Please Enter Description";
     }
     return '';
   }
-
-
-
 }
