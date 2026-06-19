@@ -8,7 +8,10 @@ import 'package:om_mobile/service/session_controller.dart';
 import '../../feature/auth_login/view/login_view.dart';
 import '../../feature/failure/view/failure_list_screen.dart';
 import '../../feature/inspection/view/inspection_list_screen.dart';
+import '../../feature/inspection/view/top_management/inspection_dashboard_screen.dart';
+import '../../feature/inspection/view/top_management/top_management_create_inspection_screen.dart';
 import '../../feature/failure/view/rst_failure_screen.dart';
+import '../../feature/ibl/view/ibl_screen.dart';
 import '../../service/auth_manager.dart';
 import 'cust_dropdown.dart';
 import 'cust_button.dart';
@@ -172,7 +175,15 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   icon: TablerIcons.server,
                   children: [
                     _drawerItem('Maintenance Failure', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance')),
-                    _drawerItem('Station Failure', 'station_failure', const FailureListScreen(failureType: 'Station')),
+                    Obx(() {
+                      final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final canAccessStationFailure =
+                          role.contains('Station Controller') || role.contains('Junior Engineer');
+                      if (!canAccessStationFailure) {
+                        return const SizedBox.shrink();
+                      }
+                      return _drawerItem('Station Failure', 'station_failure', const FailureListScreen(failureType: 'Station'));
+                    }),
                     _drawerItem('OCC Failure', 'occ_failure', const FailureListScreen(failureType: 'OCC')),
                     _drawerItem('Depot Failure', 'depot_failure', const FailureListScreen(failureType: 'Depot')),
                     _drawerItem('RST Failure', 'rst_failure', const RstFailureScreen()),
@@ -185,7 +196,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   sectionKey: 'maintenance',
                   icon: TablerIcons.circle_check,
                   children: [
-                    _drawerItem('IBL', 'ibl', null ),
+                    _drawerItem('IBL', 'ibl', const IblScreen()),
                     _drawerItem('PTW', 'ptw', null),
                     _drawerItem('Preventive', 'ptw', null),
                   ],
@@ -206,7 +217,17 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   icon: TablerIcons.clipboard_list,
                   children: [
                     _drawerItem('Inspection', 'inspection_layout', const InspectionListScreen()),
-                    _drawerItem('Join Inspection', 'inspection_layout', const InspectionListScreen()),
+                    _drawerItem('Join Inspection', 'inspection_join', const InspectionListScreen()),
+                  ],
+                ),
+                // Inspection (Top Management)
+                _drawerSection(
+                  title: 'Inspection (Top Management)',
+                  sectionKey: 'inspection_top_mgmt',
+                  icon: TablerIcons.clipboard_check,
+                  children: [
+                    _drawerItem('Dashboard', 'inspection_tm_dashboard', const InspectionDashboardScreen()),
+                    _drawerItem('Create Inspection', 'inspection_tm_create', const TopManagementCreateInspectionScreen()),
                   ],
                 ),
               ],

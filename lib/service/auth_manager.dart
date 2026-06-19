@@ -65,6 +65,12 @@ class AuthManager {
     return prefs.getString(_keyUserId);
   }
 
+  // Get user name
+  Future<String?> getUserName() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyUserName);
+  }
+
   // Get token
   Future<String?> getToken() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();

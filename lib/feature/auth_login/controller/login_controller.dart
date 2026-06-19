@@ -7,6 +7,7 @@ import '../service/auth_service.dart';
 import '../model/login_response.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/session_controller.dart';
+import '../../../service/master_data_sync_service.dart';
 
 class LoginController extends GetxController {
   LoginController({AuthService? authService})
@@ -33,6 +34,10 @@ class LoginController extends GetxController {
         } else {
           Get.put(SessionController());
         }
+        
+        // Sync master data in background after successful login
+        MasterDataSyncService().syncMasterData();
+        
         Get.offAll(() => const HomeScreen());
       } else {
         Get.snackbar(

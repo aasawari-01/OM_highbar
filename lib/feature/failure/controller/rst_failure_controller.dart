@@ -138,6 +138,52 @@ class RstFailureController extends GetxController {
     faultList.removeAt(index);
   }
 
+  // --- Material Required ---
+  final materialRequiredList = <Map<String, String>>[].obs;
+
+  void addMaterialRequired() {
+    if (selectedMaterialCode.value != null && selectedStoreLocation.value != null && requiredQuantityController.text.isNotEmpty) {
+      materialRequiredList.add({
+        'materialCode': selectedMaterialCode.value!,
+        'storeLocation': selectedStoreLocation.value!,
+        'requiredQty': requiredQuantityController.text,
+      });
+      // Reset
+      selectedMaterialCode.value = null;
+      selectedStoreLocation.value = null;
+      requiredQuantityController.clear();
+    }
+  }
+
+  void removeMaterialRequired(int index) {
+    materialRequiredList.removeAt(index);
+  }
+
+  // --- Dismantle Material ---
+  final dismantleMaterialList = <Map<String, String>>[].obs;
+
+  void addDismantleMaterial() {
+    if (selectedDismantleMaterialCode.value != null && oldSerialNumberController.text.isNotEmpty && newSerialNumberController.text.isNotEmpty) {
+      dismantleMaterialList.add({
+        'materialCode': selectedDismantleMaterialCode.value!,
+        'oldSerial': oldSerialNumberController.text,
+        'oldDismantleDate': oldSerialDismantleDate.value ?? '',
+        'newSerial': newSerialNumberController.text,
+        'newInstallDate': newSerialInstallationDate.value ?? '',
+      });
+      // Reset
+      selectedDismantleMaterialCode.value = null;
+      oldSerialNumberController.clear();
+      newSerialNumberController.clear();
+      oldSerialDismantleDate.value = null;
+      newSerialInstallationDate.value = null;
+    }
+  }
+
+  void removeDismantleMaterial(int index) {
+    dismantleMaterialList.removeAt(index);
+  }
+
   // --- Part E Fields ---
   final isPersonsWithdrawn = false.obs;
   final actualWorkStart = RxnString();

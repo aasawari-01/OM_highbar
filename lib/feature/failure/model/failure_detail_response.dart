@@ -81,12 +81,12 @@ class FailureDetailOutput {
     return FailureDetailOutput(
       getNotificationTypeList: _mapList(json['getNotificationTypeList']),
       getNatureOfWorkList: _mapList(json['getNatureOfWorkList']),
-      getDepartmentList: _mapList(json['getDepartmentList']),
-      getUserList: _mapList(json['getUserList'] ?? json['getAssgineUserList']),
-      getEquipmentList: _mapList(json['getEquipmentList'] ?? json['getEquipmentNoList']),
-      getObjectData: _mapList(json['getObjectData']),
-      getMaterialData: _mapList(json['getMaterialData']),
-      getUserStatus: _mapList(json['getUserStatus']),
+      getDepartmentList: _mapList(json['getDepartmentList'] ?? json['department']),
+      getUserList: _mapList(json['getUserList'] ?? json['getAssgineUserList'] ?? json['personResponsible']),
+      getEquipmentList: _mapList(json['getEquipmentList'] ?? json['getEquipmentNoList'] ?? json['equipment']),
+      getObjectData: _mapList(json['getObjectData'] ?? json['objectPart']),
+      getMaterialData: _mapList(json['getMaterialData'] ?? json['materialCode']),
+      getUserStatus: _mapList(json['getUserStatus'] ?? json['status']),
       getLocationTypeList: _mapList(json['getLocationTypeList']),
       getStorageLocation: _mapList(json['getStorageLocation']),
       getPriorityType: _mapList(json['getPriorityType']),
@@ -94,27 +94,27 @@ class FailureDetailOutput {
       getFaultData: _mapList(json['getFaultData']),
       getRootCausetData: _mapList(json['getRootCausetData']),
       getActionData: _mapList(json['getActionData']),
-      getFunctionalLocationList: _mapList(json['getFunctionalLocationList'] ?? json['getFunctionLocList']),
+      getFunctionalLocationList: _mapList(json['getFunctionalLocationList'] ?? json['getFunctionLocList'] ?? json['functionalLocation']),
       getEquipmentDetails: _mapList(json['getEquipmentDetails']),
       measurementPoint: json['measurementPoint'] != null
           ? (json['measurementPoint'] as List).map((e) => e as Map<String, dynamic>).toList()
           : null,
-      getNotificationActionUserHistory: (json['getNotificationActionUserHistory'] ?? json['getNotificationHistory']) != null
-          ? ((json['getNotificationActionUserHistory'] ?? json['getNotificationHistory']) as List)
+      getNotificationActionUserHistory: (json['getNotificationActionUserHistory'] ?? json['getNotificationHistory'] ?? json['notificationHistory']) != null
+          ? ((json['getNotificationActionUserHistory'] ?? json['getNotificationHistory'] ?? json['notificationHistory']) as List)
               .map((e) => NotificationActionHistory.fromJson(e as Map<String, dynamic>))
               .toList()
           : null,
       getCreateVMModel: json['getCreateVMModel'] != null
           ? CreateVMModel.fromJson(json['getCreateVMModel'] as Map<String, dynamic>)
           : null,
-      getObjectANDFaultList: json['getObjectANDFaultList'] != null
-          ? List<Map<String, dynamic>>.from(json['getObjectANDFaultList'])
+      getObjectANDFaultList: (json['getObjectANDFaultList'] ?? json['failureRectificationDetails']) != null
+          ? List<Map<String, dynamic>>.from(json['getObjectANDFaultList'] ?? json['failureRectificationDetails'])
           : null,
-      getObjectANDFaultActionList: json['getObjectANDFaultActionList'] != null
-          ? List<Map<String, dynamic>>.from(json['getObjectANDFaultActionList'])
+      getObjectANDFaultActionList: (json['getObjectANDFaultActionList'] ?? json['failureActionDetails']) != null
+          ? List<Map<String, dynamic>>.from(json['getObjectANDFaultActionList'] ?? json['failureActionDetails'])
           : null,
-      getObjectANDFaultRootCauseList: json['getObjectANDFaultRootCauseList'] != null
-          ? List<Map<String, dynamic>>.from(json['getObjectANDFaultRootCauseList'])
+      getObjectANDFaultRootCauseList: (json['getObjectANDFaultRootCauseList'] ?? json['failureRootCauseDetails']) != null
+          ? List<Map<String, dynamic>>.from(json['getObjectANDFaultRootCauseList'] ?? json['failureRootCauseDetails'])
           : null,
       getMaterialReqDetails: json['getMaterialReqDetails'] != null
           ? (json['getMaterialReqDetails'] as List).map((e) => e as Map<String, dynamic>).toList()
@@ -246,6 +246,10 @@ class CreateVMModel {
   final int? noOfTrainReplace;
   final bool? isPassengerDeboarding;
   final int? noofTrainDeboarded;
+  final bool? isPassengerAffected;
+  final int? noOfPassengerAffected;
+  final String? trappedDuration;
+  final String? rescuedDuration;
   final String? locationFailure;
   final String? actualFailureRectifiedDate;
   final String? failureAttendedDate;
@@ -294,6 +298,10 @@ class CreateVMModel {
     this.noOfTrainReplace,
     this.isPassengerDeboarding,
     this.noofTrainDeboarded,
+    this.isPassengerAffected,
+    this.noOfPassengerAffected,
+    this.trappedDuration,
+    this.rescuedDuration,
     this.locationFailure,
     this.actualFailureRectifiedDate,
     this.failureAttendedDate,
@@ -306,6 +314,29 @@ class CreateVMModel {
     this.getObjectANDFaultActionList,
     this.getObjectANDFaultRootCauseList,
   });
+
+  static int? _asInt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    return int.tryParse(value.toString());
+  }
+
+  static String? _asString(dynamic value) {
+    if (value == null) return null;
+    final text = value.toString().trim();
+    return text.isEmpty ? null : text;
+  }
+
+  static bool? _asBool(dynamic value) {
+    if (value is bool) return value;
+    if (value is int) return value != 0;
+    if (value is String) {
+      final v = value.toLowerCase();
+      if (v == 'yes' || v == 'true') return true;
+      if (v == 'no' || v == 'false') return false;
+    }
+    return null;
+  }
 
   factory CreateVMModel.fromJson(Map<String, dynamic> json) {
     return CreateVMModel(
@@ -348,7 +379,23 @@ class CreateVMModel {
       noOfTranWithdrawal: json['noOfTranWithdrawal'] as int?,
       noOfTrainReplace: json['noOfTrainReplace'] as int?,
       isPassengerDeboarding: json['isPassengerDeboarding'] as bool?,
-      noofTrainDeboarded: json['noofTrainDeboarded'] as int?,
+      noofTrainDeboarded: _asInt(json['noofTrainDeboarded'] ?? json['NoofTrainDeboarded']),
+      isPassengerAffected: _asBool(
+        json['isPassengerAffected'] ?? json['IsPassengerAffected'] ?? json['passengerAffected'],
+      ),
+      noOfPassengerAffected: _asInt(
+        json['noOfPassengerAffected'] ??
+            json['NoOfPassengerAffected'] ??
+            json['numberOfPassengerAffected'] ??
+            json['NumberOfPassengerAffected'],
+      ),
+      trappedDuration: _asString(json['trappedDuration'] ?? json['TrappedDuration']),
+      rescuedDuration: _asString(
+        json['rescuedDuration'] ??
+            json['RescuedDuration'] ??
+            json['rescusedDuration'] ??
+            json['RescusedDuration'],
+      ),
       locationFailure: json['locationFailure'] as String?,
       actualFailureRectifiedDate: json['actualFailureRectifiedDate'] as String?,
       failureAttendedDate: json['failureAttendedDate'] as String?,

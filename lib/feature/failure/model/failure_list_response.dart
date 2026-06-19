@@ -40,6 +40,8 @@ class FailureItem {
   final String? locationName;
   final String? remarks;
   final String? creationType;
+  final String? priority;
+  final String? departmentName;
 
   FailureItem({
     this.id,
@@ -60,9 +62,31 @@ class FailureItem {
     this.locationName,
     this.remarks,
     this.creationType,
+    this.priority,
+    this.departmentName,
   });
 
   factory FailureItem.fromJson(Map<String, dynamic> json) {
+    final isStationListItem = json.containsKey('failureId') || json.containsKey('failureCreationId');
+
+    if (isStationListItem) {
+      return FailureItem(
+        id: json['id'] as int?,
+        failureNo: json['failureCreationId'] as String? ?? json['id']?.toString(),
+        notificationCode: json['failureId'] as String?,
+        failureDescription: json['failureDescription'] as String?,
+        functionalLocation: json['funcationLocation'] as String?,
+        statusName: json['statusName'] as String?,
+        failureOccuranceDateTime: json['actualFailureOccuranceDate'] as String?,
+        occRequestStatus: json['occRequestStatusName'] as String?,
+        locationName: json['location'] as String?,
+        creationType: 'station',
+        priority: json['priority'] as String?,
+        departmentName: json['departmentName'] as String?,
+        remarks: json['failureRectificationDetails'] as String?,
+      );
+    }
+
     return FailureItem(
       id: json['id'] as int?,
       failureNo: json['failureNo'] as String?,
@@ -82,6 +106,8 @@ class FailureItem {
       locationName: json['locationName'] as String?,
       remarks: json['remarks'] as String?,
       creationType: json['creationType'] as String?,
+      priority: json['priority'] as String?,
+      departmentName: json['departmentName'] as String?,
     );
   }
 }

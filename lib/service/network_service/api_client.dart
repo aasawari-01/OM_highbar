@@ -38,6 +38,9 @@ class ApiClient {
         .timeout(const Duration(seconds: 30));
     print("response status===${response.statusCode}");
     print("response body===${response.body}");
+    final printStr = "jsonBody===${response.body}";
+    final pattern = RegExp('.{1,2000}');
+    pattern.allMatches(printStr).forEach((match) => print(match.group(0)));
     return response;
   }
 
@@ -67,8 +70,10 @@ class ApiClient {
     List<http.MultipartFile>? files,
   }) async {
     final uri = _buildUri(endpoint);
+    print("endpoint==$uri fields==$fields");
     final request = http.MultipartRequest('POST', uri);
-    
+
+    request.headers['accept'] = 'application/json';
     if (headers != null) request.headers.addAll(headers);
     if (fields != null) request.fields.addAll(fields);
     if (files != null) request.files.addAll(files);

@@ -45,7 +45,7 @@ class CustomDialog extends StatelessWidget {
           ),
           SizedBox(height:ResponsiveHelper.fontSize(context, 16)),
           Center(
-            child: CustButton(name: "Ok", size: 25, color1: AppColors.darkBlue,color2:AppColors.darkBlue, sHeight:ResponsiveHelper.height(context, 30),
+            child: CustButton(name: "Ok", size: 100, color1: AppColors.darkBlue,color2:AppColors.darkBlue,
                 onSelected:  (flag) async {
                   Get.offAll(() =>  HomeScreen());
             }),

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:image_picker/image_picker.dart';
@@ -70,7 +69,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
   void _showUploadPopup(List<Map<String, dynamic>> targetList) {
     Get.bottomSheet(
       Container(
-        color: Colors.white,
+        color: AppColors.white1,
         padding: const EdgeInsets.all(AppConstants.screenPadding),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -127,7 +126,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            CustText.sectionHeader("Attachments", color: Colors.blue.shade700),
+            CustText(name: "Attachments: ",size: AppConstants.textSize, fontWeightName: FontWeight.w500, color: AppColors.textColor7,),
             CustText.body(controller.afterFiles.length.toString(), fontWeightName: FontWeight.bold),
           ],
         ),
@@ -213,7 +212,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
         ),
         if (controller.isPartAExpanded.value) ...[
           const SizedBox(height: AppConstants.elementSpacing),
-          CustText.body("Failure Creation By PPIO/RSC", color: Colors.blue.shade700, fontWeightName: FontWeight.bold),
+          CustText.body("Failure Creation By PPIO/RSC", color: AppColors.textColor7, fontWeightName: FontWeight.bold),
           const SizedBox(height: AppConstants.elementSpacing),
           Row(
             children: [
@@ -341,7 +340,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
         ),
         if (controller.isPartBExpanded.value) ...[
           const SizedBox(height: AppConstants.elementSpacing),
-          CustText.body("Failure Assignment By PPIO", color: Colors.blue.shade700, fontWeightName: FontWeight.bold),
+          CustText.body("Failure Assignment By PPIO", color: AppColors.textColor7, fontWeightName: FontWeight.bold),
           const SizedBox(height: AppConstants.elementSpacing),
           CustDropdown(
             label: "Responsible Person",
@@ -471,47 +470,20 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             ),
             const SizedBox(height: AppConstants.elementSpacing),
             if (controller.jointInspectionList.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    ...controller.jointInspectionList.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final item = entry.value;
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                CustText.body("Joint Inspection Department:\n${item['department']}", fontWeightName: FontWeight.w500),
-                                const SizedBox(height: 4),
-                                CustText.body("Responsible Person:\n${item['responsiblePerson']}", color: Colors.black87),
-                              ],
-                            ),
-                          ),
-                          IconButton(icon: const Icon(TablerIcons.pencil, color: AppColors.orangeColor), onPressed: () {}),
-                          IconButton(icon: const Icon(TablerIcons.trash, color: Colors.grey), onPressed: () => controller.removeJointInspection(index)),
-                        ],
-                      );
-                    }).toList(),
-                    const Divider(),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(Icons.keyboard_arrow_left, color: Colors.grey),
-                        SizedBox(width: 8),
-                        Text("1", style: TextStyle(fontWeight: FontWeight.bold)),
-                        SizedBox(width: 8),
-                        Icon(Icons.keyboard_arrow_right, color: AppColors.orangeColor),
-                      ],
-                    )
-                  ],
-                ),
+              Column(
+                children: controller.jointInspectionList.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final item = entry.value;
+                  return CustDataCard(
+                    items: [
+                      DataCardItem(label: 'Department', value: item['department'] ?? ""),
+                      DataCardItem(label: 'Responsible Person', value: item['responsiblePerson'] ?? ""),
+                      DataCardItem(label: 'Remark', value: item['remark'] ?? "", isFullWidth: true),
+                    ],
+                    onEdit: () {}, // Can be implemented later
+                    onDelete: () => controller.removeJointInspection(index),
+                  );
+                }).toList(),
               ),
           ]
         ]
@@ -655,44 +627,38 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             ),
             const SizedBox(height: AppConstants.elementSpacing),
             if (controller.faultList.isNotEmpty)
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Column(
-                  children: [
-                    ...controller.faultList.asMap().entries.map((entry) {
-                      final index = entry.key;
-                      final item = entry.value;
-                      return Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                CustText.body("Object Part: ${item['objectPart']}", fontWeightName: FontWeight.w500),
-                                const SizedBox(height: 4),
-                                CustText.body("Fault: ${item['fault']}", color: Colors.black87),
-                              ],
-                            ),
-                          ),
-                          CustButton(
-                            name: "Add RCA",
-                            size: 80,
-                            color1: Colors.blue.shade600,
-                            color2: Colors.blue.shade600,
-                            textColor: Colors.white,
-                            onSelected: (_) {},
-                          ),
-                          const SizedBox(width: 8),
-                          IconButton(icon: const Icon(TablerIcons.trash, color: Colors.red), onPressed: () => controller.removeFault(index)),
-                        ],
-                      );
-                    }).toList(),
-                  ],
-                ),
+              Column(
+                children: controller.faultList.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final item = entry.value;
+                  return CustDataCard(
+                    items: [
+                      DataCardItem(label: 'Object Part', value: item['objectPart'] ?? ""),
+                      DataCardItem(label: 'Fault', value: item['fault'] ?? ""),
+                    ],
+                    bottomAction: Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        CustButton(
+                          name: "Add RCA",
+                          size: 80,
+                          sHeight: 32,
+                          color1: Colors.blue.shade600,
+                          color2: Colors.blue.shade600,
+                          textColor: Colors.white,
+                          onSelected: (_) {},
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(TablerIcons.trash, color: Colors.red, size: 20),
+                          onPressed: () => controller.removeFault(index),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
               ),
             const SizedBox(height: AppConstants.elementSpacing),
             CustomTextField(
@@ -777,8 +743,25 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               color1: AppColors.orangeColor,
               color2: AppColors.orangeColor,
               textColor: Colors.white,
-              onSelected: (_) {},
+              onSelected: (_) => controller.addMaterialRequired(),
             ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            if (controller.materialRequiredList.isNotEmpty)
+              Column(
+                children: controller.materialRequiredList.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final item = entry.value;
+                  return CustDataCard(
+                    items: [
+                      DataCardItem(label: 'Material Code', value: item['materialCode'] ?? ""),
+                      DataCardItem(label: 'Store Location', value: item['storeLocation'] ?? ""),
+                      DataCardItem(label: 'Required Qty', value: item['requiredQty'] ?? ""),
+                    ],
+                    onEdit: () {},
+                    onDelete: () => controller.removeMaterialRequired(index),
+                  );
+                }).toList(),
+              ),
           ],
           const SizedBox(height: AppConstants.elementSpacing),
           _buildToggleSwitch("Material Dismantle: *", controller.isMaterialDismantle.value, (val) => controller.isMaterialDismantle.value = val),
@@ -890,8 +873,27 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               color1: Colors.blue.shade600,
               color2: Colors.blue.shade600,
               textColor: Colors.white,
-              onSelected: (_) {},
+              onSelected: (_) => controller.addDismantleMaterial(),
             ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            if (controller.dismantleMaterialList.isNotEmpty)
+              Column(
+                children: controller.dismantleMaterialList.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final item = entry.value;
+                  return CustDataCard(
+                    items: [
+                      DataCardItem(label: 'Material Code', value: item['materialCode'] ?? "", isFullWidth: true),
+                      DataCardItem(label: 'Old Serial', value: item['oldSerial'] ?? ""),
+                      DataCardItem(label: 'Dismantle Date', value: item['oldDismantleDate'] ?? ""),
+                      DataCardItem(label: 'New Serial', value: item['newSerial'] ?? ""),
+                      DataCardItem(label: 'Install Date', value: item['newInstallDate'] ?? ""),
+                    ],
+                    onEdit: () {},
+                    onDelete: () => controller.removeDismantleMaterial(index),
+                  );
+                }).toList(),
+              ),
           ],
           const SizedBox(height: AppConstants.elementSpacing),
           CustButton(
@@ -1007,8 +1009,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             onChanged: (v) => controller.selectedTrainStatus.value = v,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
-          // Attachments Section
-          CustText.sectionHeader("Attachments: (Max File Size 1MB)", color: Colors.red),
+          CustText(name: "Attachments: ",size: AppConstants.textSize, fontWeightName: FontWeight.w500, color: AppColors.textColor7,),
           const SizedBox(height: AppConstants.elementSpacing),
           Row(
             children: [
@@ -1113,7 +1114,6 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
       ],
     ));
   }
-
 
   @override
   Widget build(BuildContext context) {

@@ -25,7 +25,9 @@ class CreateFailureScreen extends StatefulWidget {
   final String failureType;
   final String? failureNo;
   final String? notificationCode;
-  const CreateFailureScreen({Key? key, this.failureType = "Maintenance", this.failureNo,this.notificationCode}) : super(key: key);
+  final bool isUpdate;
+  final bool isFromJointInspection;
+  const CreateFailureScreen({Key? key, this.failureType = "Maintenance", this.failureNo,this.notificationCode, this.isUpdate = false, this.isFromJointInspection = false}) : super(key: key);
 
   @override
   _CreateFailureScreenState createState() => _CreateFailureScreenState();
@@ -43,12 +45,32 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
     }
     controller = Get.put(CreateFailureController());
     controller.failureCategory.value = widget.failureType;
+    controller.isFromJointInspection.value = widget.isFromJointInspection;
     controller.failureDescriptionController.clear();
     if (widget.failureNo != null) {
-      controller.loadFailureDetails(widget.failureNo!);
+      if (widget.isFromJointInspection) {
+        controller.loadJointInspectionDetails(widget.failureNo!);
+      } else if (widget.failureType == 'Station' && controller.isStationController) {
+        controller.loadStationFailureDetails(widget.failureNo!);
+      } else {
+        controller.loadFailureDetails(widget.failureNo!);
+      }
     } else if (widget.failureType == "Station") {
       WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!controller.isStationController) {
+          Get.snackbar(
+            "Access Denied",
+            "Only Station Controller can create station failure.",
+            backgroundColor: Colors.red.withOpacity(0.9),
+            colorText: Colors.white,
+            snackPosition: SnackPosition.BOTTOM,
+          );
+          if (mounted) Navigator.pop(context);
+          return;
+        }
+        // Show station popup immediately; load dropdown master data in parallel
         controller.fetchAndShowStationPopup();
+        controller.loadStationCreateDropdowns();
       });
     }
   }
@@ -56,8 +78,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   /// Station Controller create only.
   bool get _isStationCreate => widget.failureType == 'Station' && widget.failureNo == null;
 
+  /// Station Controller view (read-only for existing station failure).
+  bool get _isStationControllerView => widget.failureType == 'Station' && widget.failureNo != null && controller.isStationController && !widget.isUpdate;
+
   /// JE Change Notification — Maintenance, Station, OCC, Depot (existing failure).
-  bool get _isJeChangeNotification => widget.failureNo != null;
+  bool get _isJeChangeNotification => widget.failureNo != null && !_isStationControllerView;
+
+  bool get _isJointInspectionFlow =>
+      widget.isFromJointInspection || controller.isFromJointInspection.value;
 
   @override
   void dispose() {
@@ -286,14 +314,205 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
           }
           return Form(
             key: _formKey,
-            child: Obx(() {
-              if (_isStationCreate) {
-                return _buildStationCreateForm(context);
-              }
-              return _buildJeChangeNotificationForm(context);
-            }),
+            child: _buildFailureFormBody(context),
           );
         }),
+      ),
+    );
+  }
+
+  Widget _buildFailureFormBody(BuildContext context) {
+    if (_isStationCreate || (widget.isUpdate && widget.failureType == 'Station')) {
+      return _buildStationCreateForm(context);
+    }
+    if (_isStationControllerView) {
+      return _buildStationControllerView(context);
+    }
+    return _buildJeChangeNotificationForm(context);
+  }
+
+  Widget _buildStationControllerView(BuildContext context) {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.all(AppConstants.screenPadding),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CustText.sectionHeader(
+                  "Failure Details",
+                  color: AppColors.orangeColor,
+                ),
+                Spacer(),
+                GestureDetector(
+                  onTap: _showActionByDialog,
+                  child: Icon(TablerIcons.hand_click, size: 24, color: AppColors.black),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => CustText.body(
+              "Failure No.: ${controller.notificationCode.value} ${controller.mainStatusName.value == null ? "" : "(${controller.mainStatusName.value ?? ''})"}",
+              size: 18,
+              color: AppColors.textColor7,
+              fontWeightName: FontWeight.w600,
+            )),
+            const SizedBox(height: AppConstants.sectionSpacing),
+
+            Obx(() => _buildToggleItem(
+                "Basic Information", controller.isBasicInfoVisible.value, (val) =>
+                controller.isBasicInfoVisible.value = val)),
+            Obx(() => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (controller.isBasicInfoVisible.value) ...[
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Priority", controller: TextEditingController(text: controller.selectedPriority.value), enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Current Status", controller: TextEditingController(text: controller.mainStatusName.value), enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(
+                    label: "Failure Description",
+                    controller: controller.failureDescriptionController,
+                    maxLines: 3,
+                    enabled: false,
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Department", controller: TextEditingController(text: controller.selectedDepartment.value), enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Location", controller: TextEditingController(text: controller.selectedLocation.value), enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Functional Location", controller: TextEditingController(text: controller.selectedFunctionalLocation.value), enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Sub Location", controller: controller.subLocationController, enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "System", controller: controller.systemController, enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Train Id", controller: controller.trainIdController, enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustDateTimePicker(
+                    label: "Actual Failure Occurrence",
+                    hint: "Actual Failure Occurrence",
+                    selectedDateTime: controller.selectedFailureOccurrenceDate.value,
+                    enabled: false,
+                    onDateTimeSelected: (v) {},
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(label: "Failure Reported by", controller: TextEditingController(text: controller.selectedFailureReportedBy.value), enabled: false),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustDateTimePicker(
+                    label: "Actual Failure Completed Date & Time",
+                    hint: "Actual Failure Completed Date & Time",
+                    selectedDateTime: controller.selectedFailureCompletedDate.value,
+                    enabled: false,
+                    onDateTimeSelected: (v) {},
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(label: "Failure Category Type", controller: TextEditingController(text: controller.selectedFailureCategoryType.value), enabled: false),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                ]
+              ],
+            )),
+            
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CustomTextField(
+                  label: "Failure Rectification Details",
+                  controller: controller.failureRectificationDetailsController,
+                  maxLines: 4,
+                  enabled: false,
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+              ]
+            ),
+
+            Obx(() => _buildToggleItem(
+                "Trip Affected", controller.isTripAffected.value, (val) => {}, enabled: false)),
+            Obx(() => Column(
+              children: [
+                if (controller.isTripAffected.value) ...[
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trip Delay Upline (NOS)", controller: controller.tripDelayUplineController, enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Trip Cancel (NOS)", controller: controller.trainCancelNosController, enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trip Delay Downline (NOS)", controller: controller.tripDelayDownlineController, enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Trip Delay in Min.", controller: controller.trainDelayMinController, enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trip Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  _buildToggleItem(
+                      "Passenger Deboarding", controller.isPassengerDeboarding.value, (val) => {}, enabled: false),
+                  if (controller.isPassengerDeboarding.value) ...[
+                    CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, enabled: false),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                  ]
+                ]
+              ],
+            )),
+
+            Obx(() => _buildToggleItem(
+                "Passenger Affected", controller.isPassengerAffected.value, (val) => {}, enabled: false)),
+            Obx(() => Column(
+              children: [
+                if (controller.isPassengerAffected.value) ...[
+                  CustomTextField(label: "Number Of Passenger Affected", controller: controller.passengersAffectedCountController, enabled: false),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Row(
+                    children: [
+                      Expanded(child: CustomTextField(label: "Trapped Duration", controller: controller.trappedDurationController, enabled: false)),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(child: CustomTextField(label: "Rescued Duration", controller: controller.rescuedDurationController, enabled: false)),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                ]
+              ],
+            )),
+
+            CustText.sectionHeader("Display Uploaded Images:", color: AppColors.textColor3),
+            const SizedBox(height: AppConstants.labelSpacing),
+            CustText.body("Before:"),
+            const SizedBox(height: 8),
+            Obx(() => Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: controller.beforeImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
+            )),
+            const SizedBox(height: AppConstants.sectionSpacing),
+          ],
+        ),
       ),
     );
   }
@@ -327,7 +546,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   ),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustText.body(
-                  "Failure No.: ${widget.notificationCode??""} ${controller.mainStatusName.value==null?"":"(${controller.mainStatusName.value ?? ''})"}",
+                  "Failure No.: ${(controller.notificationCode.value.isNotEmpty ? controller.notificationCode.value : widget.notificationCode) ?? ""} ${controller.mainStatusName.value==null?"":"(${controller.mainStatusName.value ?? ''})"}",
                   size: 18,
                   color: AppColors.textColor7,
                   fontWeightName: FontWeight.w600,
@@ -341,6 +560,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (controller.isBasicInfoVisible.value) ...[
+                      if (_isJointInspectionFlow) ...[
+                        Row(
+                          children: [
+                            Expanded(child: CustomTextField(label: "Priority", controller: controller.priorityDisplayController, enabled: false)),
+                            const SizedBox(width: AppConstants.elementSpacing),
+                            Expanded(child: CustomTextField(label: "Department", controller: controller.departmentDisplayController, enabled: false)),
+                          ],
+                        ),
+                      ] else
                       Obx(() => Row(
                   children: [
                     Expanded(child: CustDropdown(
@@ -355,8 +583,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     Expanded(child: CustDropdown(
                       label: "Department",
                       hint: "Department" ,
-                      items: controller.departmentList.map((e) => e.label ?? '').toList().isNotEmpty 
-                          ? controller.departmentList.map((e) => e.label ?? '').toList() 
+                      items: controller.departmentList.map((e) => e.label ?? '').toList().isNotEmpty
+                          ? controller.departmentList.map((e) => e.label ?? '').toList()
                           : Get.find<SessionController>().departments.map((e) => e.deptName ?? '').toList(),
                       selectedValue: controller.selectedDepartment.value ?? Get.find<SessionController>().selectedDepartment.value?.deptName,
                       onChanged: (value) => controller.selectedDepartment.value = value,
@@ -430,21 +658,56 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   }
                   return const SizedBox.shrink();
                 }),
+                if(!_isJointInspectionFlow)...[
                 const SizedBox(height: AppConstants.labelSpacing),
                 CustomTextField(
                   controller: controller.failureDescriptionController,
                   hintText: "Enter description",
                   maxLines: 4,
-                  enabled: controller.isJE || controller.isTechnician,
-                ),
+                  enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,
+                ),],
                 const SizedBox(height: AppConstants.elementSpacing),
+                if (_isJointInspectionFlow) ...[
+                  CustomTextField(
+                    label: "Location",
+                    controller: controller.locationDisplayController,
+                    enabled: false,
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(
+                    label: "Functional Location",
+                    controller: controller.functionalLocationDisplayController,
+                    enabled: false,
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(
+                    label: "Equipment Number",
+                    controller: controller.equipmentDisplayController,
+                    enabled: false,
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(
+                    label: "Person Responsible",
+                    controller: controller.personResponsibleDisplayController,
+                    enabled: false,
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => CustDateTimePicker(
+                    label: "Actual Failure Occurrence",
+                    hint: "Actual Failure Occurrence",
+                    selectedDateTime: controller.selectedFailureOccurrenceDate.value,
+                    enabled: false,
+                    onDateTimeSelected: (_) {},
+                  )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                ] else
                 Obx(() => Column(
                   children: [
                     CustDropdown(label: 'Location',
                         hint: 'Select location',
                         items: controller.locationTypeList.map((e) => e.label ?? '').toList(),
                         selectedValue: controller.selectedLocation.value,
-                        enabled: controller.isJE,
+                        enabled: controller.isJE && !_isJointInspectionFlow,
                         onChanged: (value) {
                           controller.onLocationChanged(value);
                         }),
@@ -453,7 +716,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                         hint: 'Select functional location',
                         items: controller.functionalLocationList.map((e) => e.label ?? '').toList(),
                         selectedValue: controller.selectedFunctionalLocation.value,
-                        enabled: controller.isJE,
+                        enabled: controller.isJE && !_isJointInspectionFlow,
                         onChanged: (value) {
                             controller.onFunctionalLocationChanged(value);
                         }),
@@ -463,7 +726,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       hint: controller.isEquipmentLoading.value ? 'Loading...' : 'Select equipment number',
                       items: controller.equipmentList.map((e) => e.label ?? '').toList(),
                       selectedValue: controller.selectedEquipmentNumber.value,
-                      enabled: controller.isJE && !controller.isEquipmentLoading.value,
+                      enabled: controller.isJE && !_isJointInspectionFlow && !controller.isEquipmentLoading.value,
                       onChanged: (value) => controller.onEquipmentChanged(value),
                     ),
                     const SizedBox(height: AppConstants.elementSpacing),
@@ -474,64 +737,57 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       enabled: false,
                       onDateTimeSelected: (value) => controller.selectedFailureOccurrenceDate.value = value,
                     ),
-                    // const SizedBox(height: AppConstants.elementSpacing),
-                    // CustDropdown(
-                    //   label: "Person Responsible",
-                    //   hint: "Person Responsible" ,
-                    //   items: controller.userList.map((e) => e.label ?? '').toList(),
-                    //   selectedValue: controller.selectedPersonResponsible.value,
-                    //   onChanged: (value) => controller.selectedPersonResponsible.value = value,
-                    //   enabled: false,
-                    // ),
                   ],
                 )),
+                if (!_isJointInspectionFlow) ...[
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(label: 'Notification Type',
                     hint: 'Select Type',
                     items: controller.notificationTypeList.map((e) => e.label ?? '').toList(),
                     selectedValue: controller.selectedNotificationType.value,
-                    enabled: controller.isJE,
+                    enabled: controller.isJE && !_isJointInspectionFlow,
                     onChanged: (v) => controller.selectedNotificationType.value = v)),
                 const SizedBox(height: AppConstants.elementSpacing),
-                CustomTextField(controller: controller.subLocationController,label: "Sub Location", enabled: controller.isJE,),
+                CustomTextField(controller: controller.subLocationController,label: "Sub Location", enabled: controller.isJE && !_isJointInspectionFlow,),
                 const SizedBox(height: AppConstants.elementSpacing),
+                ],
                     ],
                   ],
                 )),
                 Obx(() => _buildToggleItem(
                     "Service Affected", controller.isServiceAffected.value, (val) =>
-                    controller.isServiceAffected.value = val, enabled: controller.isJE)),
+                    controller.isServiceAffected.value = val, enabled: controller.isJE && !_isJointInspectionFlow)),
                 Obx(() => Column(
                   children: [
                     if (controller.isServiceAffected.value) ...[
                       Row(
                         children: [
-                          Expanded(child: CustomTextField(label: "Train Delay In Min.", controller: controller.trainDelayMinController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                          Expanded(child: CustomTextField(label: "Train Delay In Min.", controller: controller.trainDelayMinController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
                           const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(child: CustomTextField(label: "Train Delay (NOS)", controller: controller.trainDelayNosController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                          Expanded(child: CustomTextField(label: "Train Delay (NOS)", controller: controller.trainDelayNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
                         ],
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
                       Row(
                         children: [
-                          Expanded(child: CustomTextField(label: "Train Cancel (NOS)", controller: controller.trainCancelNosController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                          Expanded(child: CustomTextField(label: "Train Cancel (NOS)", controller: controller.trainCancelNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
                           const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(child: CustomTextField(label: "Train Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, keyboardType: TextInputType.number, enabled: controller.isJE)),
+                          Expanded(child: CustomTextField(label: "Train Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
                         ],
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
-                      CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, keyboardType: TextInputType.number, enabled: controller.isJE),
+                      CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow),
                       const SizedBox(height: AppConstants.elementSpacing),
                     ],
                   ],
                 )),
                 Obx(() => _buildToggleItem(
                     "Passenger Deboarding", controller.isPassengerDeboarding.value, (val) =>
-                    controller.isPassengerDeboarding.value = val, enabled: controller.isJE)),
+                    controller.isPassengerDeboarding.value = val, enabled: controller.isJE && !_isJointInspectionFlow)),
                 Obx(() => Column(
                   children: [
                     if (controller.isPassengerDeboarding.value) ...[
-                      CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, keyboardType: TextInputType.number, enabled: controller.isJE),
+                      CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow),
                       const SizedBox(height: AppConstants.elementSpacing),
                     ],
                   ],
@@ -539,7 +795,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                 if(widget.failureType != "Maintenance")
                 Obx(() => _buildToggleItem(
                     "Passenger Affected", controller.isPassengerAffected.value, (val) =>
-                    controller.isPassengerAffected.value = val, enabled: controller.isJE )),
+                    controller.isPassengerAffected.value = val, enabled: controller.isJE && !_isJointInspectionFlow )),
                 Obx(() => Column(
                   children: [
                     if (controller.isPassengerAffected.value) ...[
@@ -547,7 +803,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                         label: "Number Of Passenger Affected",
                         controller: controller.passengersAffectedCountController,
                         keyboardType: TextInputType.number,
-                        enabled: controller.isJE,
+                        enabled: controller.isJE && !_isJointInspectionFlow,
                         hintText: "Enter number of Passenger Affected",
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
@@ -558,7 +814,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                               label: "Trapped Duration (In Min)",
                               controller: controller.trappedDurationController,
                               keyboardType: TextInputType.number,
-                              enabled: controller.isJE,
+                              enabled: controller.isJE && !_isJointInspectionFlow,
                               hintText: "Enter Trapped Duration",
                             ),
                           ),
@@ -568,7 +824,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                               label: "Rescued Duration (In Min)",
                               controller: controller.rescuedDurationController,
                               keyboardType: TextInputType.number,
-                              enabled: controller.isJE,
+                              enabled: controller.isJE && !_isJointInspectionFlow,
                               hintText: "Enter Rescued Duration",
                             ),
                           ),
@@ -579,15 +835,33 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   ],
                 )),
                 Obx(() => _buildToggleItem("PTW Required?", controller.isPtwRequired.value, (val) =>
-                    controller.isPtwRequired.value = val, enabled: controller.isJE || controller.isTechnician)),
+                    controller.isPtwRequired.value = val, enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician)),
                 Obx(() => Column(
                   children: [
                     if (controller.isPtwRequired.value) ...[
                       const SizedBox(height: AppConstants.labelSpacing),
-                      CustomTextField(controller: controller.ptwNumberController,label: "PTW Number", enabled: controller.isJE || controller.isTechnician,keyboardType: TextInputType.number,)
+                      CustomTextField(controller: controller.ptwNumberController,label: "PTW Number", enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,keyboardType: TextInputType.number,)
                     ],
                   ],
                 )),
+                if (_isJointInspectionFlow) ...[
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => CustDateTimePicker(
+                    label: "Failure Attended",
+                    hint: "DD/MM/YYYY hh:mm",
+                    selectedDateTime: controller.selectedFailureAttendedDate.value,
+                    enabled: false,
+                    onDateTimeSelected: (_) {},
+                  )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => CustDateTimePicker(
+                    label: "Actual Failure Rectified",
+                    hint: "DD/MM/YYYY hh:mm",
+                    selectedDateTime: controller.selectedActualFailureRectifiedDate.value,
+                    enabled: false,
+                    onDateTimeSelected: (_) {},
+                  )),
+                ],
                 const SizedBox(height: AppConstants.sectionSpacing),
                 Container(
                   width: double.infinity,
@@ -601,68 +875,70 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       fontWeightName: FontWeight.w500),
                 ),
                 const SizedBox(height: AppConstants.elementSpacing),
+                if (!_isJointInspectionFlow)
                 Column(
-                  children: [
-                    Obx(() => CustDropdown(label: 'Object Part',
-                        hint: 'Object Part',
-                        items: controller.objectDataList.map((e) => e.label ?? '').toList(),
-                        selectedValue: controller.selectedObjectPart.value,
-                        enabled: controller.isJE || controller.isTechnician,
-                        onChanged: (v) {
-                            final trimmedV = v?.toString().trim().toLowerCase();
-                            debugPrint("Object Part Selected: '$trimmedV'");
-                            controller.selectedObjectPart.value = v; // Keep original label for UI
-                            controller.selectedFault.value = null; // Reset fault when object changes
-                            final obj = controller.objectDataList.firstWhere(
-                              (e) => e.label?.trim().toLowerCase() == trimmedV, 
-                              orElse: () => LabelValue(value: "0")
-                            );
-                            debugPrint("Object ID: ${obj.value}");
-                            if (obj.value != "0") {
-                              controller.fetchFaults(obj.value!);
-                            } else {
-                              controller.faultTypeList.clear();
-                            }
-                        })),
-                    Obx(() => controller.selectedObjectPart.value != null ? Column(
-                      children: [
-                        const SizedBox(height: AppConstants.elementSpacing),
-                        CustomTextField(controller: controller.objectPartTextController, label: "Object Part Text", enabled: controller.isJE || controller.isTechnician,),
-                      ],
-                    ) : const SizedBox.shrink()),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    Obx(() => CustDropdown(label: 'Fault',
-                        hint: controller.isFaultLoading.value ? 'Loading...' : 'Fault',
-                        items: controller.isFaultLoading.value ? [] : controller.faultTypeList.map((e) => e.label ?? '').toList(),
-                        selectedValue: controller.selectedFault.value,
-                        enabled: (controller.isJE || controller.isTechnician) && !controller.isFaultLoading.value,
-                        onChanged: (v) => controller.selectedFault.value = v)),
-                    Obx(() => controller.selectedFault.value != null ? Column(
-                      children: [
-                        const SizedBox(height: AppConstants.elementSpacing),
-                        CustomTextField(controller: controller.faultTextController, label: "Fault Text", enabled: controller.isJE || controller.isTechnician,),
-                      ],
-                    ) : const SizedBox.shrink()),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: CustButton(
-                        name: "Add",
-                        size: 100,
-                        onSelected: (controller.isJE || controller.isTechnician) ? (_) => controller.addRcaDetail() : null,
+                    children: [
+                      Obx(() => CustDropdown(label: 'Object Part',
+                          hint: 'Object Part',
+                          items: controller.objectDataList.map((e) => e.label ?? '').toList(),
+                          selectedValue: controller.selectedObjectPart.value,
+                          enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,
+                          onChanged: (v) {
+                              final trimmedV = v?.toString().trim().toLowerCase();
+                              debugPrint("Object Part Selected: '$trimmedV'");
+                              controller.selectedObjectPart.value = v; // Keep original label for UI
+                              controller.selectedFault.value = null; // Reset fault when object changes
+                              final obj = controller.objectDataList.firstWhere(
+                                (e) => e.label?.trim().toLowerCase() == trimmedV,
+                                orElse: () => LabelValue(value: "0")
+                              );
+                              debugPrint("Object ID: ${obj.value}");
+                              if (obj.value != "0") {
+                                controller.fetchFaults(obj.value!);
+                              } else {
+                                controller.faultTypeList.clear();
+                              }
+                          })),
+                      Obx(() => controller.selectedObjectPart.value != null ? Column(
+                        children: [
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          CustomTextField(controller: controller.objectPartTextController, label: "Object Part Text", enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,),
+                        ],
+                      ) : const SizedBox.shrink()),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Obx(() => CustDropdown(label: 'Fault',
+                          hint: controller.isFaultLoading.value ? 'Loading...' : 'Fault',
+                          items: controller.isFaultLoading.value ? [] : controller.faultTypeList.map((e) => e.label ?? '').toList(),
+                          selectedValue: controller.selectedFault.value,
+                          enabled: (controller.isJE || controller.isTechnician) && !controller.isFaultLoading.value,
+                          onChanged: (v) => controller.selectedFault.value = v)),
+                      Obx(() => controller.selectedFault.value != null ? Column(
+                        children: [
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          CustomTextField(controller: controller.faultTextController, label: "Fault Text", enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,),
+                        ],
+                      ) : const SizedBox.shrink()),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: CustButton(
+                          name: "Add",
+                          size: 100,
+                          onSelected: (controller.isJE || controller.isTechnician) ? (_) => controller.addRcaDetail() : null,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => Column(
                   children: controller.rcaDetailsList.asMap().entries
                     .map((entry) => _buildRcaDetailCard(entry.value, entry.key))
                     .toList(),
                 )),
-                Obx(() => _buildSparePartReplaceSection(enabled: controller.isJE || controller.isTechnician)),
+                Obx(() => _buildSparePartReplaceSection(enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician)),
                 const SizedBox(height: AppConstants.elementSpacing),
-                Obx(() => _buildJointInspectionSection(enabled: controller.isJE)),
+                if (!_isJointInspectionFlow)
+                  Obx(() => _buildJointInspectionSection(enabled: controller.isJE)),
                 Obx(() => controller.showMeasurementButton.value ? Padding(
                   padding: const EdgeInsets.only(top: AppConstants.elementSpacing, bottom: AppConstants.elementSpacing),
                   child: Align(
@@ -692,7 +968,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     CustText.body("After ", fontWeightName: FontWeight.w500),
                     const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
                     const SizedBox(width: AppConstants.sectionSpacing),
-                    _buildUploadButton(controller.afterFiles, enabled: controller.isJE || controller.isTechnician),
+                    if (!_isJointInspectionFlow) _buildUploadButton(controller.afterFiles, enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -709,7 +985,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     CustText.body("Upload RCA ", fontWeightName: FontWeight.w500),
                     const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
                     const SizedBox(width: AppConstants.sectionSpacing),
-                    _buildUploadButton(controller.rcaFiles, enabled: controller.isJE || controller.isTechnician),
+                    if (!_isJointInspectionFlow) _buildUploadButton(controller.rcaFiles, enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -773,6 +1049,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   ],
                 ),
                 const SizedBox(height: AppConstants.sectionSpacing),
+                if (!_isJointInspectionFlow)
                 Obx(() => Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -780,7 +1057,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       label: "Failure Rectification Details *",
                       controller: controller.failureRectificationDetailsController,
                       hintText: "Enter Rectification Details",
-                      enabled: controller.isJE,
+                      enabled: controller.isJE && !_isJointInspectionFlow,
                       maxLines: 4,
                       validator: (val) {
                         if (val == null || val.trim().isEmpty) {
@@ -795,8 +1072,18 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       hint: "Select",
                       items: controller.userStatusList.map((e) => e.label ?? '').toList(),
                       selectedValue: controller.selectedUserStatus.value,
-                      enabled: controller.isJE,
-                      onChanged: (v) => controller.selectedUserStatus.value = v,
+                      enabled: controller.isJE && !_isJointInspectionFlow,
+                      disabledItemFn: controller.isCloseUserStatusBlocked
+                          ? (item) => item.trim().toLowerCase() == 'close'
+                          : null,
+                      onChanged: (v) {
+                        if (controller.isCloseUserStatusBlocked &&
+                            v?.trim().toLowerCase() == 'close') {
+                          controller.showPendingJointInspectionPopup();
+                          return;
+                        }
+                        controller.selectedUserStatus.value = v;
+                      },
                     ),
                     const SizedBox(height: AppConstants.elementSpacing),
                     if (controller.selectedUserStatus.value == "Under Observation") ...[
@@ -804,7 +1091,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                         label: "Under Observation Date *",
                         hint: "DD/MM/YYYY hh:mm",
                         selectedDateTime: controller.selectedUnderObservationDate.value,
-                        enabled: controller.isJE,
+                        enabled: controller.isJE && !_isJointInspectionFlow,
                         firstDate: DateTime.now(),
                         validator: (val) {
                           if (controller.selectedUserStatus.value == "Under Observation" &&
@@ -821,7 +1108,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       label: "Failure Attended",
                       hint: "DD/MM/YYYY hh:mm",
                       selectedDateTime: controller.selectedFailureAttendedDate.value ?? DateTime.now(),
-                      enabled: controller.isJE,
+                      enabled: controller.isJE && !_isJointInspectionFlow,
                       firstDate: DateTime.now(),
                       lastDate: DateTime.now(),
                       onDateTimeSelected: (dateTime) {
@@ -833,7 +1120,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       label: "Actual Failure Rectified",
                       hint: "DD/MM/YYYY hh:mm",
                       selectedDateTime: controller.selectedActualFailureRectifiedDate.value ?? DateTime.now(),
-                      enabled: controller.isJE,
+                      enabled: controller.isJE && !_isJointInspectionFlow,
                       firstDate: DateTime.now(),
                       lastDate: DateTime.now(),
                       onDateTimeSelected: (dateTime) {
@@ -842,7 +1129,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     ),
                   ],
                 )),
-                const SizedBox(height: AppConstants.sectionSpacing),
+                if (_isJointInspectionFlow) ...[
+                  const SizedBox(height: AppConstants.sectionSpacing),
+                  _buildJointInspectionActionFields(),
+                  const SizedBox(height: AppConstants.sectionSpacing),
+                ],
                 Row(
                   children: [
                     Expanded(
@@ -859,7 +1150,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                         name: "Submit",
                         sHeight: AppConstants.buttonHeight,
                         size: double.infinity,
-                        onSelected: (_) => _submitForm(),
+                        onSelected: (_) => _isJointInspectionFlow ? controller.submitJointInspection() : _submitForm(),
                       ),
                     ),
                   ],
@@ -868,6 +1159,65 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         ),
       ),
     );
+  }
+
+  Widget _buildJointInspectionActionFields() {
+    return Obx(() => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildToggleItem(
+          "Joint Inspection",
+          true,
+          (_) {},
+          enabled: false,
+        ),
+        const SizedBox(height: AppConstants.elementSpacing),
+        CustomTextField(
+          label: "Department",
+          controller: controller.jiDepartmentDisplayController,
+          enabled: false,
+        ),
+        const SizedBox(height: AppConstants.elementSpacing),
+        CustomTextField(
+          label: "Assign To",
+          controller: controller.jiAssignToDisplayController,
+          enabled: false,
+        ),
+        const SizedBox(height: AppConstants.elementSpacing),
+        CustDropdown(
+          label: "Functional Location",
+          hint: "Select...",
+          items: controller.functionalLocationList.map((e) => e.label ?? '').toList(),
+          selectedValue: controller.selectedJiFunctionalLocation.value,
+          enabled: true,
+          onChanged: controller.onJiFunctionalLocationChanged,
+        ),
+        const SizedBox(height: AppConstants.elementSpacing),
+        CustDropdown(
+          label: "Equipment Number",
+          hint: "Select...",
+          items: controller.equipmentList.map((e) => e.label ?? '').toList(),
+          selectedValue: controller.selectedJiEquipmentNumber.value,
+          enabled: true,
+          onChanged: controller.onJiEquipmentChanged,
+        ),
+        const SizedBox(height: AppConstants.elementSpacing),
+        CustomTextField(
+          label: "Joint Inspection Remark",
+          controller: controller.jiRemarkDisplayController,
+          maxLines: 3,
+          enabled: false,
+        ),
+        const SizedBox(height: AppConstants.elementSpacing),
+        CustomTextField(
+          label: "User's Remark:(Max length: 500)",
+          controller: controller.jiUserRemarkController,
+          maxLines: 3,
+          enabled: true,
+          maxLength: 500,
+        ),
+      ],
+    ));
   }
 
   Widget _buildStationCreateForm(BuildContext context) {
@@ -1457,6 +1807,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
 
   void _submitForm() {
     if (_formKey.currentState?.validate() ?? false) {
+      if (widget.isUpdate && widget.failureType == 'Station') {
+        controller.updateStationFailureDetails(widget.failureNo ?? "0");
+        return;
+      }
       if (!controller.isStation && controller.isRcaRequired.value && controller.rcaDetailsList.isEmpty) {
         Get.snackbar(
           "Validation Error",
@@ -1520,10 +1874,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   ),
                   Row(
                     children: [
-                      IconButton(
-                        icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 24),
-                        onPressed: () => controller.removeRcaDetail(item),
-                      ),
+                      if (!_isJointInspectionFlow)
+                        IconButton(
+                          icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 24),
+                          onPressed: () => controller.removeRcaDetail(item),
+                        ),
                       IconButton(
                         icon: Icon(isExpanded ? TablerIcons.chevron_up : TablerIcons.chevron_down, color: AppColors.orangeColor),
                         onPressed: () => controller.toggleRcaExpansion(index),
@@ -1604,19 +1959,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                 ),
               ),
             ],
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: CustButton(
-                name: "Add RCA",
-                size: 100,
-                onSelected: (_) async {
-                  final objectPartId = item['ObjectPartId']?.toString() ?? "0";
-                  final faultId = item['FaultId']?.toString() ?? "0";
-                  await controller.fetchRootCauseAndAction(objectPartId, faultId);
-                  _showAddRcaPopup(index);
-                },
+            if (!_isJointInspectionFlow)
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: CustButton(
+                  name: "Add RCA",
+                  size: 100,
+                  onSelected: (_) async {
+                    final objectPartId = item['ObjectPartId']?.toString() ?? "0";
+                    final faultId = item['FaultId']?.toString() ?? "0";
+                    await controller.fetchRootCauseAndAction(objectPartId, faultId);
+                    _showAddRcaPopup(index);
+                  },
+                ),
               ),
-            ),
           ],
         ),
       );
@@ -1680,10 +2036,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   child: const Icon(Icons.image_outlined, color: Colors.grey, size: 24),
                 ),
               const SizedBox(height: 8),
-              GestureDetector(
-                onTap: onDelete,
-                child: const Icon(TablerIcons.trash, color: Colors.red, size: 20),
-              ),
+              if (!_isJointInspectionFlow)
+                GestureDetector(
+                  onTap: onDelete,
+                  child: const Icon(TablerIcons.trash, color: Colors.red, size: 20),
+                ),
             ],
           ),
         ],
@@ -2349,7 +2706,17 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
           const SizedBox(height: AppConstants.elementSpacing),
           CustomTextField(label: "Joint Inspection Remark", controller: controller.jointInspectionRemarkController, maxLines: 3, enabled: enabled),
           const SizedBox(height: AppConstants.elementSpacing),
-          CustButton(name: "Add", size: 100, onSelected: enabled ? (_) => controller.addJointInspectionHistory() : null),
+          Obx(() => CustButton(
+            name: controller.editingJointInspectionIndex.value >= 0 ? "Update" : "Add",
+            size: 100,
+            onSelected: enabled ? (_) {
+              if (controller.editingJointInspectionIndex.value >= 0) {
+                controller.updateJointInspectionHistory();
+              } else {
+                controller.addJointInspectionHistory();
+              }
+            } : null,
+          )),
           const SizedBox(height: AppConstants.elementSpacing),
           if (controller.jointInspectionHistoryList.isNotEmpty) _buildJointInspectionTable(enabled: enabled),
         ],
@@ -2371,12 +2738,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
             DataCardItem(label: 'User Remark', value: (item['userRemark'] != null && item['userRemark'].toString().isNotEmpty) ? item['userRemark'] : "N/A", isFullWidth: true),
             DataCardItem(label: 'Status', value: item['status'] ?? "", isFullWidth: true),
           ],
-          onEdit: enabled ? () {} : null,
+          onEdit: enabled ? () => controller.editJointInspection(index) : null,
           onDelete: enabled ? () => controller.removeJointInspectionHistory(index) : null,
         );
       }).toList(),
     );
   }
+
 }
 
 
