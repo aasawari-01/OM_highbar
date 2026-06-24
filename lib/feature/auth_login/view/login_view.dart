@@ -78,12 +78,11 @@ class LoginView extends StatelessWidget {
                       // Title
                       CustText.sectionHeader(AppStrings.signIn, color: AppColors.backgroundColor),
                       const SizedBox(height: 4),
-                      CustText.body(AppStrings.enterCredentials, color: AppColors.textColor9),
+                      CustText.body(AppStrings.enterCredentials, color: AppColors.textColor9,),
                       const SizedBox(height: AppConstants.sectionSpacing),
-
-                      // Email Field
+                      CustText(name: AppStrings.emailId,color: AppColors.black, size: AppConstants.formLabelSize,fontWeightName: FontWeight.w700),
+                      const SizedBox(height: AppConstants.labelSpacing,),
                       CustomTextField(
-                        label: AppStrings.emailId,
                         controller: userNameController,
                         hintText: AppStrings.enterEmailId,
                         prefixIcon: const Icon(TablerIcons.user, size: AppConstants.iconSize, color: AppColors.hintTextColor),
@@ -91,16 +90,14 @@ class LoginView extends StatelessWidget {
                           if (value == null || value.isEmpty) {
                             return 'Please enter email ID';
                           }
-                          // Simple email validation if needed, but project seems to use plain usernames too
-                          // if (!GetUtils.isEmail(value)) return 'Please enter valid email';
                           return null;
                         },
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
-
+                      CustText(name: AppStrings.password,color: AppColors.black, size: AppConstants.formLabelSize,fontWeightName: FontWeight.w700),
+                      const SizedBox(height: AppConstants.labelSpacing,),
                       // Password Field
                       Obx(() => CustomTextField(
-                        label: AppStrings.password,
                         controller: passwordController,
                         hintText: AppStrings.enterPassword,
                         obscureText: !loginController.isPasswordVisible.value,
@@ -174,7 +171,6 @@ class LoginView extends StatelessWidget {
                         color1: AppColors.orangeColor,
                         color2: AppColors.orangeColor,
                         onSelected: (bool) {
-                          print("aaaa");
                           if (_formKey.currentState!.validate()) {
                             loginController.login(
                               email: userNameController.text.trim(),
@@ -190,8 +186,8 @@ class LoginView extends StatelessWidget {
                       Center(
                         child: CustText.body(
                           "${AppStrings.copyright}${DateTime.now().year}${AppStrings.allRightsReserved}",
-                          size: 10,
-                          color: AppColors.textColor4,
+                          size: 11,
+                          color: AppColors.black,
                         ),
                       ),
                     ],

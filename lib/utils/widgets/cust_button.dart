@@ -76,8 +76,8 @@ class CustButton extends StatelessWidget {
                   name,
                   style: GoogleFonts.lato(
                     color: textColor ?? AppColors.white1,
-                    fontWeight: fontweight ?? FontWeight.w400,
-                    fontSize: ResponsiveHelper.fontSize(context, fontSize ?? 14),
+                    fontWeight: fontweight ?? FontWeight.w600,
+                    fontSize: ResponsiveHelper.fontSize(context, fontSize ?? 18),
                   ),
                 ),
               ),

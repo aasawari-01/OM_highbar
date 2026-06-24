@@ -139,7 +139,7 @@ class _InspectionScreenState extends State<InspectionScreen> {
                     children: [
                       CustText.sectionHeader('Inspection Details', color: AppColors.orangeColor),
                       const SizedBox(height: AppConstants.elementSpacing),
-                      CustText.formLabel('Inspection Plan'),
+                      CustText.formLabel('Inspection'),
                       const SizedBox(height: AppConstants.labelSpacing),
                       Row(
                         children: [

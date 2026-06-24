@@ -47,7 +47,7 @@ class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
             ),
       title: CustText(
         name: title,
-        size: AppConstants.sectionHeaderSize,
+        size: AppConstants.appbarText,
         color: Colors.white,
         fontWeightName: FontWeight.w500,
         textAlign: TextAlign.start,

@@ -129,14 +129,20 @@ class _HomeScreenState extends State<HomeScreen> {
                       
                       final List<Map<String, dynamic>> headerCards = (isJE || isTechnician) ? const [
                         {
-                          "title": "RST",
-                          "count": 10,
+                          "title": "Maintenance",
+                          "count": 6,
                           "gradient": [Color(0xFF9FD5FF), Color(0xFF6AA9FF)],
+                          "screen": const FailureListScreen(
+                            failureType: "Maintenance",
+                          ),
                         },
                         {
                           "title": "Depot",
-                          "count": 5,
+                          "count": 0,
                           "gradient": [Color(0xFFD3B2FF), Color(0xFF9B6BFF)],
+                          "screen": const FailureListScreen(
+                            failureType: "Depot",
+                          ),
                         },
                       ] : const [
                         {
@@ -172,11 +178,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                   itemBuilder: (context, index) {
                                     final data = headerCards[index];
                                     return Padding(
-                                      padding: const EdgeInsets.only(right: AppConstants.elementSpacing),
-                                      child: _headerSummaryCard(
-                                        title: data["title"] as String,
-                                        count: data["count"] as int,
-                                        gradient: (data["gradient"] as List<Color>),
+                                      padding: const EdgeInsets.only(right: 8),
+                                      child: GestureDetector(
+                                          onTap: () {
+                                            final screen = data["screen"] as Widget?;
+                                            if (screen != null) {
+                                              Get.to(() => screen);
+                                            }
+                                          },
+                                        child: _headerSummaryCard(
+                                          title: data["title"] as String,
+                                          count: data["count"] as int,
+                                          gradient: (data["gradient"] as List<Color>),
+                                        ),
                                       ),
                                     );
                                   },
@@ -290,11 +304,18 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSectionBlock({required String title, required List<Widget> children}) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(AppConstants.cardPadding, AppConstants.cardPadding, AppConstants.cardPadding, 6),
+      padding: const EdgeInsets.fromLTRB(AppConstants.cardPadding, AppConstants.cardPadding, AppConstants.cardPadding, AppConstants.cardPadding),
       margin: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppColors.black.withOpacity(0.1),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ]
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,7 +324,7 @@ class _HomeScreenState extends State<HomeScreen> {
             name: title,
             size: AppConstants.HeaderSize,
             color: AppColors.orangeColor,
-            fontWeightName: FontWeight.w500,
+            fontWeightName: FontWeight.w600,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
           ...children,
@@ -324,8 +345,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     return InkWell(
       onTap: onTap,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: isLast ? 10.0 : 30.0),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -337,7 +356,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   name: title,
                   size: AppConstants.bodySize,
                   color: AppColors.textColor5,
-                  fontWeightName: FontWeight.w400,
+                  fontWeightName: FontWeight.w600,
                 ),
                 if (subtitle != null) ...[
                   SizedBox(height: ResponsiveHelper.height(context, 4)),
@@ -360,18 +379,17 @@ class _HomeScreenState extends State<HomeScreen> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
               decoration: BoxDecoration(
-                color: badgeBgColor ?? AppColors.textFieldColor,
+                color: AppColors.grey,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: CustText(
                 name: status,
-                size: 11,
-                color: badgeTextColor ?? AppColors.orangeColor,
-                fontWeightName: FontWeight.w500,
+                size: 12,
+                color:  AppColors.red,
+                fontWeightName: FontWeight.w600,
               ),
             ),
         ],
-      ),
       ),
     );
   }
@@ -566,31 +584,37 @@ class _HomeScreenState extends State<HomeScreen> {
         title: "Pending Tasks",
         children: [
           _taskCard(
-            title: "Inspection Checklist",
-            subtitle: "Checklist",
-            time: "18/06/2025 10:00 AM",
-            status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
-          ),
-          _taskCard(
             title: "Station Failure",
             subtitle: "Failure in Station 1",
             time: "18/06/2025 10:05 AM",
             status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
             onTap: () {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateFailureScreen(failureType: "Station")));
             },
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          _taskCard(
+            title: "Inspection Checklist",
+            subtitle: "Checklist",
+            time: "18/06/2025 10:00 AM",
+            status: "Pending",
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
+          ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Safety Security Checklist",
             subtitle: "Checklist",
             time: "18/06/2025 11:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
             isLast: true,
           ),
         ],
@@ -608,6 +632,9 @@ class _HomeScreenState extends State<HomeScreen> {
             badgeBgColor: const Color(0xFFD6F2CB),
             badgeTextColor: Colors.black87,
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Station Failure",
             subtitle: "Failure in Station 1",
@@ -619,6 +646,9 @@ class _HomeScreenState extends State<HomeScreen> {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateFailureScreen(failureType: "Station")));
             },
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Safety Security Checklist",
             subtitle: "Checklist",
@@ -636,21 +666,24 @@ class _HomeScreenState extends State<HomeScreen> {
         title: "Instruction from OCC",
         children: [
           _taskCard(
-            title: "Power Supply",
-            subtitle: "Approval Task",
-            time: "18/06/2025 10:00 AM",
-            status: "Acknowledge",
-            badgeBgColor: AppColors.orangeColor,
-            badgeTextColor: Colors.white,
-          ),
-          _taskCard(
             title: "Station Failure",
             subtitle: "Failure in Station 1",
             time: "18/06/2025 10:05 AM",
             status: "Approve",
-            badgeBgColor: AppColors.orangeColor,
-            badgeTextColor: Colors.white,
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
             isLast: true,
+          ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          _taskCard(
+            title: "Power Supply",
+            subtitle: "Approval Task",
+            time: "18/06/2025 10:00 AM",
+            status: "Acknowledge",
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
           ),
         ],
       ),
@@ -667,30 +700,36 @@ class _HomeScreenState extends State<HomeScreen> {
         title: "Pending Tasks",
         children: [
           _taskCard(
+            title: "Maintenance Failure",
+            subtitle: "Checklist",
+            time: "18/06/2025 11:00 AM",
+            status: "Pending",
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
+            onTap: () => Get.to(FailureListScreen()),
+          ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          _taskCard(
             title: "Inspection Checklist",
             subtitle: "Checklist",
             time: "18/06/2025 10:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "RST Failure",
             subtitle: "Part D",
             time: "18/06/2025 10:05 AM",
             status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
-          ),
-          _taskCard(
-            title: "Maintenance Failure",
-            subtitle: "Checklist",
-            time: "18/06/2025 11:00 AM",
-            status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
             isLast: true,
-            onTap: () => Get.to(FailureListScreen()),
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
           ),
         ],
       ),
@@ -703,15 +742,24 @@ class _HomeScreenState extends State<HomeScreen> {
             title: "Failure No.: SIG/11-2025-004",
             time: "18/06/2025 10:00 AM",
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Unscheduled Inspection",
             time: "18/06/2025 10:05 AM",
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Safety Security Checklist",
             subtitle: "Checklist",
             time: "18/06/2025 11:00 AM",
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "RST Failure",
             time: "18/06/2025 10:05 AM",
@@ -733,24 +781,30 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Checklist",
             time: "18/06/2025 10:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Station Failure",
             subtitle: "Failure in Station 1",
             time: "18/06/2025 10:05 AM",
             status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeTextColor: AppColors.orangeColor,
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Maintenance Failure",
             subtitle: "Checklist",
             time: "18/06/2025 11:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.buttonColor2,
-            badgeTextColor: Colors.black87,
+            badgeBgColor: AppColors.orangeColor.withOpacity(0.1),
+            badgeTextColor: AppColors.orangeColor,
             isLast: true,
           ),
         ],
@@ -764,15 +818,24 @@ class _HomeScreenState extends State<HomeScreen> {
             title: "Failure No.: SIG/11-2025-004",
             time: "18/06/2025 10:00 AM",
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Unscheduled Inspection",
             time: "18/06/2025 10:05 AM",
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "Safety Security Checklist",
             subtitle: "Checklist",
             time: "18/06/2025 11:00 AM",
           ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
           _taskCard(
             title: "RST Failure",
             time: "18/06/2025 10:05 AM",
@@ -783,4 +846,7 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
   }
 
+  Widget divider(){
+    return Divider(color: AppColors.textFieldColor,);
+  }
 }

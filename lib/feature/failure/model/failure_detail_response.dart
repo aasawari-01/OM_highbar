@@ -218,6 +218,9 @@ class CreateVMModel {
   final int? deptId;
   final int? userStatus;
   final String? funcDescription;
+  final String? locationName;
+  final String? funcLocation;
+  final String? equipmentName;
   final int? priorityId;
   final int? statusId;
   final String? priorityType;
@@ -278,6 +281,9 @@ class CreateVMModel {
     this.deptId,
     this.userStatus,
     this.funcDescription,
+    this.locationName,
+    this.funcLocation,
+    this.equipmentName,
     this.priorityId,
     this.statusId,
     this.priorityType,
@@ -341,7 +347,7 @@ class CreateVMModel {
   factory CreateVMModel.fromJson(Map<String, dynamic> json) {
     return CreateVMModel(
       id: json['Id'] as String?,
-      notificationId: json['notificationId'] as int?,
+      notificationId: CreateVMModel._asInt(json['notificationId']),
       notificationCode: json['notificationCode'] as String?,
       description: json['description'] as String?,
       natureOfWorkId: json['natureOfWorkId'] as int?,
@@ -360,6 +366,11 @@ class CreateVMModel {
       deptId: json['deptId'] as int?,
       userStatus: json['userStatus'] as int?,
       funcDescription: json['funcDescription'] as String?,
+      locationName: _asString(json['locationName'] ?? json['locationTypeName']),
+      funcLocation: _asString(
+        json['funcLocation']
+      ),
+      equipmentName: _asString(json['equipmentName'] ?? json['equipmentNo']),
       priorityId: json['priorityId'] as int?,
       statusId: json['statusId'] as int?,
       priorityType: json['priorityType'] as String?,

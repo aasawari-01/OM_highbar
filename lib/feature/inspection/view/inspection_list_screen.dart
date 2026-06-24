@@ -159,8 +159,8 @@ class _InspectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppConstants.cardRadius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 6,
+            color: AppColors.black.withOpacity(0.2),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
@@ -211,6 +211,7 @@ class _InspectionCard extends StatelessWidget {
               child: CustButton(
                 name: 'Fill Checklist',
                 size: 120,
+                fontSize: AppConstants.buttonFontSize,
                 sHeight: 30,
                 borderRadius: AppConstants.inputRadius,
                 onSelected: (_) => onFillChecklist(),
@@ -232,7 +233,7 @@ class _InspectionCard extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.12),
+              color: AppColors.grey,
               borderRadius: BorderRadius.circular(8),
             ),
             child: CustText(
@@ -260,7 +261,7 @@ class _InspectionCard extends StatelessWidget {
   }
 
   Color _actionColor(String? action) {
-    if (action?.toLowerCase() == 'active') return AppColors.orangeColor;
+    if (action?.toLowerCase() == 'active') return AppColors.green1;
     return AppColors.textColor4;
   }
 

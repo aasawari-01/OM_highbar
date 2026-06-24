@@ -59,7 +59,7 @@ class CustDataCard extends StatelessWidget {
                         children: [
                           CustText(
                             name: item.label,
-                            size: 12,
+                            size: 14,
                             color: Colors.grey.shade500,
                             fontWeightName: FontWeight.w400,
                           ),
@@ -69,7 +69,7 @@ class CustDataCard extends StatelessWidget {
                           else
                             CustText(
                               name: item.value,
-                              size: 14,
+                              size: 16,
                               fontWeightName: FontWeight.bold,
                               color: Colors.black,
                             ),

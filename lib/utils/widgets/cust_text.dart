@@ -5,6 +5,50 @@ import '../../constants/colors.dart';
 import '../../constants/app_constants.dart';
 import '../../utils/responsive_helper.dart';
 
+/// Renders a label with an optional asterisk (*) shown in AppColors.darkRed.
+/// If [name] ends with " *" or contains " *", the asterisk portion is colored.
+Widget buildRequiredLabel(BuildContext context, String name, {Color? color, FontWeight? fontWeight, double? fontSize}) {
+  final effectiveColor = color ?? AppColors.black;
+  final effectiveFontSize = fontSize ?? AppConstants.formLabelSize;
+  final effectiveFontWeight =  FontWeight.w600;
+
+  if (name.contains(' *') || name.endsWith('*')) {
+    // Split at the asterisk
+    final idx = name.lastIndexOf('*');
+    final beforeAsterisk = name.substring(0, idx);
+    return RichText(
+      text: TextSpan(
+        children: [
+          TextSpan(
+            text: beforeAsterisk,
+            style: GoogleFonts.lato(
+              color: effectiveColor,
+              fontWeight: effectiveFontWeight,
+              fontSize: ResponsiveHelper.fontSize(context, effectiveFontSize),
+            ),
+          ),
+          TextSpan(
+            text: '*',
+            style: GoogleFonts.lato(
+              color: AppColors.darkRed,
+              fontWeight: effectiveFontWeight,
+              fontSize: ResponsiveHelper.fontSize(context, effectiveFontSize),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  return Text(
+    name,
+    style: GoogleFonts.lato(
+      color: effectiveColor,
+      fontWeight: effectiveFontWeight,
+      fontSize: ResponsiveHelper.fontSize(context, effectiveFontSize),
+    ),
+  );
+}
+
 class CustText extends StatelessWidget {
   final String name;
   final double size;
@@ -41,8 +85,8 @@ class CustText extends StatelessWidget {
     return CustText(
       name: name,
       size: AppConstants.formLabelSize,
-      fontWeightName: FontWeight.w500,
-      color: color ?? AppColors.textColor,
+      fontWeightName: FontWeight.w600,
+      color: color ?? AppColors.black,
       textAlign: textAlign,
     );
   }

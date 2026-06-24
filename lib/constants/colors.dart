@@ -16,6 +16,7 @@ class AppColors {
   static const Color orangeColor= Color(0xffE9822D);
   static const Color iconColor2= Color(0xFFA3A3A3);
   static const Color buttonOutlineColor = Color(0xFFD9D9D9);
+  static const Color green1 = Color(0xff0E7D1F);
 
   static const Color textFieldColor = Color(0xFFECECEC);
   static const Color textFieldFillColor = Color(0x90D2D2D2);
@@ -52,7 +53,6 @@ class AppColors {
 
 
   static const Color barColor1 = Color(0xAFFB3714);
-  static const Color barColor2 = Color(0xAF0CBA40);
   static const Color barColor3 = Color(0xFFFF8C1A);
   static const Color barColor4 = Color(0xFF4CAC39);
   static const Color barColor5 = Color(0xFF5D7FF5);

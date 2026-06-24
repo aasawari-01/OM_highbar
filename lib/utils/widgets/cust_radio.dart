@@ -28,7 +28,7 @@ class CustRadio<T> extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           selected?
-          Icon(TablerIcons.circle_check_filled):Icon(TablerIcons.circle),
+          Icon(TablerIcons.circle_check_filled,color: AppColors.orangeColor,):Icon(TablerIcons.circle,color: AppColors.grey,),
           const SizedBox(width: 8),
           Text(
             label,

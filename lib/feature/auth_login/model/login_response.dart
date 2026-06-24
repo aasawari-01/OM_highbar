@@ -12,6 +12,7 @@ class LoginResponse {
   final String? message;
   final int? messageCode;
   final String? token;
+  final int? businessArea;
   final List<DeptMaster> deptMaster;
   final List<RoleMaster> roleMaster;
 
@@ -29,6 +30,7 @@ class LoginResponse {
     this.message,
     this.messageCode,
     this.token,
+    this.businessArea,
     this.deptMaster = const [],
     this.roleMaster = const [],
   });
@@ -48,6 +50,9 @@ class LoginResponse {
       message: json['message'] as String?,
       messageCode: json['messageCode'] as int?,
       token: json['token'] as String?,
+      businessArea: json['businessArea'] is int
+          ? json['businessArea']
+          : int.tryParse(json['businessArea']?.toString() ?? ''),
       deptMaster: (json['deptMaster'] as List<dynamic>?)
               ?.map((e) => DeptMaster.fromJson(e as Map<String, dynamic>))
               .toList() ??

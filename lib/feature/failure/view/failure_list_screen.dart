@@ -3,6 +3,9 @@ import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import '../../../constants/colors.dart';
 
 import '../../../utils/widgets/cust_text.dart';
+import '../../../utils/widgets/cust_textfield.dart';
+import '../../../utils/widgets/cust_popup.dart';
+import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
 import '../../../constants/app_constants.dart';
 import 'create_failure_screen.dart';
@@ -11,6 +14,7 @@ import 'package:get/get.dart';
 import '../controller/failure_list_controller.dart';
 import '../model/failure_list_response.dart';
 import '../../../service/session_controller.dart';
+import '../../../utils/widgets/cust_loader.dart';
 
 class FailureListScreen extends StatefulWidget {
   final String failureType;
@@ -23,6 +27,8 @@ class FailureListScreen extends StatefulWidget {
 class _FailureListScreenState extends State<FailureListScreen> with SingleTickerProviderStateMixin {
   late final FailureListController controller;
   TabController? _tabController;
+  final TextEditingController _searchController = TextEditingController();
+  bool _isSearching = false;
 
   bool get _showStationTabs {
     final role = Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
@@ -79,7 +85,15 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         actions: [
           IconButton(
             icon: const Icon(Icons.search, color: Colors.white, size: 28),
-            onPressed: () {},
+            onPressed: () {
+              setState(() {
+                _isSearching = !_isSearching;
+                if (!_isSearching) {
+                  _searchController.clear();
+                  controller.searchQuery.value = "";
+                }
+              });
+            },
           ),
           IconButton(
             icon: const Icon(Icons.filter_list, color: Colors.white, size: 28),
@@ -102,7 +116,6 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   decoration: BoxDecoration(
                     color: Colors.green,
                     shape: BoxShape.circle,
-                    border: Border.all(color: AppColors.appBarColor, width: 2),
                   ),
                 ),
               ),
@@ -140,6 +153,25 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
               ),
               const Divider(height: 1, color: AppColors.dividerColor2),
             ],
+            if (_isSearching)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppConstants.screenPadding, vertical: 8),
+                child: CustomTextField(
+                  controller: _searchController,
+                  hintText: "Search by failure no, location, status...",
+                  onChanged: (val) => controller.searchQuery.value = val,
+                  prefixIcon: const Icon(Icons.search, color: AppColors.textColor4, size: 20),
+                  suffixIcon: GestureDetector(
+                    onTap: () {
+                      _searchController.clear();
+                      controller.searchQuery.value = '';
+                      setState(() => _isSearching = false);
+                    },
+                    child: const Icon(Icons.close, color: AppColors.textColor4, size: 20),
+                  ),
+                  autofocus: true,
+                ),
+              ),
             Expanded(child: _buildFailureListContent()),
           ],
         ),
@@ -180,33 +212,30 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   }
 
   Widget _buildFailureListContent() {
-    return Obx(() => Padding(
-      padding: const EdgeInsets.symmetric(horizontal: AppConstants.screenPadding),
-      child: controller.isLoading.value
-          ? const Center(child: CircularProgressIndicator())
-          : controller.errorMessage.isNotEmpty
-              ? Center(child: CustText(name: controller.errorMessage.value, size: 14))
-              : controller.failures.isEmpty
-                  ? Center(
-                      child: Text(
-                        _showStationTabs && controller.selectedStationTab.value == StationFailureListTab.closed
-                            ? 'No closed failures found'
-                            : 'No failures found',
-                        style: const TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: () => controller.fetchFailures(),
-                      child: ListView.builder(
-                        padding: const EdgeInsets.only(top: AppConstants.elementSpacing),
-                        itemCount: controller.failures.length,
-                        itemBuilder: (context, index) {
-                          final failure = controller.failures[index];
-                          return _buildFailureCard(failure);
-                        },
-                      ),
+    return Obx(() => controller.isLoading.value
+        ? const CustLoader()
+        : controller.errorMessage.isNotEmpty
+            ? Center(child: CustText(name: controller.errorMessage.value, size: 14))
+            : controller.filteredFailures.isEmpty
+                ? Center(
+                    child: Text(
+                      _showStationTabs && controller.selectedStationTab.value == StationFailureListTab.closed
+                          ? 'No closed failures found'
+                          : 'No failures found',
+                      style: const TextStyle(fontSize: 16, color: Colors.grey),
                     ),
-    ));
+                  )
+                : RefreshIndicator(
+                    onRefresh: () => controller.fetchFailures(),
+                    child: ListView.builder(
+                      padding: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
+                      itemCount: controller.filteredFailures.length,
+                      itemBuilder: (context, index) {
+                        final failure = controller.filteredFailures[index];
+                        return _buildFailureCard(failure);
+                      },
+                    ),
+                  ));
   }
 
   Widget _buildFailureCard(FailureItem failure) {
@@ -225,14 +254,14 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
+        margin: const EdgeInsets.fromLTRB(AppConstants.elementSpacing,AppConstants.elementSpacing,AppConstants.elementSpacing,0),
         decoration: BoxDecoration(
           color: AppColors.white1,
           borderRadius: BorderRadius.circular(AppConstants.cardRadius),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.04),
-              blurRadius: 6,
+              color: AppColors.black.withOpacity(0.2),
+              blurRadius: 8,
               offset: const Offset(0, 2),
             ),
           ],
@@ -451,50 +480,16 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
   void _showCloseConfirmation(int failureId) {
     Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(TablerIcons.alert_circle, color: AppColors.red, size: 48),
-              const SizedBox(height: 16),
-              const Text(
-                "Close Failure",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                "Are you sure you want to close this failure? This action cannot be undone.",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.black54),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Get.back(),
-                    child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.red,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: () {
-                      Get.back();
-                      controller.closeFailure(failureId);
-                    },
-                    child: const Text("Close"),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+      CustPopup(
+        title: "Close Failure",
+        message: "Are you sure you want to close this failure? This action cannot be undone.",
+        icon: TablerIcons.alert_circle,
+        iconColor: AppColors.red,
+        confirmText: "Close",
+        cancelText: "Cancel",
+        onConfirm: () {
+          controller.closeFailure(failureId);
+        },
       ),
     );
   }
@@ -502,54 +497,43 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   void _showReopenPopup(int failureId) {
     final TextEditingController remarkController = TextEditingController();
     Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Icon(TablerIcons.refresh, color: AppColors.green, size: 24),
-                  const SizedBox(width: 8),
-                  Text(
-                    "Re-open Failure",
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              const Text("Please provide a reason for re-opening this failure:"),
-              const SizedBox(height: 8),
-              TextField(
-                controller: remarkController,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: "Enter remark...",
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: AppColors.green),
+      CustPopup(
+        title: "Re-open Failure",
+        message: "Please provide a reason for re-opening this failure:",
+        icon: TablerIcons.refresh,
+        iconColor: AppColors.green,
+        confirmText: "Submit",
+        cancelText: "Cancel",
+        customContent: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CustText(name: "Re-open Failure", size: AppConstants.HeaderSize, color: AppColors.textColor7, fontWeightName: FontWeight.w600),
+            const SizedBox(height: 12),
+            CustText(name: "Please provide a reason for re-opening:", size: AppConstants.formLabelSize),
+            const SizedBox(height: 12),
+            CustomTextField(
+              controller: remarkController,
+              hintText: "Enter remark...",
+              maxLines: 3,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: CustOutlineButton(
+                    name: "Cancel",
+                    size: double.infinity,
+                    sHeight: 35,
+                    onSelected: (_) => Get.back(),
                   ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Get.back(),
-                    child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: () {
+                const SizedBox(width: 12),
+                Expanded(
+                  child: CustButton(
+                    name: "Submit",
+                    size: double.infinity,
+                    sHeight: 35,
+                    onSelected: (_) {
                       final remark = remarkController.text.trim();
                       if (remark.isEmpty) {
                         Get.snackbar("Required", "Please enter a remark to re-open.", backgroundColor: Colors.red, colorText: Colors.white);
@@ -558,12 +542,11 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                       Get.back();
                       _showReopenConfirmation(failureId, remark);
                     },
-                    child: const Text("Submit"),
                   ),
-                ],
-              ),
-            ],
-          ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -571,50 +554,16 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
   void _showReopenConfirmation(int failureId, String remark) {
     Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(TablerIcons.alert_triangle, color: AppColors.orangeColor, size: 48),
-              const SizedBox(height: 16),
-              const Text(
-                "Confirm Re-open",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                "Are you sure you want to re-open this failure with the provided remark?",
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.black54),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton(
-                    onPressed: () => Get.back(),
-                    child: const Text("Cancel", style: TextStyle(color: Colors.grey)),
-                  ),
-                  const SizedBox(width: 8),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.green,
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: () {
-                      Get.back();
-                      controller.reOpenFailure(failureId, remark);
-                    },
-                    child: const Text("Confirm"),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
+      CustPopup(
+        title: "Confirm Re-open",
+        message: "Are you sure you want to re-open this failure with the provided remark?",
+        icon: TablerIcons.alert_triangle,
+        iconColor: AppColors.orangeColor,
+        confirmText: "Confirm",
+        cancelText: "Cancel",
+        onConfirm: () {
+          controller.reOpenFailure(failureId, remark);
+        },
       ),
     );
   }

@@ -133,19 +133,19 @@ class _CustomDrawerState extends State<CustomDrawer> {
                           name: sessionController.userName.value,
                           size: 16,
                           color: AppColors.orangeColor,
-                          fontWeightName: FontWeight.w500,
+                          fontWeightName: FontWeight.w600,
                         ),
                         const SizedBox(height: 2),
                         CustText(
                           name: sessionController.selectedRole.value?.roleDescr ?? 'No Role Selected',
-                          size: 11,
+                          size: 12,
                           color: AppColors.textColor8,
                           fontWeightName: FontWeight.w400,
                         ),
                         const SizedBox(height: 2),
                         CustText(
                           name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
-                          size: 11,
+                          size: 12,
                           color: AppColors.textColor8,
                           fontWeightName: FontWeight.w400,
                         ),
@@ -166,15 +166,23 @@ class _CustomDrawerState extends State<CustomDrawer> {
               padding: const EdgeInsets.symmetric(vertical: AppConstants.elementSpacing),
               children: [
                 _drawerItem('ESS', 'ess', null, leadingIcon: TablerIcons.users),
-                _drawerItem('Dashboard', 'dashboard', null, leadingIcon: TablerIcons.users),
-
+                divider(),
+                _drawerItem('Dashboard', 'dashboard', null, leadingIcon: TablerIcons.layout),
+                divider(),
                 // Failures
                 _drawerSection(
                   title: 'Failures',
                   sectionKey: 'failures',
                   icon: TablerIcons.server,
                   children: [
-                    _drawerItem('Maintenance Failure', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance')),
+                    Obx(() {
+                      final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isStationController = role.contains('Station Controller');
+                      if (isStationController) {
+                        return const SizedBox.shrink();
+                      }
+                      return _drawerItem('Maintenance Failure', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance'));
+                    }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
                       final canAccessStationFailure =
@@ -184,12 +192,33 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       }
                       return _drawerItem('Station Failure', 'station_failure', const FailureListScreen(failureType: 'Station'));
                     }),
-                    _drawerItem('OCC Failure', 'occ_failure', const FailureListScreen(failureType: 'OCC')),
-                    _drawerItem('Depot Failure', 'depot_failure', const FailureListScreen(failureType: 'Depot')),
-                    _drawerItem('RST Failure', 'rst_failure', const RstFailureScreen()),
+                    Obx(() {
+                      final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isStationController = role.contains('Station Controller');
+                      if (isStationController) {
+                        return const SizedBox.shrink();
+                      }
+                      return _drawerItem('OCC Failure', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
+                    }),
+                    Obx(() {
+                      final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isStationController = role.contains('Station Controller');
+                      if (isStationController) {
+                        return const SizedBox.shrink();
+                      }
+                      return _drawerItem('Depot Failure', 'depot_failure', const FailureListScreen(failureType: 'Depot'));
+                    }),
+                    Obx(() {
+                      final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isStationController = role.contains('Station Controller');
+                      if (isStationController) {
+                        return const SizedBox.shrink();
+                      }
+                      return _drawerItem('RST Failure', 'rst_failure', const RstFailureScreen());
+                    }),
                   ],
                 ),
-
+                divider(),
                 // Maintenance
                 _drawerSection(
                   title: 'Maintenance',
@@ -201,7 +230,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     _drawerItem('Preventive', 'ptw', null),
                   ],
                 ),
-
+                divider(),
                 // Operations
                 _drawerSection(
                   title: 'Operations',
@@ -210,6 +239,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   children: [
                   ],
                 ),
+                divider(),
                 // Inspection
                 _drawerSection(
                   title: 'Inspection',
@@ -220,6 +250,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     _drawerItem('Join Inspection', 'inspection_join', const InspectionListScreen()),
                   ],
                 ),
+                divider(),
                 // Inspection (Top Management)
                 _drawerSection(
                   title: 'Inspection (Top Management)',
@@ -234,15 +265,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
             ),
           ),
           const Divider(height: 1, color: AppColors.dividerColor2),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: AppConstants.screenPadding, vertical: AppConstants.elementSpacing),
-            child: CustButton(
-              name: 'LogOut',
-              size: 70,
-              onSelected: (_) => Navigator.pushReplacement(context, MaterialPageRoute(builder: (context) => LoginView())),
-              textColor: Colors.white,
-            ),
-          ),
+
+          IconButton(onPressed:() =>  Get.offAll(()=>LoginView()), icon: Icon(TablerIcons.logout,size:30,color: AppColors.orangeColor,)),
           Padding(
             padding: const EdgeInsets.only(bottom: AppConstants.elementSpacing, left: AppConstants.screenPadding, right: AppConstants.screenPadding),
             child: CustText(
@@ -271,16 +295,20 @@ class _CustomDrawerState extends State<CustomDrawer> {
         Theme(
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
-            tilePadding: EdgeInsets.only(left: isSubSection ? 32 : 12, right: 16),
-            leading: isSubSection ? null : Icon(icon ?? Icons.folder_outlined, color: isExpanded?AppColors.orangeColor:AppColors.black, size: 22),
+            tilePadding: EdgeInsets.only(left: isSubSection ? 32 : 12, right: 16,),
+            leading: isSubSection ? null : Icon(icon ?? Icons.folder_outlined, color: isExpanded?AppColors.orangeColor:AppColors.textColor4, size: 22),
             title: CustText(
               name: title,
-              size: isSubSection ? 14 : 14,
+              size: isSubSection ? 14 : 16,
               color:isExpanded?AppColors.orangeColor: AppColors.black,
-              fontWeightName: isExpanded?FontWeight.w600:isSubSection ? FontWeight.w400 : FontWeight.w400,
+              fontWeightName: isExpanded?FontWeight.w600:isSubSection ? FontWeight.w400 : FontWeight.w600,
             ),
             initiallyExpanded: isExpanded,
-            onExpansionChanged: (expanded) {
+            dense: true,
+            visualDensity: const VisualDensity(
+              vertical: -2,
+              ),
+              onExpansionChanged: (expanded) {
               if (expanded) {
                 _handleSectionExpansion(sectionKey, isSubSection);
               } else {
@@ -298,7 +326,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
             children: children,
             trailing: Icon(
               isExpanded ? Icons.expand_less : Icons.expand_more,
-              color: isExpanded ? AppColors.orangeColor : AppColors.black,
+              color: AppColors.orangeColor,
             ),
           ),
         ),
@@ -321,15 +349,19 @@ class _CustomDrawerState extends State<CustomDrawer> {
     return Container(
       child: ListTile(
         contentPadding: EdgeInsets.only(left: leadingIcon != null ? 12 : 54, right: 16),
-        leading: leadingIcon != null ? Icon(leadingIcon, color: Colors.black87, size: 22) : null,
+        leading: leadingIcon != null ? Icon(leadingIcon, color: AppColors.textColor4, size: 22) : null,
         title: CustText(
           name: name,
-          size: 13,
+          size: 16,
           color: isSelected ? Colors.black : Colors.black87,
-          fontWeightName: isSelected ? FontWeight.w600 : FontWeight.w400,
+          fontWeightName: isSelected ? FontWeight.w600 : leadingIcon != null ? FontWeight.w600:FontWeight.w400,
         ),
         // trailing: leadingIcon == null ? const Icon(Icons.arrow_drop_down, color: Colors.grey, size: 20) : null, // Matching down arrows for sub-items
         minLeadingWidth: 20,
+        dense: true,
+        visualDensity: const VisualDensity(
+          vertical: -2,
+        ),
         onTap: () {
           if (screen == null) {
             Navigator.pop(context);
@@ -401,9 +433,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   hint: AppStrings.chooseYourRole,
                   items: sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
                   selectedValue: sessionController.selectedRole.value?.roleDescr,
-                  disabledItemFn: (val) => !sessionController.isRoleAllowed(val),
                   onChanged: (val) {
-                    if (val != null && sessionController.isRoleAllowed(val)) {
+                    if (val != null) {
                       final role = sessionController.roles.firstWhere((e) => e.roleDescr == val);
                       sessionController.changeRole(role);
                     }
@@ -442,5 +473,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
         );
       },
     );
+  }
+  Widget divider(){
+    return Divider(color: AppColors.textFieldColor,);
   }
 }

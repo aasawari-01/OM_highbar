@@ -1,16 +1,22 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
+import '../../../constants/app_constants.dart';
 import '../../../service/network_service/api_client.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../../../service/auth_manager.dart';
+import '../../../utils/widgets/cust_button.dart';
+import '../../../utils/widgets/cust_loader.dart';
+import '../../../utils/widgets/cust_text.dart';
 import '../../auth_login/model/login_response.dart';
 import '../model/failure_detail_response.dart';
 import '../../../service/session_controller.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:http/http.dart' as http;
 import '../../../utils/widgets/cust_dropdown.dart';
+import '../../../utils/widgets/cust_popup.dart';
 
 import '../../../constants/colors.dart';
 import '../../../service/local_database_service.dart';
@@ -25,6 +31,7 @@ class CreateFailureController extends GetxController {
   final showMeasurementButton = false.obs;
   final errorMessage = "".obs;
   final encryptedId = "".obs;
+  final notificationId = 0.obs;
   final jointInspectionFailureNo = "".obs;
   final notificationCode = "".obs;
 
@@ -114,68 +121,30 @@ class CreateFailureController extends GetxController {
 
   bool get isCloseUserStatusBlocked => isJE && isJointInspectionPending;
 
+  /// Shows a validation error snackbar with the first error.
+  void _showErrorDialog(String message) {
+    final lines = message.split('\n').where((l) => l.trim().isNotEmpty).toList();
+    if (lines.isEmpty) return;
+    Get.snackbar(
+      'Validation Error',
+      lines.first,
+      backgroundColor: Colors.red.withOpacity(0.9),
+      colorText: Colors.white,
+      snackPosition: SnackPosition.BOTTOM,
+      duration: const Duration(seconds: 3),
+    );
+  }
+
   void showPendingJointInspectionPopup() {
     Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(color: AppColors.red, width: 2),
-                ),
-                child: const Icon(Icons.close, color: AppColors.red, size: 48),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Joint inspection is pending.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Please close this first.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
-              ),
-              const SizedBox(height: 32),
-              SizedBox(
-                width: 120,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.orangeColor,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                  ),
-                  onPressed: () => Get.back(),
-                  child: const Text(
-                    'OK',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
+      CustPopup(
+        title: 'Joint Inspection Pending',
+        message: 'Joint inspection is pending. Please close this first.',
+        showIcon: true,
+        icon: Icons.error_outline,
+        iconColor: AppColors.darkRed,
+        confirmText: 'OK',
+        onConfirm: () {},
       ),
       barrierDismissible: false,
     );
@@ -252,7 +221,7 @@ class CreateFailureController extends GetxController {
   final tempPopupActionTakens = <Map<String, dynamic>>[].obs;
   final isExpandedRca =
       <int, bool>{}.obs; // Track expansion state per card index
-  final selectedMaterialType = RxString("Hardware");
+  final selectedMaterialType = RxnString();
   final materialTypeList = ["Software", "Hardware", "Communication", "Other"];
   final _originalLocationId = RxnInt();
   final _originalDepartmentId = RxnInt();
@@ -400,7 +369,10 @@ class CreateFailureController extends GetxController {
 
   void addRootCauseToRca(int index) {
     if (selectedPopupRootCause.value == null &&
-        popupRootCauseTextController.text.isEmpty) return;
+        popupRootCauseTextController.text.trim().isEmpty) {
+      _showErrorDialog('Please select or enter a Root Cause before adding.');
+      return;
+    }
 
     final List<Map<String, dynamic>> rootCauses =
         List.from(rcaDetailsList[index]['rootCauses']);
@@ -431,7 +403,10 @@ class CreateFailureController extends GetxController {
 
   void addActionTakenToRca(int index) {
     if (selectedPopupActionTaken.value == null &&
-        popupActionTakenTextController.text.isEmpty) return;
+        popupActionTakenTextController.text.trim().isEmpty) {
+      _showErrorDialog('Please select or enter an Action Taken before adding.');
+      return;
+    }
 
     final List<Map<String, dynamic>> actionTakens =
         List.from(rcaDetailsList[index]['actionTakens']);
@@ -461,8 +436,6 @@ class CreateFailureController extends GetxController {
   }
 
   void addToTempRootCauses() {
-    if (selectedPopupRootCause.value == null &&
-        popupRootCauseTextController.text.isEmpty) return;
     final rootCauseId = rootCauseList
             .firstWhere((e) => e.label == selectedPopupRootCause.value,
                 orElse: () => LabelValue(value: "0"))
@@ -483,8 +456,6 @@ class CreateFailureController extends GetxController {
   }
 
   void addToTempActionTakens() {
-    if (selectedPopupActionTaken.value == null &&
-        popupActionTakenTextController.text.isEmpty) return;
     final actionTakenId = actionTakenList
             .firstWhere((e) => e.label == selectedPopupActionTaken.value,
                 orElse: () => LabelValue(value: "0"))
@@ -761,6 +732,71 @@ class CreateFailureController extends GetxController {
 
   final editingJointInspectionIndex = (-1).obs;
 
+  int _resolveNotificationId() {
+    if (notificationId.value > 0) return notificationId.value;
+    return int.tryParse(encryptedId.value) ?? 0;
+  }
+
+  void _parseJointInspectionHistoryFromResponse(dynamic historyJson) {
+    if (historyJson is List && historyJson.isNotEmpty) {
+      _updateJointInspectionList(historyJson);
+    }
+  }
+
+  List<Map<String, dynamic>> _jointInspectionHistoryForSubmit() {
+    final notifId = _resolveNotificationId();
+    return jointInspectionHistoryList
+        .map((item) => {
+              "JIId": item['jiId'] ?? 0,
+              "Remark": item['remark'] ?? "",
+              "AssignedTo": item['assignedToId']?.toString() ?? "0",
+              "DeptId": item['deptId']?.toString() ?? "0",
+              "NotificationId": notifId,
+              "CreatedBy": item['createdBy'] ?? 0,
+              "Type": item['type'] ?? "AddNewJointInspection",
+              "CreatedByName": item['createdByName'] ?? "",
+            })
+        .toList();
+  }
+
+  Future<void> fetchJointInspectionHistory() async {
+    final notifId = _resolveNotificationId();
+    if (notifId <= 0) return;
+
+    try {
+      final userName = Get.find<SessionController>().userName.value.isNotEmpty
+          ? Get.find<SessionController>().userName.value
+          : "User";
+      final body = {
+        "Type": "GetJoinInspectionHistory",
+        "NotificationId": notifId,
+        "CreatedByName": userName,
+      };
+      final token = await AuthManager().getToken();
+      final headers = <String, String>{
+        'accept': 'application/json',
+        if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+      };
+      final fields = {"JoinInspectionHistory": jsonEncode(body)};
+      final response = await _apiClient.postMultipart(
+        AppUrls.addUpdateDeleteJointInspection,
+        headers: headers,
+        fields: fields,
+      );
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonBody = jsonDecode(response.body);
+        if (jsonBody['responseCode'] == 200) {
+          final output = jsonBody['responseOutput'] as List?;
+          if (output != null) {
+            _updateJointInspectionList(output);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint("fetchJointInspectionHistory error: $e");
+    }
+  }
+
   void editJointInspection(int index) {
     editingJointInspectionIndex.value = index;
     final item = jointInspectionHistoryList[index];
@@ -783,10 +819,23 @@ class CreateFailureController extends GetxController {
   }
 
   Future<void> addJointInspectionHistory() async {
-    if (selectedJointDept.value == null ||
-        selectedJointAssignTo.value == null) {
+    // Check if department is already in joint inspection
+    final dept = jointInspectionDepartments.firstWhere(
+      (e) => e.label == selectedJointDept.value,
+      orElse: () => LabelValue(value: "0"),
+    );
+    final existingDept = jointInspectionHistoryList.any((item) =>
+      item['department']?.toString() == selectedJointDept.value ||
+      item['deptId']?.toString() == dept.value
+    );
+    if (existingDept) {
       Get.snackbar(
-          "Validation Error", "Department and Assign To are required.");
+        'Validation Error',
+        'Department ${selectedJointDept.value} is already in inspection',
+        backgroundColor: Colors.red.withOpacity(0.9),
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
       return;
     }
 
@@ -807,7 +856,15 @@ class CreateFailureController extends GetxController {
         orElse: () => LabelValue(value: "0"),
       );
 
-      final notifId = int.tryParse(encryptedId.value) ?? 0;
+      final notifId = _resolveNotificationId();
+      if (notifId <= 0) {
+        EasyLoading.dismiss();
+        Get.snackbar(
+          "Validation Error",
+          "Unable to resolve Notification Id. Please reload the failure details and try again.",
+        );
+        return;
+      }
 
       final body = {
         "JIId": 0,
@@ -825,6 +882,8 @@ class CreateFailureController extends GetxController {
         if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
       };
       final fields = {"JoinInspectionHistory": jsonEncode(body)};
+      debugPrint(
+          "addUpdateDeleteJointInspection fields=={JoinInspectionHistory: ${jsonEncode(body)}}");
 
       final response = await _apiClient.postMultipart(
           AppUrls.addUpdateDeleteJointInspection,
@@ -855,12 +914,6 @@ class CreateFailureController extends GetxController {
 
   Future<void> updateJointInspectionHistory() async {
     if (editingJointInspectionIndex.value < 0) return;
-    if (selectedJointDept.value == null ||
-        selectedJointAssignTo.value == null) {
-      Get.snackbar(
-          "Validation Error", "Department and Assign To are required.");
-      return;
-    }
 
     try {
       EasyLoading.show(status: 'Updating...');
@@ -879,7 +932,7 @@ class CreateFailureController extends GetxController {
         orElse: () => LabelValue(value: "0"),
       );
 
-      final notifId = int.tryParse(encryptedId.value) ?? 0;
+      final notifId = _resolveNotificationId();
       final currentItem =
           jointInspectionHistoryList[editingJointInspectionIndex.value];
       final jiId = currentItem['jiId'] ?? 0;
@@ -948,6 +1001,10 @@ class CreateFailureController extends GetxController {
               'status': e['statusName'],
               'deptId': e['deptId']?.toString(),
               'assignedToId': e['assignedTo']?.toString(),
+              'notificationId': e['notificationId'],
+              'createdBy': e['createdBy'],
+              'createdByName': e['createdByName'],
+              'type': e['type'],
             })
         .toList());
   }
@@ -977,7 +1034,7 @@ class CreateFailureController extends GetxController {
       final userName = Get.find<SessionController>().userName.value.isNotEmpty
           ? Get.find<SessionController>().userName.value
           : "User";
-      final notifId = int.tryParse(encryptedId.value) ?? 0;
+      final notifId = _resolveNotificationId();
       final currentItem = jointInspectionHistoryList[index];
       final jiId = currentItem['jiId'] ?? 0;
 
@@ -1032,8 +1089,116 @@ class CreateFailureController extends GetxController {
   final selectedStationName = Rxn<String>();
 
   Future<void> fetchAndShowStationPopup() async {
+    isPopupStationLoading.value = true;
+    
+    Get.dialog(
+      WillPopScope(
+        onWillPop: () async => false,
+        child: Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 8,
+          backgroundColor: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.white1,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.textColor4,
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(15),
+            child: Obx(() {
+              if (isPopupStationLoading.value) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CustLoader(),
+                    const SizedBox(height: 16),
+                    const Text("Fetching stations...", style: TextStyle(color: AppColors.textColor3)),
+                  ],
+                );
+              }
+              
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: GestureDetector(
+                      onTap: () {
+                        Get.back();
+                        Get.back();
+                      },
+                      child: const Icon(TablerIcons.x, color: AppColors.textColor, size: 24),
+                    ),
+                  ),
+                  CustText(name: "Select Station", size: AppConstants.HeaderSize, color: AppColors.textColor7, fontWeightName: FontWeight.w600),
+                  const SizedBox(height: 16),
+                  CustDropdown(
+                    label: "Station",
+                    hint: "Select Station",
+                    items: popupStationList
+                        .map((e) => e.label ?? '')
+                        .toList(),
+                    selectedValue: selectedStationName.value,
+                    onChanged: (val) {
+                      selectedStationName.value = val;
+                      selectedStationId.value = popupStationList
+                          .firstWhere((e) => e.label == val,
+                              orElse: () => LabelValue(value: "0"))
+                          .value;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CustOutlineButton(
+                          name: "Cancel",
+                          size: double.infinity,
+                          sHeight: 35,
+                          onSelected: (_) {
+                            Get.back();
+                            Get.back();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: CustButton(
+                          name: "OK",
+                          size: double.infinity,
+                          sHeight: 35,
+                          onSelected: (_) {
+                            if (selectedStationName.value != null && selectedStationName.value!.isNotEmpty) {
+                              Get.back();
+                            } else {
+                              Get.snackbar("Error", "Please select a station",
+                                backgroundColor: Colors.red.withOpacity(0.9),
+                                colorText: Colors.white,
+                                snackPosition: SnackPosition.BOTTOM,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            }),
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
     try {
-      isPopupStationLoading.value = true;
       final userId = await AuthManager().getUserId() ?? "1";
       final response = await _apiClient
           .get("${AppUrls.getStationName}?AssgineUserId=$userId");
@@ -1049,64 +1214,6 @@ class CreateFailureController extends GetxController {
                     value: e['value']?.toString() ?? '',
                   ))
               .toList());
-
-          Get.dialog(
-            Dialog(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      "Select Station",
-                      style:
-                          TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 16),
-                    Obx(() => CustDropdown(
-                          label: "Station",
-                          hint: "Select Station",
-                          items: popupStationList
-                              .map((e) => e.label ?? '')
-                              .toList(),
-                          selectedValue: selectedStationName.value,
-                          onChanged: (val) {
-                            selectedStationName.value = val;
-                            selectedStationId.value = popupStationList
-                                .firstWhere((e) => e.label == val,
-                                    orElse: () => LabelValue(value: "0"))
-                                .value;
-                          },
-                        )),
-                    const SizedBox(height: 24),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        TextButton(
-                          onPressed: () => Get.back(),
-                          child: const Text("Cancel"),
-                        ),
-                        ElevatedButton(
-                          onPressed: () {
-                            if (selectedStationName.value != null) {
-                              Get.back();
-                            } else {
-                              Get.snackbar("Error", "Please select a station");
-                            }
-                          },
-                          child: const Text("OK"),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            barrierDismissible: false,
-          );
         }
       }
     } catch (e) {
@@ -1118,6 +1225,7 @@ class CreateFailureController extends GetxController {
 
   Future<void> loadJointInspectionDetails(String failureNo) async {
     encryptedId.value = failureNo;
+    notificationId.value = 0;
     jointInspectionFailureNo.value = "";
     try {
       isLoading.value = true;
@@ -1203,6 +1311,8 @@ class CreateFailureController extends GetxController {
             final detailFailureNo = je['Id']?.toString().trim();
             final detailNotificationId =
                 je['notificationId']?.toString().trim();
+            notificationId.value =
+                int.tryParse(detailNotificationId ?? "") ?? 0;
             jointInspectionFailureNo.value =
                 je['failureNo']?.toString().trim().isNotEmpty == true
                     ? je['failureNo'].toString().trim()
@@ -1226,7 +1336,7 @@ class CreateFailureController extends GetxController {
 
             selectedLocation.value = je['locationTypeName']?.toString();
             selectedFunctionalLocation.value =
-                je['functionalLocationName']?.toString();
+                je['funcLocation']?.toString();
             selectedEquipmentNumber.value = je['equipmentName']?.toString();
             locationDisplayController.text = selectedLocation.value ?? "";
             functionalLocationDisplayController.text =
@@ -1493,9 +1603,12 @@ class CreateFailureController extends GetxController {
 
   Future<void> loadFailureDetails(String failureNo) async {
     encryptedId.value = failureNo;
+    notificationId.value = 0;
+    jointInspectionHistoryList.clear();
     try {
       isLoading.value = true;
       errorMessage.value = "";
+      await _loadMasterDataFromDb();
 
       final String? userIdStr = await AuthManager().getUserId();
       final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
@@ -1529,6 +1642,7 @@ class CreateFailureController extends GetxController {
           }).toList());
           storageLocationList.assignAll(output.getStorageLocation ?? []);
           faultTypeList.assignAll(output.getFaultData ?? []);
+          _mergeLocationDropdownsFromOutput(output);
 
           final List<dynamic>? historyListJson =
               jsonBody['getNotificationHistory'] as List? ??
@@ -1552,42 +1666,13 @@ class CreateFailureController extends GetxController {
             encryptedId.value = (model.id != null && model.id!.isNotEmpty)
                 ? model.id!
                 : failureNo;
+            notificationId.value = model.notificationId ?? 0;
             notificationCode.value = model.notificationCode ?? "";
             if (model.category != null && model.category!.trim().isNotEmpty) {
               failureCategory.value = model.category!.trim();
             }
 
-            if (model.functionLocationId != null &&
-                model.locationTypeId != null) {
-              final locMatched = locationTypeList.firstWhere(
-                  (e) =>
-                      e.value?.toString().trim() ==
-                      model.locationTypeId.toString().trim(),
-                  orElse: () => LabelValue(label: null));
-              if (locMatched.label != null) {
-                onLocationChanged(locMatched.label);
-              }
-
-              final funcMatched = functionalLocationList.firstWhere(
-                  (e) =>
-                      e.value?.toString().trim() ==
-                      model.functionLocationId.toString().trim(),
-                  orElse: () => LabelValue(label: null));
-              if (funcMatched.label != null) {
-                onFunctionalLocationChanged(funcMatched.label);
-              }
-
-              if (model.equipmentId != null) {
-                final equipMatched = equipmentList.firstWhere(
-                    (e) =>
-                        e.value?.toString().trim() ==
-                        model.equipmentId.toString().trim(),
-                    orElse: () => LabelValue(label: null));
-                if (equipMatched.label != null) {
-                  onEquipmentChanged(equipMatched.label);
-                }
-              }
-            }
+            _applyLocationSelectionsFromModel(model, output: output);
 
             subLocationController.text = model.locationFailure ?? "";
 
@@ -1611,14 +1696,6 @@ class CreateFailureController extends GetxController {
                 (e) => e.value == model.userStatus.toString(),
                 orElse: () => LabelValue(label: null));
             selectedUserStatus.value = matchedUserStatus?.label;
-
-            selectedLocation.value = masterLocations
-                .firstWhere(
-                    (e) =>
-                        e['locationTypeId']?.toString() ==
-                        model.locationTypeId.toString(),
-                    orElse: () => <String, dynamic>{})['locationName']
-                ?.toString();
 
             if (model.assignedUserId != null) {
               final matchedUser = userList.firstWhere(
@@ -1770,10 +1847,6 @@ class CreateFailureController extends GetxController {
                 model.noofTrainDeboarded?.toString() ?? "";
             _applyPassengerAffectedFromModel(model);
 
-            // Location details
-            subLocationController.text = model.locationFailure ?? "";
-            selectedFunctionalLocation.value = model.funcDescription;
-
             // Dates
             selectedFailureOccurrenceDate.value =
                 model.actualFailureOccuranceOn != null
@@ -1884,6 +1957,18 @@ class CreateFailureController extends GetxController {
                 });
               }
             }
+          }
+
+          final Map<String, dynamic>? outputJson =
+              jsonBody['responseOutput'] as Map<String, dynamic>?;
+          final dynamic jiHistoryJson = outputJson?['getJoinInspectionHistory'] ??
+              outputJson?['joinInspectionHistory'] ??
+              outputJson?['getJointInspectionHistory'] ??
+              outputJson?['JoinInspectionHistory'];
+          if (jiHistoryJson != null) {
+            _parseJointInspectionHistoryFromResponse(jiHistoryJson);
+          } else if (notificationId.value > 0) {
+            await fetchJointInspectionHistory();
           }
         } else {
           errorMessage.value =
@@ -2034,6 +2119,63 @@ class CreateFailureController extends GetxController {
 
   Future<void> updateStationFailureDetails(String id) async {
     try {
+      List<String> errors = [];
+
+
+      if (selectedPriority.value == null || selectedPriority.value!.isEmpty || selectedPriority.value == 'Select') {
+        errors.add("Priority is required.");
+      }
+      if (selectedDepartment.value == null || selectedDepartment.value!.isEmpty || selectedDepartment.value == 'Select') {
+        errors.add("Department is required.");
+      }
+      final description = failureDescriptionController.text.trim();
+      if (description.isEmpty) errors.add("Failure Description is required.");
+
+      if (selectedLocation.value == null || selectedLocation.value!.isEmpty || selectedLocation.value == 'Select') {
+        errors.add("Location is required.");
+      }
+      if (selectedFunctionalLocation.value == null || selectedFunctionalLocation.value!.isEmpty || selectedFunctionalLocation.value == 'Select') {
+        errors.add("Functional Location is required.");
+      }
+      if (selectedFailureOccurrenceDate.value == null) {
+        errors.add("Actual Failure Occurrence is required.");
+      }
+      if (selectedFailureCategoryType.value == null || selectedFailureCategoryType.value!.isEmpty || selectedFailureCategoryType.value == 'Select') {
+        errors.add("Failure Category Type is required.");
+      }
+      if (selectedNotificationType.value == null || selectedNotificationType.value!.isEmpty || selectedNotificationType.value == 'Select') {
+        errors.add("Notification Type is required.");
+      }
+
+      if (isServiceAffected.value) {
+        if (tripDelayUplineController.text.trim().isEmpty) errors.add("Trip Delay Upline is required.");
+        if (tripDelayDownlineController.text.trim().isEmpty) errors.add("Trip Delay Downline is required.");
+        if (trainCancelNosController.text.trim().isEmpty) errors.add("Train Cancel Nos is required.");
+        if (trainDelayMinController.text.trim().isEmpty) errors.add("Train Delay (Min) is required.");
+        if (trainWithdrawalNosController.text.trim().isEmpty) errors.add("Train Withdrawal Nos is required.");
+        if (trainReplaceNosController.text.trim().isEmpty) errors.add("Train Replace Nos is required.");
+      }
+
+      if (isPassengerDeboarding.value) {
+        if (trainDeboardedNosController.text.trim().isEmpty) errors.add("Train Deboarded Nos is required.");
+      }
+
+      if (isPtwRequired.value) {
+        if (ptwNumberController.text.trim().isEmpty) errors.add("PTW Number is required.");
+      }
+
+      if (errors.isNotEmpty) {
+        Get.snackbar(
+          'Validation Error',
+          errors.first,
+          backgroundColor: Colors.red.withOpacity(0.9),
+          colorText: Colors.white,
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 3),
+        );
+        return;
+      }
+
       isLoading.value = true;
       errorMessage.value = "";
 
@@ -2200,6 +2342,142 @@ class CreateFailureController extends GetxController {
       debugPrint("Error fetching Joint Inspection users: $e");
     } finally {
       isJointUserLoading.value = false;
+    }
+  }
+
+  void _ensureDropdownOption(
+      RxList<LabelValue> list, String label, String value) {
+    if (label.trim().isEmpty) return;
+    if (!list.any((e) => e.label?.trim() == label.trim())) {
+      list.add(LabelValue(label: label.trim(), value: value));
+    }
+  }
+
+  void _mergeLocationDropdownsFromOutput(FailureDetailOutput output) {
+    final locs = output.getLocationTypeList;
+    if (locs != null && locs.isNotEmpty) {
+      locationTypeList.assignAll([
+        LabelValue(label: 'Select', value: ''),
+        ...locs.where((e) => e.label?.trim().isNotEmpty == true),
+      ]);
+    }
+
+    final funcs = output.getFunctionalLocationList;
+    if (funcs != null && funcs.isNotEmpty) {
+      functionalLocationList.assignAll([
+        LabelValue(label: 'Select', value: ''),
+        ...funcs.where((e) => e.label?.trim().isNotEmpty == true),
+      ]);
+    }
+
+    final equips = output.getEquipmentList ?? output.getEquipmentDetails;
+    if (equips != null && equips.isNotEmpty) {
+      equipmentList.assignAll([
+        LabelValue(label: 'Select', value: ''),
+        ...equips.where((e) => e.label?.trim().isNotEmpty == true),
+      ]);
+    }
+  }
+
+  String? _labelFromValueList(List<LabelValue>? list, int? id) {
+    if (list == null || id == null) return null;
+    for (final item in list) {
+      if (item.value?.toString() == id.toString()) {
+        return item.label;
+      }
+    }
+    return null;
+  }
+
+  String? _masterLocationName(int? locationTypeId) {
+    if (locationTypeId == null) return null;
+    for (final item in masterLocations) {
+      if (item['locationTypeId']?.toString() == locationTypeId.toString()) {
+        return item['locationName']?.toString();
+      }
+    }
+    return null;
+  }
+
+  String? _masterFunctionalLocationName(int? functionLocationId) {
+    if (functionLocationId == null) return null;
+    for (final item in masterFunctionalLocations) {
+      final idText = functionLocationId.toString();
+      if (item['funcLocId']?.toString() == idText ||
+          item['functionLocationId']?.toString() == idText) {
+        return item['funcLocationName']?.toString();
+      }
+    }
+    return null;
+  }
+
+  String? _masterEquipmentName(int? equipmentId) {
+    if (equipmentId == null) return null;
+    for (final item in masterEquipments) {
+      final idText = equipmentId.toString();
+      if (item['equipId']?.toString() == idText ||
+          item['equipmentId']?.toString() == idText) {
+        return item['equipmentName']?.toString();
+      }
+    }
+    return null;
+  }
+
+  void _applyLocationSelectionsFromModel(
+    CreateVMModel model, {
+    FailureDetailOutput? output,
+  }) {
+    String? locationName = model.locationName?.trim();
+    String? funcLocation =
+        (model.funcLocation ?? model.funcDescription)?.trim();
+    String? equipmentName = model.equipmentName?.trim();
+
+    locationName ??= _labelFromValueList(
+      output?.getLocationTypeList,
+      model.locationTypeId,
+    );
+    locationName ??= _masterLocationName(model.locationTypeId);
+
+    funcLocation ??= _labelFromValueList(
+      output?.getFunctionalLocationList,
+      model.functionLocationId,
+    );
+    funcLocation ??= _masterFunctionalLocationName(model.functionLocationId);
+
+    equipmentName ??= _labelFromValueList(
+      output?.getEquipmentList ?? output?.getEquipmentDetails,
+      model.equipmentId,
+    );
+    equipmentName ??= _masterEquipmentName(model.equipmentId);
+
+    if (locationName != null && locationName.isNotEmpty) {
+      _ensureDropdownOption(
+        locationTypeList,
+        locationName,
+        model.locationTypeId?.toString() ?? '',
+      );
+      selectedLocation.value = locationName;
+      locationDisplayController.text = locationName;
+    }
+
+    if (funcLocation != null && funcLocation.isNotEmpty) {
+      _ensureDropdownOption(
+        functionalLocationList,
+        funcLocation,
+        model.functionLocationId?.toString() ?? '',
+      );
+      selectedFunctionalLocation.value = funcLocation;
+      functionalLocationDisplayController.text = funcLocation;
+    }
+
+    if (equipmentName != null && equipmentName.isNotEmpty) {
+      _ensureDropdownOption(
+        equipmentList,
+        equipmentName,
+        model.equipmentId?.toString() ?? '',
+      );
+      selectedEquipmentNumber.value = equipmentName;
+      equipmentDisplayController.text = equipmentName;
     }
   }
 
@@ -2647,58 +2925,60 @@ class CreateFailureController extends GetxController {
       return;
     }
 
+    List<String> errors = [];
+
+
+    if (selectedPriority.value == null || selectedPriority.value!.isEmpty || selectedPriority.value == 'Select') {
+      errors.add("Priority is required.");
+    }
+    if (selectedDepartment.value == null || selectedDepartment.value!.isEmpty || selectedDepartment.value == 'Select') {
+      errors.add("Department is required.");
+    }
     final description = failureDescriptionController.text.trim();
-    if (description.isEmpty) {
+    if (description.isEmpty) errors.add("Failure Description is required.");
+
+    if (selectedLocation.value == null || selectedLocation.value!.isEmpty || selectedLocation.value == 'Select') {
+      errors.add("Location is required.");
+    }
+    if (selectedFunctionalLocation.value == null || selectedFunctionalLocation.value!.isEmpty || selectedFunctionalLocation.value == 'Select') {
+      errors.add("Functional Location is required.");
+    }
+    if (selectedFailureOccurrenceDate.value == null) {
+      errors.add("Actual Failure Occurrence is required.");
+    }
+    if (selectedFailureCategoryType.value == null || selectedFailureCategoryType.value!.isEmpty || selectedFailureCategoryType.value == 'Select') {
+      errors.add("Failure Category Type is required.");
+    }
+    if (selectedNotificationType.value == null || selectedNotificationType.value!.isEmpty || selectedNotificationType.value == 'Select') {
+      errors.add("Notification Type is required.");
+    }
+
+    if (isServiceAffected.value) {
+      if (tripDelayUplineController.text.trim().isEmpty) errors.add("Trip Delay Upline is required.");
+      if (tripDelayDownlineController.text.trim().isEmpty) errors.add("Trip Delay Downline is required.");
+      if (trainCancelNosController.text.trim().isEmpty) errors.add("Train Cancel Nos is required.");
+      if (trainDelayMinController.text.trim().isEmpty) errors.add("Train Delay (Min) is required.");
+      if (trainWithdrawalNosController.text.trim().isEmpty) errors.add("Train Withdrawal Nos is required.");
+      if (trainReplaceNosController.text.trim().isEmpty) errors.add("Train Replace Nos is required.");
+    }
+
+    if (isPassengerDeboarding.value) {
+      if (trainDeboardedNosController.text.trim().isEmpty) errors.add("Train Deboarded Nos is required.");
+    }
+
+    if (isPtwRequired.value) {
+      if (ptwNumberController.text.trim().isEmpty) errors.add("PTW Number is required.");
+    }
+
+    if (errors.isNotEmpty) {
       Get.snackbar(
-        "Validation Error",
-        "Failure Description is required.",
+        'Validation Error',
+        errors.first,
         backgroundColor: Colors.red.withOpacity(0.9),
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 3),
       );
-      return;
-    }
-    if (selectedPriority.value == null ||
-        selectedPriority.value!.isEmpty ||
-        selectedPriority.value == 'Select') {
-      Get.snackbar("Validation Error", "Priority is required.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM);
-      return;
-    }
-    if (selectedDepartment.value == null ||
-        selectedDepartment.value!.isEmpty ||
-        selectedDepartment.value == 'Select') {
-      Get.snackbar("Validation Error", "Department is required.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM);
-      return;
-    }
-    if (selectedLocation.value == null ||
-        selectedLocation.value!.isEmpty ||
-        selectedLocation.value == 'Select') {
-      Get.snackbar("Validation Error", "Location is required.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM);
-      return;
-    }
-    if (selectedFailureOccurrenceDate.value == null) {
-      Get.snackbar("Validation Error", "Actual Failure Occurrence is required.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM);
-      return;
-    }
-    if (selectedFailureCategoryType.value == null ||
-        selectedFailureCategoryType.value!.isEmpty ||
-        selectedFailureCategoryType.value == 'Select') {
-      Get.snackbar("Validation Error", "Failure Category Type is required.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM);
       return;
     }
 
@@ -2857,15 +3137,10 @@ class CreateFailureController extends GetxController {
 
   Future<void> updateFailure() async {
     try {
+      List<String> errors = [];
+
       if (failureRectificationDetailsController.text.trim().isEmpty) {
-        Get.snackbar(
-          "Validation Error",
-          "Failure Rectification Details is required.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM,
-        );
-        return;
+        errors.add("Failure Rectification Details is required.");
       }
 
       if (isCloseUserStatusBlocked &&
@@ -2874,110 +3149,88 @@ class CreateFailureController extends GetxController {
         return;
       }
 
-      // 2. Under Observation Date Compulsory if status is "Under Observation"
+      if (selectedNotificationType.value == null || selectedNotificationType.value!.isEmpty || selectedNotificationType.value == 'Select') {
+        errors.add("Notification Type is required.");
+      }
+
+      if (isTripAffected.value) {
+        if (tripDelayUplineController.text.trim().isEmpty) errors.add("Trip Delay Upline is required.");
+        if (tripDelayDownlineController.text.trim().isEmpty) errors.add("Trip Delay Downline is required.");
+        if (trainCancelNosController.text.trim().isEmpty) errors.add("Train Cancel Nos is required.");
+        if (trainDelayMinController.text.trim().isEmpty) errors.add("Train Delay (Min) is required.");
+        if (trainWithdrawalNosController.text.trim().isEmpty) errors.add("Train Withdrawal Nos is required.");
+        if (trainReplaceNosController.text.trim().isEmpty) errors.add("Train Replace Nos is required.");
+      }
+
+      if (isPassengerDeboarding.value) {
+        if (trainDeboardedNosController.text.trim().isEmpty) errors.add("Train Deboarded Nos is required.");
+      }
+
+      if (isPtwRequired.value) {
+        if (ptwNumberController.text.trim().isEmpty) errors.add("PTW Number is required.");
+      }
+
       if (selectedUserStatus.value == "Under Observation") {
         if (selectedUnderObservationDate.value == null) {
-          Get.snackbar(
-            "Validation Error",
-            "Under Observation Date is required when status is 'Under Observation'.",
-            backgroundColor: Colors.red.withOpacity(0.9),
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-          );
-          return;
+          errors.add("Under Observation Date is required when status is 'Under Observation'.");
         }
       }
 
-      // 3. Used Quantity Fields Compulsory
       if (isSparePartReplaced.value) {
         if (replacedMaterialsList.isEmpty) {
-          Get.snackbar(
-            "Validation Error",
-            "Please add at least one Replaced Material since 'Spare Part Replaced' is enabled.",
-            backgroundColor: Colors.red.withOpacity(0.9),
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-          );
-          return;
-        }
-        for (var mat in replacedMaterialsList) {
-          final usedQtyStr = mat['usedQty']?.toString().trim() ?? "";
-          if (usedQtyStr.isEmpty) {
-            Get.snackbar(
-              "Validation Error",
-              "Used Quantity is required for all replaced materials.",
-              backgroundColor: Colors.red.withOpacity(0.9),
-              colorText: Colors.white,
-              snackPosition: SnackPosition.BOTTOM,
-            );
-            return;
+          errors.add("Please add at least one Replaced Material since 'Spare Part Replaced' is enabled.");
+        } else {
+          for (var mat in replacedMaterialsList) {
+            final usedQtyStr = mat['usedQty']?.toString().trim() ?? "";
+            if (usedQtyStr.isEmpty) {
+              errors.add("Used Quantity is required for all replaced materials.");
+              break;
+            }
           }
         }
       }
 
-      // 4. RCA Fields Compulsory
       if (isRcaRequired.value) {
         if (rcaDetailsList.isEmpty) {
-          Get.snackbar(
-            "Validation Error",
-            "Please add at least one RCA detail.",
-            backgroundColor: Colors.red.withOpacity(0.9),
-            colorText: Colors.white,
-            snackPosition: SnackPosition.BOTTOM,
-          );
-          return;
-        }
-        for (var rca in rcaDetailsList) {
-          final objPart = rca['objectPart']?.toString().trim() ?? "";
-          final objPartText = rca['objectPartText']?.toString().trim() ?? "";
-          final fault = rca['fault']?.toString().trim() ?? "";
-          final faultText = rca['faultText']?.toString().trim() ?? "";
+          errors.add("Please add at least one RCA detail.");
+        } else {
+          for (int i = 0; i < rcaDetailsList.length; i++) {
+            var rca = rcaDetailsList[i];
+            final objPart = rca['objectPart']?.toString().trim() ?? "";
+            final objPartText = rca['objectPartText']?.toString().trim() ?? "";
+            final fault = rca['fault']?.toString().trim() ?? "";
+            final faultText = rca['faultText']?.toString().trim() ?? "";
 
-          if (objPart.isEmpty && objPartText.isEmpty) {
-            Get.snackbar(
-              "Validation Error",
-              "Object Part is required in RCA details.",
-              backgroundColor: Colors.red.withOpacity(0.9),
-              colorText: Colors.white,
-              snackPosition: SnackPosition.BOTTOM,
-            );
-            return;
-          }
-          if (fault.isEmpty && faultText.isEmpty) {
-            Get.snackbar(
-              "Validation Error",
-              "Fault is required in RCA details.",
-              backgroundColor: Colors.red.withOpacity(0.9),
-              colorText: Colors.white,
-              snackPosition: SnackPosition.BOTTOM,
-            );
-            return;
-          }
+            if (objPart.isEmpty && objPartText.isEmpty) {
+              errors.add("Object Part is required in RCA item ${i + 1}.");
+            }
+            if (fault.isEmpty && faultText.isEmpty) {
+              errors.add("Fault is required in RCA item ${i + 1}.");
+            }
 
-          final List rootCauses = rca['rootCauses'] ?? [];
-          final List actionTakens = rca['actionTakens'] ?? [];
+            final List rootCauses = rca['rootCauses'] ?? [];
+            final List actionTakens = rca['actionTakens'] ?? [];
 
-          if (rootCauses.isEmpty) {
-            Get.snackbar(
-              "Validation Error",
-              "At least one Root Cause is required in RCA details.",
-              backgroundColor: Colors.red.withOpacity(0.9),
-              colorText: Colors.white,
-              snackPosition: SnackPosition.BOTTOM,
-            );
-            return;
-          }
-          if (actionTakens.isEmpty) {
-            Get.snackbar(
-              "Validation Error",
-              "At least one Action Taken is required in RCA details.",
-              backgroundColor: Colors.red.withOpacity(0.9),
-              colorText: Colors.white,
-              snackPosition: SnackPosition.BOTTOM,
-            );
-            return;
+            if (rootCauses.isEmpty) {
+              errors.add("At least one Root Cause is required in RCA item ${i + 1}.");
+            }
+            if (actionTakens.isEmpty) {
+              errors.add("At least one Action Taken is required in RCA item ${i + 1}.");
+            }
           }
         }
+      }
+
+      if (errors.isNotEmpty) {
+        Get.snackbar(
+          'Validation Error',
+          errors.first,
+          backgroundColor: Colors.red.withOpacity(0.9),
+          colorText: Colors.white,
+          snackPosition: SnackPosition.BOTTOM,
+          duration: const Duration(seconds: 3),
+        );
+        return;
       }
 
       // --- END OF VALIDATION ---
@@ -3153,6 +3406,9 @@ class CreateFailureController extends GetxController {
                       num.tryParse(e['afterReading']?.toString() ?? "") ?? 0
                 })
             .toList(),
+        "joinInspectionHistory": isJointInspection.value
+            ? _jointInspectionHistoryForSubmit()
+            : <Map<String, dynamic>>[],
         "materialDismantleDetails": isMaterialDismantle.value
             ? dismantleMaterialsList.map((e) {
                 final recordId = _materialRecordId(e);
@@ -3213,7 +3469,7 @@ class CreateFailureController extends GetxController {
       EasyLoading.dismiss();
       if (response.statusCode == 200) {
         Get.back();
-        Get.snackbar("Success", "Failure updated successfully");
+        Get.snackbar("Success", "Failure updated successfully",backgroundColor: Colors.green, colorText: Colors.white);
       } else {
         print("response==+${response.body}");
         Get.snackbar("Error", "Failed to update failure: ${response.body}");

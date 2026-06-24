@@ -8,6 +8,21 @@ import 'feature/tabs/view/home_screen.dart';
 import 'service/auth_manager.dart';
 import 'service/session_controller.dart';
 
+void configLoading() {
+  EasyLoading.instance
+    ..indicatorType = EasyLoadingIndicatorType.circle
+    ..loadingStyle = EasyLoadingStyle.custom
+    ..indicatorSize = 40.0
+    ..radius = 10.0
+    ..progressColor = AppColors.orangeColor
+    ..backgroundColor = Colors.white
+    ..indicatorColor = AppColors.orangeColor
+    ..textColor = AppColors.orangeColor
+    ..maskColor = Colors.black.withOpacity(0.5)
+    ..userInteractions = false
+    ..dismissOnTap = false;
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   
@@ -21,6 +36,8 @@ void main() async {
     await Get.find<SessionController>().loadSessionData();
     initialRoute = const  HomeScreen();
   }
+  
+  configLoading();
   
   runApp(MyApp(initialRoute: initialRoute));
 }

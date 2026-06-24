@@ -11,6 +11,7 @@ import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../utils/widgets/cust_dropdown.dart';
+import '../../../utils/widgets/cust_section.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/cust_toggle.dart';
@@ -27,15 +28,51 @@ class CreateFailureScreen extends StatefulWidget {
   final String? notificationCode;
   final bool isUpdate;
   final bool isFromJointInspection;
-  const CreateFailureScreen({Key? key, this.failureType = "Maintenance", this.failureNo,this.notificationCode, this.isUpdate = false, this.isFromJointInspection = false}) : super(key: key);
+
+  const CreateFailureScreen(
+      {Key? key,
+      this.failureType = "Maintenance",
+      this.failureNo,
+      this.notificationCode,
+      this.isUpdate = false,
+      this.isFromJointInspection = false})
+      : super(key: key);
 
   @override
   _CreateFailureScreenState createState() => _CreateFailureScreenState();
 }
 
-class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTickerProviderStateMixin {
+class _CreateFailureScreenState extends State<CreateFailureScreen>
+    with SingleTickerProviderStateMixin {
   late final CreateFailureController controller;
   final _formKey = GlobalKey<FormState>();
+  final _formBottomKey = GlobalKey<FormState>();
+  final _rcaFormKey = GlobalKey<FormState>();
+  final _jointInspectionFormKey = GlobalKey<FormState>();
+  final _sparePartFormKey = GlobalKey<FormState>();
+  final _dismantleFormKey = GlobalKey<FormState>();
+  final _rcaRootCausePopupFormKey = GlobalKey<FormState>();
+  final _rcaActionPopupFormKey = GlobalKey<FormState>();
+
+  String? _requiredDropdown(String? value, String label) {
+    if (value == null || value.trim().isEmpty || value == 'Select') {
+      return '$label is required';
+    }
+    return null;
+  }
+
+  String? _requiredText(String? value, String label) {
+    if (value == null || value.trim().isEmpty) {
+      return '$label is required';
+    }
+    return null;
+  }
+
+  bool _validateForm(GlobalKey<FormState> key) =>
+      key.currentState?.validate() ?? false;
+
+  bool _validateSubmitForms() =>
+      _validateForm(_formKey) && _validateForm(_formBottomKey);
 
   @override
   void initState() {
@@ -50,7 +87,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
     if (widget.failureNo != null) {
       if (widget.isFromJointInspection) {
         controller.loadJointInspectionDetails(widget.failureNo!);
-      } else if (widget.failureType == 'Station' && controller.isStationController) {
+      } else if (widget.failureType == 'Station' &&
+          controller.isStationController) {
         controller.loadStationFailureDetails(widget.failureNo!);
       } else {
         controller.loadFailureDetails(widget.failureNo!);
@@ -76,13 +114,19 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   }
 
   /// Station Controller create only.
-  bool get _isStationCreate => widget.failureType == 'Station' && widget.failureNo == null;
+  bool get _isStationCreate =>
+      widget.failureType == 'Station' && widget.failureNo == null;
 
   /// Station Controller view (read-only for existing station failure).
-  bool get _isStationControllerView => widget.failureType == 'Station' && widget.failureNo != null && controller.isStationController && !widget.isUpdate;
+  bool get _isStationControllerView =>
+      widget.failureType == 'Station' &&
+      widget.failureNo != null &&
+      controller.isStationController &&
+      !widget.isUpdate;
 
   /// JE Change Notification — Maintenance, Station, OCC, Depot (existing failure).
-  bool get _isJeChangeNotification => widget.failureNo != null && !_isStationControllerView;
+  bool get _isJeChangeNotification =>
+      widget.failureNo != null && !_isStationControllerView;
 
   bool get _isJointInspectionFlow =>
       widget.isFromJointInspection || controller.isFromJointInspection.value;
@@ -105,79 +149,131 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  CustText.body("Measurement Reading", fontWeightName: FontWeight.bold),
-                  IconButton(onPressed: () => Get.back(), icon: const Icon(Icons.close, size: 20)),
+                  CustText.body("Measurement Reading",
+                      fontWeightName: FontWeight.bold),
+                  IconButton(
+                      onPressed: () => Get.back(),
+                      icon: const Icon(Icons.close, size: 20)),
                 ],
               ),
               const Divider(),
               Expanded(
                 child: Obx(() => ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: controller.measurementPointsList.length,
-                  itemBuilder: (context, index) {
-                    final item = controller.measurementPointsList[index];
-                    return CustDataCard(
-                      items: [
-                        DataCardItem(label: 'Measurement Point', value: item['measPoint']?.toString() ?? '-', isFullWidth: true),
-                        DataCardItem(label: 'Description', value: item['measPointDesc']?.toString() ?? '-'),
-                        DataCardItem(label: 'Unit', value: item['unitOfMeasurement']?.toString() ?? '-'),
-                        DataCardItem(label: 'Lower Limit', value: item['lowerRangeLimit']?.toString() ?? '-'),
-                        DataCardItem(label: 'Upper Limit', value: item['upperRangeLimit']?.toString() ?? '-'),
-                      ],
-                      bottomAction: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                CustText.detailLabel("Before Reading"),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  initialValue: item['beforeReading'],
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                    hintText: "Reading",
-                                    hintStyle: const TextStyle(fontSize: 12),
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-                                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-                                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.orangeColor)),
-                                  ),
-                                  onChanged: (v) => controller.updateMeasurementReading(index, 'beforeReading', v),
+                      shrinkWrap: true,
+                      itemCount: controller.measurementPointsList.length,
+                      itemBuilder: (context, index) {
+                        final item = controller.measurementPointsList[index];
+                        return CustDataCard(
+                          items: [
+                            DataCardItem(
+                                label: 'Measurement Point',
+                                value: item['measPoint']?.toString() ?? '-',
+                                isFullWidth: true),
+                            DataCardItem(
+                                label: 'Description',
+                                value:
+                                    item['measPointDesc']?.toString() ?? '-'),
+                            DataCardItem(
+                                label: 'Unit',
+                                value: item['unitOfMeasurement']?.toString() ??
+                                    '-'),
+                            DataCardItem(
+                                label: 'Lower Limit',
+                                value:
+                                    item['lowerRangeLimit']?.toString() ?? '-'),
+                            DataCardItem(
+                                label: 'Upper Limit',
+                                value:
+                                    item['upperRangeLimit']?.toString() ?? '-'),
+                          ],
+                          bottomAction: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    CustText.detailLabel("Before Reading"),
+                                    const SizedBox(height: 8),
+                                    TextFormField(
+                                      initialValue: item['beforeReading'],
+                                      keyboardType: TextInputType.number,
+                                      decoration: InputDecoration(
+                                        hintText: "Reading",
+                                        hintStyle:
+                                            const TextStyle(fontSize: 12),
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 12),
+                                        border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                                color: Colors.grey.shade300)),
+                                        enabledBorder: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                                color: Colors.grey.shade300)),
+                                        focusedBorder: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            borderSide: const BorderSide(
+                                                color: AppColors.orangeColor)),
+                                      ),
+                                      onChanged: (v) =>
+                                          controller.updateMeasurementReading(
+                                              index, 'beforeReading', v),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                CustText.detailLabel("After Reading"),
-                                const SizedBox(height: 8),
-                                TextFormField(
-                                  initialValue: item['afterReading'],
-                                  keyboardType: TextInputType.number,
-                                  decoration: InputDecoration(
-                                    hintText: "Reading",
-                                    hintStyle: const TextStyle(fontSize: 12),
-                                    isDense: true,
-                                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-                                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-                                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.orangeColor)),
-                                  ),
-                                  onChanged: (v) => controller.updateMeasurementReading(index, 'afterReading', v),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    CustText.detailLabel("After Reading"),
+                                    const SizedBox(height: 8),
+                                    TextFormField(
+                                      initialValue: item['afterReading'],
+                                      keyboardType: TextInputType.number,
+                                      decoration: InputDecoration(
+                                        hintText: "Reading",
+                                        hintStyle:
+                                            const TextStyle(fontSize: 12),
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                                horizontal: 10, vertical: 12),
+                                        border: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                                color: Colors.grey.shade300)),
+                                        enabledBorder: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                                color: Colors.grey.shade300)),
+                                        focusedBorder: OutlineInputBorder(
+                                            borderRadius:
+                                                BorderRadius.circular(8),
+                                            borderSide: const BorderSide(
+                                                color: AppColors.orangeColor)),
+                                      ),
+                                      onChanged: (v) =>
+                                          controller.updateMeasurementReading(
+                                              index, 'afterReading', v),
+                                    ),
+                                  ],
                                 ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    );
-                  },
-                )),
+                        );
+                      },
+                    )),
               ),
               const SizedBox(height: 20),
               Align(
@@ -198,9 +294,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   void _showActionByDialog() {
     Get.dialog(
       Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: AppColors.white1,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
         child: ConstrainedBox(
-          constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.7),
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.7),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -213,7 +312,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     CustText(
                       name: 'Action By',
                       size: 18,
-                      color: AppColors.textColor3,
+                      color: AppColors.orangeColor,
                       fontWeightName: FontWeight.bold,
                     ),
                     IconButton(
@@ -231,7 +330,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   if (list.isEmpty) {
                     return const Padding(
                       padding: EdgeInsets.all(24),
-                      child: Text('No action history available.', style: TextStyle(color: Colors.grey)),
+                      child: Text('No action history available.',
+                          style: TextStyle(color: Colors.grey)),
                     );
                   }
                   return ListView.separated(
@@ -243,10 +343,22 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       final item = list[index];
                       return CustDataCard(
                         items: [
-                          DataCardItem(label: 'Action By', value: item.actionBy ?? '-', isFullWidth: true),
-                          DataCardItem(label: 'Status', value: item.statusName ?? '-', isFullWidth: true),
-                          DataCardItem(label: 'Action Date And Time', value: item.actionOn ?? '-', isFullWidth: true),
-                          DataCardItem(label: 'Remark', value: item.remark ?? '-', isFullWidth: true),
+                          DataCardItem(
+                              label: 'Action By',
+                              value: item.actionBy ?? '-',
+                              isFullWidth: true),
+                          DataCardItem(
+                              label: 'Status',
+                              value: item.statusName ?? '-',
+                              isFullWidth: true),
+                          DataCardItem(
+                              label: 'Action Date And Time',
+                              value: item.actionOn ?? '-',
+                              isFullWidth: true),
+                          DataCardItem(
+                              label: 'Remark',
+                              value: item.remark ?? '-',
+                              isFullWidth: true),
                         ],
                       );
                     },
@@ -289,7 +401,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     decoration: BoxDecoration(
                       color: AppColors.green,
                       shape: BoxShape.circle,
-                      border: Border.all(color: AppColors.white1, width: 1.5),
                     ),
                   ),
                 ),
@@ -312,17 +423,23 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
           if (controller.isLoading.value) {
             return const Center(child: CircularProgressIndicator());
           }
-          return Form(
-            key: _formKey,
-            child: _buildFailureFormBody(context),
-          );
+          if (_isStationCreate ||
+              (widget.isUpdate && widget.failureType == 'Station') ||
+              _isStationControllerView) {
+            return Form(
+              key: _formKey,
+              child: _buildFailureFormBody(context),
+            );
+          }
+          return _buildFailureFormBody(context);
         }),
       ),
     );
   }
 
   Widget _buildFailureFormBody(BuildContext context) {
-    if (_isStationCreate || (widget.isUpdate && widget.failureType == 'Station')) {
+    if (_isStationCreate ||
+        (widget.isUpdate && widget.failureType == 'Station')) {
       return _buildStationCreateForm(context);
     }
     if (_isStationControllerView) {
@@ -347,169 +464,267 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                 Spacer(),
                 GestureDetector(
                   onTap: _showActionByDialog,
-                  child: Icon(TablerIcons.hand_click, size: 24, color: AppColors.black),
+                  child: Icon(TablerIcons.hand_click,
+                      size: 24, color: AppColors.orangeColor),
                 ),
               ],
             ),
             const SizedBox(height: AppConstants.elementSpacing),
             Obx(() => CustText.body(
-              "Failure No.: ${controller.notificationCode.value} ${controller.mainStatusName.value == null ? "" : "(${controller.mainStatusName.value ?? ''})"}",
-              size: 18,
-              color: AppColors.textColor7,
-              fontWeightName: FontWeight.w600,
-            )),
+                  "Failure No.: ${controller.notificationCode.value} ${controller.mainStatusName.value == null ? "" : "(${controller.mainStatusName.value ?? ''})"}",
+                  size: 18,
+                  color: AppColors.black,
+                  fontWeightName: FontWeight.w600,
+                )),
             const SizedBox(height: AppConstants.sectionSpacing),
-
             Obx(() => _buildToggleItem(
-                "Basic Information", controller.isBasicInfoVisible.value, (val) =>
-                controller.isBasicInfoVisible.value = val)),
+                "Basic Information",
+                controller.isBasicInfoVisible.value,
+                (val) => controller.isBasicInfoVisible.value = val)),
             Obx(() => Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (controller.isBasicInfoVisible.value) ...[
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "Priority", controller: TextEditingController(text: controller.selectedPriority.value), enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Current Status", controller: TextEditingController(text: controller.mainStatusName.value), enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustomTextField(
-                    label: "Failure Description",
-                    controller: controller.failureDescriptionController,
-                    maxLines: 3,
-                    enabled: false,
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "Department", controller: TextEditingController(text: controller.selectedDepartment.value), enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Location", controller: TextEditingController(text: controller.selectedLocation.value), enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "Functional Location", controller: TextEditingController(text: controller.selectedFunctionalLocation.value), enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Sub Location", controller: controller.subLocationController, enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "System", controller: controller.systemController, enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Train Id", controller: controller.trainIdController, enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustDateTimePicker(
-                    label: "Actual Failure Occurrence",
-                    hint: "Actual Failure Occurrence",
-                    selectedDateTime: controller.selectedFailureOccurrenceDate.value,
-                    enabled: false,
-                    onDateTimeSelected: (v) {},
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustomTextField(label: "Failure Reported by", controller: TextEditingController(text: controller.selectedFailureReportedBy.value), enabled: false),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustDateTimePicker(
-                    label: "Actual Failure Completed Date & Time",
-                    hint: "Actual Failure Completed Date & Time",
-                    selectedDateTime: controller.selectedFailureCompletedDate.value,
-                    enabled: false,
-                    onDateTimeSelected: (v) {},
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustomTextField(label: "Failure Category Type", controller: TextEditingController(text: controller.selectedFailureCategoryType.value), enabled: false),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                ]
-              ],
-            )),
-            
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CustomTextField(
-                  label: "Failure Rectification Details",
-                  controller: controller.failureRectificationDetailsController,
-                  maxLines: 4,
-                  enabled: false,
-                ),
-                const SizedBox(height: AppConstants.elementSpacing),
-              ]
-            ),
-
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (controller.isBasicInfoVisible.value) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Priority",
+                                  controller: TextEditingController(
+                                      text: controller.selectedPriority.value),
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Current Status",
+                                  controller: TextEditingController(
+                                      text: controller.mainStatusName.value),
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                        label: "Failure Description",
+                        controller: controller.failureDescriptionController,
+                        maxLines: 3,
+                        enabled: false,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Department",
+                                  controller: TextEditingController(
+                                      text:
+                                          controller.selectedDepartment.value),
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Location",
+                                  controller: TextEditingController(
+                                      text: controller.selectedLocation.value),
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Functional Location",
+                                  controller: TextEditingController(
+                                      text: controller
+                                          .selectedFunctionalLocation.value),
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Sub Location",
+                                  controller: controller.subLocationController,
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "System",
+                                  controller: controller.systemController,
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Train Id",
+                                  controller: controller.trainIdController,
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustDateTimePicker(
+                        label: "Actual Failure Occurrence",
+                        hint: "Actual Failure Occurrence",
+                        selectedDateTime:
+                            controller.selectedFailureOccurrenceDate.value,
+                        enabled: false,
+                        onDateTimeSelected: (v) {},
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                          label: "Failure Reported by",
+                          controller: TextEditingController(
+                              text: controller.selectedFailureReportedBy.value),
+                          enabled: false),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustDateTimePicker(
+                        label: "Actual Failure Completed Date & Time",
+                        hint: "Actual Failure Completed Date & Time",
+                        selectedDateTime:
+                            controller.selectedFailureCompletedDate.value,
+                        enabled: false,
+                        onDateTimeSelected: (v) {},
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                          label: "Failure Category Type",
+                          controller: TextEditingController(
+                              text:
+                                  controller.selectedFailureCategoryType.value),
+                          enabled: false),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                    ]
+                  ],
+                )),
+            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              CustomTextField(
+                label: "Failure Rectification Details",
+                controller: controller.failureRectificationDetailsController,
+                maxLines: 4,
+                enabled: false,
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+            ]),
             Obx(() => _buildToggleItem(
-                "Trip Affected", controller.isTripAffected.value, (val) => {}, enabled: false)),
+                "Trip Affected", controller.isTripAffected.value, (val) => {},
+                enabled: false)),
             Obx(() => Column(
-              children: [
-                if (controller.isTripAffected.value) ...[
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "Trip Delay Upline (NOS)", controller: controller.tripDelayUplineController, enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Trip Cancel (NOS)", controller: controller.trainCancelNosController, enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "Trip Delay Downline (NOS)", controller: controller.tripDelayDownlineController, enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Trip Delay in Min.", controller: controller.trainDelayMinController, enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "Trip Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  _buildToggleItem(
-                      "Passenger Deboarding", controller.isPassengerDeboarding.value, (val) => {}, enabled: false),
-                  if (controller.isPassengerDeboarding.value) ...[
-                    CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, enabled: false),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                  ]
-                ]
-              ],
-            )),
-
-            Obx(() => _buildToggleItem(
-                "Passenger Affected", controller.isPassengerAffected.value, (val) => {}, enabled: false)),
+                  children: [
+                    if (controller.isTripAffected.value) ...[
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Trip Delay Upline (NOS)",
+                                  controller:
+                                      controller.tripDelayUplineController,
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Trip Cancel (NOS)",
+                                  controller:
+                                      controller.trainCancelNosController,
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Trip Delay Downline (NOS)",
+                                  controller:
+                                      controller.tripDelayDownlineController,
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Trip Delay in Min.",
+                                  controller:
+                                      controller.trainDelayMinController,
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Trip Withdrawal (NOS)",
+                                  controller:
+                                      controller.trainWithdrawalNosController,
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Train Replace (NOS)",
+                                  controller:
+                                      controller.trainReplaceNosController,
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      _buildToggleItem("Passenger Deboarding",
+                          controller.isPassengerDeboarding.value, (val) => {},
+                          enabled: false),
+                      if (controller.isPassengerDeboarding.value) ...[
+                        CustomTextField(
+                            label: "Train Deboarded (NOS)",
+                            controller: controller.trainDeboardedNosController,
+                            enabled: false),
+                        const SizedBox(height: AppConstants.elementSpacing),
+                      ]
+                    ]
+                  ],
+                )),
+            Obx(() => _buildToggleItem("Passenger Affected",
+                controller.isPassengerAffected.value, (val) => {},
+                enabled: false)),
             Obx(() => Column(
-              children: [
-                if (controller.isPassengerAffected.value) ...[
-                  CustomTextField(label: "Number Of Passenger Affected", controller: controller.passengersAffectedCountController, enabled: false),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Row(
-                    children: [
-                      Expanded(child: CustomTextField(label: "Trapped Duration", controller: controller.trappedDurationController, enabled: false)),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Rescued Duration", controller: controller.rescuedDurationController, enabled: false)),
-                    ],
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                ]
-              ],
-            )),
-
-            CustText.sectionHeader("Display Uploaded Images:", color: AppColors.textColor3),
+                  children: [
+                    if (controller.isPassengerAffected.value) ...[
+                      CustomTextField(
+                          label: "Number Of Passenger Affected",
+                          controller:
+                              controller.passengersAffectedCountController,
+                          enabled: false),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      Row(
+                        children: [
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Trapped Duration",
+                                  controller:
+                                      controller.trappedDurationController,
+                                  enabled: false)),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                              child: CustomTextField(
+                                  label: "Rescued Duration",
+                                  controller:
+                                      controller.rescuedDurationController,
+                                  enabled: false)),
+                        ],
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                    ]
+                  ],
+                )),
+            CustText.sectionHeader("Display Uploaded Images:",
+                color: AppColors.textColor3),
             const SizedBox(height: AppConstants.labelSpacing),
             CustText.body("Before:"),
             const SizedBox(height: 8),
             Obx(() => Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: controller.beforeImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
-            )),
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: controller.beforeImagesList
+                      .map<Widget>(
+                          (file) => _buildUploadedImagePreview(file['path']!))
+                      .toList(),
+                )),
             const SizedBox(height: AppConstants.sectionSpacing),
           ],
         ),
@@ -525,636 +740,1007 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-                  Row(
-                    children: [
-                      CustText.sectionHeader(
-                        _isJeChangeNotification
-                            ? "Failure Details"
-                            : "Failure Details",
-                        color: AppColors.orangeColor,
-                      ),
-                       Spacer(),
-                       GestureDetector(
-                         onTap: _showActionByDialog,
-                         child: Icon(TablerIcons.hand_click, size: 24, color: AppColors.black),
-                       ),
-                      SizedBox(width: 10),
-                      GestureDetector(
-                           onTap: () => Get.to(()=> MaintenanceHistoryScreen()),
-                          child: Icon(TablerIcons.history,size: 24,color: AppColors.black))
-                    ],
-                  ),
-                const SizedBox(height: AppConstants.elementSpacing),
-                Obx(() => CustText.body(
-                  "Failure No.: ${(controller.notificationCode.value.isNotEmpty ? controller.notificationCode.value : widget.notificationCode) ?? ""} ${controller.mainStatusName.value==null?"":"(${controller.mainStatusName.value ?? ''})"}",
+            Row(
+              children: [
+                CustText.sectionHeader(
+                  _isJeChangeNotification
+                      ? "Failure Details"
+                      : "Failure Details",
+                  color: AppColors.orangeColor,
+                ),
+                Spacer(),
+                GestureDetector(
+                  onTap: _showActionByDialog,
+                  child: Icon(TablerIcons.hand_click,
+                      size: 24, color: AppColors.orangeColor),
+                ),
+                SizedBox(width: 10),
+                GestureDetector(
+                    onTap: () => Get.to(() => MaintenanceHistoryScreen()),
+                    child: Icon(TablerIcons.history,
+                        size: 24, color: AppColors.orangeColor))
+              ],
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => CustText.body(
+                  "Failure No.: ${(controller.notificationCode.value.isNotEmpty ? controller.notificationCode.value : widget.notificationCode) ?? ""} ${controller.mainStatusName.value == null ? "" : "(${controller.mainStatusName.value ?? ''})"}",
                   size: 18,
-                  color: AppColors.textColor7,
+                  color: AppColors.black,
                   fontWeightName: FontWeight.w600,
                 )),
-                const SizedBox(height: AppConstants.sectionSpacing),
-
-                Obx(() => _buildToggleItem(
-                    "Basic Information", controller.isBasicInfoVisible.value, (val) =>
-                    controller.isBasicInfoVisible.value = val)),
-                Obx(() => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (controller.isBasicInfoVisible.value) ...[
-                      if (_isJointInspectionFlow) ...[
-                        Row(
-                          children: [
-                            Expanded(child: CustomTextField(label: "Priority", controller: controller.priorityDisplayController, enabled: false)),
-                            const SizedBox(width: AppConstants.elementSpacing),
-                            Expanded(child: CustomTextField(label: "Department", controller: controller.departmentDisplayController, enabled: false)),
-                          ],
-                        ),
-                      ] else
-                      Obx(() => Row(
-                  children: [
-                    Expanded(child: CustDropdown(
-                      label: "Priority",
-                        hint: "Priority" ,
-                        items: controller.priorityTypeList.map((e) => e.label ?? '').toList(),
-                        selectedValue: controller.selectedPriority.value,
-                        onChanged: (value) => controller.selectedPriority.value = value,
-                        enabled: false,
-                       )),
-                    const SizedBox(width: AppConstants.elementSpacing),
-                    Expanded(child: CustDropdown(
-                      label: "Department",
-                      hint: "Department" ,
-                      items: controller.departmentList.map((e) => e.label ?? '').toList().isNotEmpty
-                          ? controller.departmentList.map((e) => e.label ?? '').toList()
-                          : Get.find<SessionController>().departments.map((e) => e.deptName ?? '').toList(),
-                      selectedValue: controller.selectedDepartment.value ?? Get.find<SessionController>().selectedDepartment.value?.deptName,
-                      onChanged: (value) => controller.selectedDepartment.value = value,
-                      enabled: false,
-                    )),
-                  ],
-                )),
-                const SizedBox(height: AppConstants.elementSpacing),
-                CustText.formLabel("Failure Description:"),
-                Obx(() {
-                  if (controller.notificationHistoryList.isNotEmpty) {
-                    return Column(
+            const SizedBox(height: AppConstants.sectionSpacing),
+            Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CustSection(
+                    title: "Basic Information",
+                    trailing: Obx(() => YesNoToggle(
+                          value: controller.isBasicInfoVisible.value,
+                          onChanged: (val) =>
+                              controller.isBasicInfoVisible.value = val,
+                        )),
+                    isVisible: controller.isBasicInfoVisible.value,
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
-                        Container(
-                          width: double.infinity,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade200),
+                        if (_isJointInspectionFlow) ...[
+                          Row(
+                            children: [
+                              Expanded(
+                                  child: CustomTextField(
+                                      label: "Priority",
+                                      controller:
+                                          controller.priorityDisplayController,
+                                      enabled: false)),
+                              const SizedBox(
+                                  width: AppConstants.elementSpacing),
+                              Expanded(
+                                  child: CustomTextField(
+                                      label: "Department",
+                                      controller: controller
+                                          .departmentDisplayController,
+                                      enabled: false)),
+                            ],
                           ),
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: controller.notificationHistoryList.length,
-                            separatorBuilder: (context, index) => Divider(
-                              height: 1,
-                              color: Colors.grey.shade200,
-                            ),
-                            itemBuilder: (context, index) {
-                              final item = controller.notificationHistoryList[index];
-                              return Padding(
-                                padding: const EdgeInsets.all(12.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    CustText(
-                                      name: item.remark ?? "",
-                                      size: 13,
-                                      color: AppColors.textColor2,
+                        ] else
+                          Obx(() => Row(
+                                children: [
+                                  Expanded(
+                                      child: CustDropdown(
+                                    label: "Priority",
+                                    hint: "Priority",
+                                    items: controller.priorityTypeList
+                                        .map((e) => e.label ?? '')
+                                        .toList(),
+                                    selectedValue:
+                                        controller.selectedPriority.value,
+                                    onChanged: (value) => controller
+                                        .selectedPriority.value = value,
+                                    enabled: false,
+                                  )),
+                                  const SizedBox(
+                                      width: AppConstants.elementSpacing),
+                                  Expanded(
+                                      child: CustDropdown(
+                                    label: "Department",
+                                    hint: "Department",
+                                    items: controller.departmentList
+                                            .map((e) => e.label ?? '')
+                                            .toList()
+                                            .isNotEmpty
+                                        ? controller.departmentList
+                                            .map((e) => e.label ?? '')
+                                            .toList()
+                                        : Get.find<SessionController>()
+                                            .departments
+                                            .map((e) => e.deptName ?? '')
+                                            .toList(),
+                                    selectedValue:
+                                        controller.selectedDepartment.value ??
+                                            Get.find<SessionController>()
+                                                .selectedDepartment
+                                                .value
+                                                ?.deptName,
+                                    onChanged: (value) => controller
+                                        .selectedDepartment.value = value,
+                                    enabled: false,
+                                  )),
+                                ],
+                              )),
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        CustText.formLabel("Failure Description:"),
+                        Obx(() {
+                          if (controller.notificationHistoryList.isNotEmpty) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SizedBox(
+                                    height: ResponsiveHelper.spacing(
+                                        context, AppConstants.labelSpacing)),
+                                Container(
+                                  width: double.infinity,
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border:
+                                        Border.all(color: Colors.grey.shade200),
+                                  ),
+                                  child: ListView.separated(
+                                    shrinkWrap: true,
+                                    physics:
+                                        const NeverScrollableScrollPhysics(),
+                                    itemCount: controller
+                                        .notificationHistoryList.length,
+                                    separatorBuilder: (context, index) =>
+                                        Divider(
+                                      height: 1,
+                                      color: Colors.grey.shade200,
                                     ),
-                                    const SizedBox(height: 8),
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    itemBuilder: (context, index) {
+                                      final item = controller
+                                          .notificationHistoryList[index];
+                                      return Padding(
+                                        padding: const EdgeInsets.all(12.0),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            CustText(
+                                              name: item.remark ?? "",
+                                              size: 13,
+                                              color: AppColors.textColor2,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Row(
+                                              mainAxisAlignment:
+                                                  MainAxisAlignment
+                                                      .spaceBetween,
+                                              children: [
+                                                Expanded(
+                                                  child: CustText(
+                                                    name: item.actionBy ??
+                                                        "Unknown User",
+                                                    size: 11,
+                                                    color: AppColors.textColor4,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                CustText(
+                                                  name: item.actionOn ?? "",
+                                                  size: 11,
+                                                  color: AppColors.textColor4,
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
+                            );
+                          }
+                          return const SizedBox.shrink();
+                        }),
+                        if (!_isJointInspectionFlow) ...[
+                          const SizedBox(height: AppConstants.labelSpacing),
+                          CustomTextField(
+                            controller: controller.failureDescriptionController,
+                            hintText: "Enter description",
+                            maxLines: 4,
+                            enabled:
+                                controller.isJE && !_isJointInspectionFlow ||
+                                    controller.isTechnician,
+                          ),
+                        ],
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        if (_isJointInspectionFlow) ...[
+                          CustomTextField(
+                            label: "Location",
+                            controller: controller.locationDisplayController,
+                            enabled: false,
+                          ),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          CustomTextField(
+                            label: "Functional Location",
+                            controller:
+                                controller.functionalLocationDisplayController,
+                            enabled: false,
+                          ),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          CustomTextField(
+                            label: "Equipment Number",
+                            controller: controller.equipmentDisplayController,
+                            enabled: false,
+                          ),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          CustomTextField(
+                            label: "Person Responsible",
+                            controller:
+                                controller.personResponsibleDisplayController,
+                            enabled: false,
+                          ),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          Obx(() => CustDateTimePicker(
+                              label: "Actual Failure Occurrence",
+                              hint: "Actual Failure Occurrence",
+                              selectedDateTime: controller
+                                  .selectedFailureOccurrenceDate.value,
+                              enabled: false,
+                              onDateTimeSelected: (_) {})),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                        ] else
+                          Obx(() => Column(
+                                children: [
+                                  CustDropdown(
+                                      label: 'Location',
+                                      hint: 'Select location',
+                                      items: controller.locationTypeList
+                                          .map((e) => e.label ?? '')
+                                          .toList(),
+                                      selectedValue:
+                                          controller.selectedLocation.value,
+                                      enabled: controller.isJE &&
+                                          !_isJointInspectionFlow,
+                                      onChanged: (value) {
+                                        controller.onLocationChanged(value);
+                                      }),
+                                  const SizedBox(
+                                      height: AppConstants.elementSpacing),
+                                  CustDropdown(
+                                      label: 'Functional Location',
+                                      hint: 'Select functional location',
+                                      items: controller.functionalLocationList
+                                          .map((e) => e.label ?? '')
+                                          .toList(),
+                                      selectedValue: controller
+                                          .selectedFunctionalLocation.value,
+                                      enabled: controller.isJE &&
+                                          !_isJointInspectionFlow,
+                                      onChanged: (value) {
+                                        controller
+                                            .onFunctionalLocationChanged(value);
+                                      }),
+                                  const SizedBox(
+                                      height: AppConstants.elementSpacing),
+                                  CustDropdown(
+                                    label: 'Equipment Number',
+                                    hint: controller.isEquipmentLoading.value
+                                        ? 'Loading...'
+                                        : 'Select equipment number',
+                                    items: controller.equipmentList
+                                        .map((e) => e.label ?? '')
+                                        .toList(),
+                                    selectedValue: controller
+                                        .selectedEquipmentNumber.value,
+                                    enabled: controller.isJE &&
+                                        !_isJointInspectionFlow &&
+                                        !controller.isEquipmentLoading.value,
+                                    onChanged: (value) =>
+                                        controller.onEquipmentChanged(value),
+                                  ),
+                                  const SizedBox(
+                                      height: AppConstants.elementSpacing),
+                                  CustDateTimePicker(
+                                    label: "Actual Failure Occurrence",
+                                    hint: "Actual Failure Occurrence",
+                                    selectedDateTime: controller
+                                        .selectedFailureOccurrenceDate.value,
+                                    enabled: false,
+                                    onDateTimeSelected: (value) => controller
+                                        .selectedFailureOccurrenceDate
+                                        .value = value,
+                                  ),
+                                ],
+                              )),
+                        if (!_isJointInspectionFlow) ...[
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          Obx(() => CustDropdown(
+                              label: 'Notification Type *',
+                              hint: 'Select Type',
+                              items: controller.notificationTypeList
+                                  .map((e) => e.label ?? '')
+                                  .toList(),
+                              selectedValue:
+                                  controller.selectedNotificationType.value,
+                              enabled:
+                                  controller.isJE && !_isJointInspectionFlow,
+                              validator: (v) => controller.isJE &&
+                                      !_isJointInspectionFlow
+                                  ? _requiredDropdown(
+                                      controller.selectedNotificationType.value,
+                                      'Notification Type')
+                                  : null,
+                              onChanged: (v) => controller
+                                  .selectedNotificationType.value = v)),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          CustomTextField(
+                            controller: controller.subLocationController,
+                            label: "Sub Location",
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                          ),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                        ],
+                      ],
+                    ),
+                  ),
+                  CustSection(
+                    title: "Service Affected",
+                    trailing: Obx(() => YesNoToggle(
+                          value: controller.isServiceAffected.value,
+                          onChanged: (val) =>
+                              controller.isServiceAffected.value = val,
+                          enabled: controller.isJE && !_isJointInspectionFlow,
+                        )),
+                    isVisible: controller.isServiceAffected.value,
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                                child: CustomTextField(
+                              label: "Train Delay In Min. *",
+                              controller: controller.trainDelayMinController,
+                              keyboardType: TextInputType.number,
+                              enabled:
+                                  controller.isJE && !_isJointInspectionFlow,
+                              validator: (val) => controller
+                                      .isServiceAffected.value
+                                  ? _requiredText(val, 'Train Delay In Min.')
+                                  : null,
+                            )),
+                            const SizedBox(width: AppConstants.elementSpacing),
+                            Expanded(
+                                child: CustomTextField(
+                              label: "Train Delay (NOS) *",
+                              controller: controller.trainDelayNosController,
+                              keyboardType: TextInputType.number,
+                              enabled:
+                                  controller.isJE && !_isJointInspectionFlow,
+                              validator: (val) =>
+                                  controller.isServiceAffected.value
+                                      ? _requiredText(val, 'Train Delay (NOS)')
+                                      : null,
+                            )),
+                          ],
+                        ),
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        Row(
+                          children: [
+                            Expanded(
+                                child: CustomTextField(
+                              label: "Train Cancel (NOS) *",
+                              controller: controller.trainCancelNosController,
+                              keyboardType: TextInputType.number,
+                              enabled:
+                                  controller.isJE && !_isJointInspectionFlow,
+                              validator: (val) =>
+                                  controller.isServiceAffected.value
+                                      ? _requiredText(val, 'Train Cancel (NOS)')
+                                      : null,
+                            )),
+                            const SizedBox(width: AppConstants.elementSpacing),
+                            Expanded(
+                                child: CustomTextField(
+                              label: "Train Withdrawal (NOS) *",
+                              controller:
+                                  controller.trainWithdrawalNosController,
+                              keyboardType: TextInputType.number,
+                              enabled:
+                                  controller.isJE && !_isJointInspectionFlow,
+                              validator: (val) => controller
+                                      .isServiceAffected.value
+                                  ? _requiredText(val, 'Train Withdrawal (NOS)')
+                                  : null,
+                            )),
+                          ],
+                        ),
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        CustomTextField(
+                          label: "Train Replace (NOS) *",
+                          controller: controller.trainReplaceNosController,
+                          keyboardType: TextInputType.number,
+                          enabled: controller.isJE && !_isJointInspectionFlow,
+                          validator: (val) => controller.isServiceAffected.value
+                              ? _requiredText(val, 'Train Replace (NOS)')
+                              : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                  CustSection(
+                    title: "Passenger Deboarding",
+                    trailing: Obx(() => YesNoToggle(
+                          value: controller.isPassengerDeboarding.value,
+                          onChanged: (val) =>
+                              controller.isPassengerDeboarding.value = val,
+                          enabled: controller.isJE && !_isJointInspectionFlow,
+                        )),
+                    isVisible: controller.isPassengerDeboarding.value,
+                    child: Column(
+                      children: [
+                        CustomTextField(
+                          label: "Train Deboarded (NOS) *",
+                          controller: controller.trainDeboardedNosController,
+                          keyboardType: TextInputType.number,
+                          enabled: controller.isJE && !_isJointInspectionFlow,
+                          validator: (val) =>
+                              controller.isPassengerDeboarding.value
+                                  ? _requiredText(val, 'Train Deboarded (NOS)')
+                                  : null,
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (widget.failureType != "Maintenance")
+                    CustSection(
+                      title: "Passenger Affected",
+                      trailing: Obx(() => YesNoToggle(
+                            value: controller.isPassengerAffected.value,
+                            onChanged: (val) =>
+                                controller.isPassengerAffected.value = val,
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                          )),
+                      isVisible: controller.isPassengerAffected.value,
+                      child: Column(
+                        children: [
+                          CustomTextField(
+                            label: "Number Of Passenger Affected *",
+                            controller:
+                                controller.passengersAffectedCountController,
+                            keyboardType: TextInputType.number,
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                            hintText: "Enter number of Passenger Affected",
+                            validator: (val) =>
+                                controller.isPassengerAffected.value
+                                    ? _requiredText(
+                                        val, 'Number Of Passenger Affected')
+                                    : null,
+                          ),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: CustomTextField(
+                                  label: "Trapped Duration (In Min)",
+                                  controller:
+                                      controller.trappedDurationController,
+                                  keyboardType: TextInputType.number,
+                                  enabled: controller.isJE &&
+                                      !_isJointInspectionFlow,
+                                  hintText: "Enter Trapped Duration",
+                                ),
+                              ),
+                              const SizedBox(
+                                  width: AppConstants.elementSpacing),
+                              Expanded(
+                                child: CustomTextField(
+                                  label: "Rescued Duration (In Min)",
+                                  controller:
+                                      controller.rescuedDurationController,
+                                  keyboardType: TextInputType.number,
+                                  enabled: controller.isJE &&
+                                      !_isJointInspectionFlow,
+                                  hintText: "Enter Rescued Duration",
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            CustSection(
+              title: "Failure Rectification Details (RCA)",
+              child: Column(
+                children: [
+                  if (!_isJointInspectionFlow)
+                    Form(
+                      key: _rcaFormKey,
+                      child: Column(
+                        children: [
+                          Obx(() => CustDropdown(
+                                label: 'Object Part *',
+                                hint: 'Object Part',
+                                items: controller.objectDataList
+                                    .map((e) => e.label ?? '')
+                                    .toList(),
+                                selectedValue:
+                                    controller.selectedObjectPart.value,
+                                enabled: controller.isJE &&
+                                        !_isJointInspectionFlow ||
+                                    controller.isTechnician,
+                                validator: (v) => _requiredDropdown(
+                                  controller.selectedObjectPart.value,
+                                  'Object Part',
+                                ),
+                                onChanged: (v) {
+                                  final trimmedV =
+                                      v?.toString().trim().toLowerCase();
+                                  controller.selectedObjectPart.value = v;
+                                  controller.selectedFault.value = null;
+                                  final obj =
+                                      controller.objectDataList.firstWhere(
+                                    (e) =>
+                                        e.label?.trim().toLowerCase() ==
+                                        trimmedV,
+                                    orElse: () => LabelValue(value: "0"),
+                                  );
+                                  if (obj.value != "0") {
+                                    controller.fetchFaults(obj.value!);
+                                  } else {
+                                    controller.faultTypeList.clear();
+                                  }
+                                },
+                              )),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          Obx(() => controller.selectedObjectPart.value != null
+                              ? Column(
+                                  children: [
+                                    CustomTextField(
+                                      controller:
+                                          controller.objectPartTextController,
+                                      label: "Object Part Text *",
+                                      enabled: controller.isJE &&
+                                              !_isJointInspectionFlow ||
+                                          controller.isTechnician,
+                                      validator: (val) => _requiredText(
+                                          val, 'Object Part Text'),
+                                    ),
+                                    const SizedBox(
+                                        height: AppConstants.elementSpacing),
+                                  ],
+                                )
+                              : const SizedBox.shrink()),
+                          Obx(() => CustDropdown(
+                                label: 'Fault *',
+                                hint: controller.isFaultLoading.value
+                                    ? 'Loading...'
+                                    : 'Fault',
+                                items: controller.isFaultLoading.value
+                                    ? []
+                                    : controller.faultTypeList
+                                        .map((e) => e.label ?? '')
+                                        .toList(),
+                                selectedValue: controller.selectedFault.value,
+                                enabled: (controller.isJE ||
+                                        controller.isTechnician) &&
+                                    !controller.isFaultLoading.value,
+                                validator: (v) => _requiredDropdown(
+                                  controller.selectedFault.value,
+                                  'Fault',
+                                ),
+                                onChanged: (v) =>
+                                    controller.selectedFault.value = v,
+                              )),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          Obx(() => controller.selectedFault.value != null
+                              ? Column(
+                                  children: [
+                                    CustomTextField(
+                                      controller:
+                                          controller.faultTextController,
+                                      label: "Fault Text *",
+                                      enabled: controller.isJE &&
+                                              !_isJointInspectionFlow ||
+                                          controller.isTechnician,
+                                      validator: (val) =>
+                                          _requiredText(val, 'Fault Text'),
+                                    ),
+                                    const SizedBox(
+                                        height: AppConstants.elementSpacing),
+                                  ],
+                                )
+                              : const SizedBox.shrink()),
+                          Obx(() => controller.selectedFault.value != null
+                              ? const SizedBox(
+                                  height: AppConstants.elementSpacing)
+                              : const SizedBox.shrink()),
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: CustButton(
+                              name: "Add",
+                              size: 100,
+                              fontSize: AppConstants.buttonFontSize,
+                              onSelected:
+                                  (controller.isJE || controller.isTechnician)
+                                      ? (_) {
+                                          if (_validateForm(_rcaFormKey)) {
+                                            controller.addRcaDetail();
+                                            _rcaFormKey.currentState?.reset();
+                                          }
+                                        }
+                                      : null,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => Column(
+                        children: controller.rcaDetailsList
+                            .asMap()
+                            .entries
+                            .map((entry) =>
+                                _buildRcaDetailCard(entry.value, entry.key))
+                            .toList(),
+                      )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                ],
+              ),
+            ),
+            Obx(() => CustSection(
+                  title: "Failure Type",
+                  child: CustDropdown(
+                    label: "Failure Type",
+                    hint: "Select Failure Type",
+                    items: controller.materialTypeList,
+                    selectedValue: controller.selectedMaterialType.value,
+                    enabled: controller.isJE || controller.isTechnician,
+                    onChanged: (v) {
+                      controller.selectedMaterialType.value = v!;
+                    },
+                  ),
+                )),
+            Obx(() {
+              if (controller.selectedMaterialType.value != "Hardware") {
+                return const SizedBox.shrink();
+              }
+
+              return CustSection(
+                title: "Spare Part Replace",
+                trailing: YesNoToggle(
+                  value: controller.isSparePartReplaced.value,
+                  onChanged: (val) {
+                    controller.isSparePartReplaced.value = val;
+                  },
+                  enabled: controller.isJE,
+                ),
+                isVisible: controller.isSparePartReplaced.value,
+                child: controller.isSparePartReplaced.value
+                    ? _buildSparePartReplaceSection(
+                        enabled: controller.isJE || controller.isTechnician,
+                      )
+                    : const SizedBox.shrink(),
+              );
+            }),
+            Obx(() {
+              if (controller.replacedMaterialsList.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              return CustSection(
+                title: "Material Dismantle",
+                isVisible:  controller.isMaterialDismantle.value,
+                trailing: YesNoToggle(
+                  value: controller.isMaterialDismantle.value,
+                  onChanged: (val) {
+                    controller.isMaterialDismantle.value = val;
+                  },
+                  enabled: controller.isJE || controller.isTechnician,
+                ),
+                child: _buildMaterialDismantleSection(
+                  enabled: controller.isJE || controller.isTechnician,
+                ),
+              );
+            }),
+            if (!_isJointInspectionFlow)
+              CustSection(
+                title: "Joint Inspection",
+                trailing: Obx(() => YesNoToggle(
+                      value: controller.isJointInspection.value,
+                      onChanged: (val) =>
+                          controller.isJointInspection.value = val,
+                      enabled: controller.isJE,
+                    )),
+                isVisible: controller.isJointInspection.value,
+                child: Obx(
+                  () => _buildJointInspectionSection(
+                    enabled: controller.isJE,
+                  ),
+                ),
+              ),
+            Obx(
+              () => controller.showMeasurementButton.value
+                  ? CustSection(
+                      title: "Measurement Reading",
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: CustButton(
+                          name: "Measurement Reading",
+                          fontSize: AppConstants.buttonFontSize,
+                          size: 200,
+                          onSelected: (_) => _showMeasurementDialog(),
+                        ),
+                      ),
+                    )
+                  : const SizedBox.shrink(),
+            ),
+            Form(
+              key: _formBottomKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CustSection(
+                    title: "Attachments",
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            CustText.body("After ",
+                                fontWeightName: FontWeight.w500),
+                            const Text("(Max File Size 1MB)",
+                                style: TextStyle(
+                                    color: Colors.grey, fontSize: 12)),
+                            const SizedBox(width: AppConstants.sectionSpacing),
+                            if (!_isJointInspectionFlow)
+                              _buildUploadButton(controller.afterFiles,
+                                  enabled: controller.isJE &&
+                                          !_isJointInspectionFlow ||
+                                      controller.isTechnician),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Obx(() => Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: controller.afterFiles
+                                  .map<Widget>((file) => _buildAttachmentItem(
+                                      file['name']!,
+                                      file['size']!,
+                                      controller.afterFiles,
+                                      file))
+                                  .toList(),
+                            )),
+                        const SizedBox(height: AppConstants.sectionSpacing),
+                        Row(
+                          children: [
+                            CustText.body("Upload RCA ",
+                                fontWeightName: FontWeight.w500),
+                            const Text("(Max File Size 1MB)",
+                                style: TextStyle(
+                                    color: Colors.grey, fontSize: 12)),
+                            const SizedBox(width: AppConstants.sectionSpacing),
+                            if (!_isJointInspectionFlow)
+                              _buildUploadButton(controller.rcaFiles,
+                                  enabled: controller.isJE &&
+                                          !_isJointInspectionFlow ||
+                                      controller.isTechnician),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Obx(() => Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: controller.rcaFiles
+                                  .map<Widget>((file) => _buildAttachmentItem(
+                                      file['name']!,
+                                      file['size']!,
+                                      controller.rcaFiles,
+                                      file))
+                                  .toList(),
+                            )),
+                        const SizedBox(height: AppConstants.sectionSpacing),
+                        Obx(() {
+                          final hasImages =
+                              controller.beforeImagesList.isNotEmpty ||
+                                  controller.afterImagesList.isNotEmpty ||
+                                  controller.rcaImagesList.isNotEmpty;
+                          if (!hasImages) return const SizedBox.shrink();
+                          return Column(
+                            children: [
+                              const Divider(),
+                              const SizedBox(
+                                  height: AppConstants.sectionSpacing),
+                              CustText.sectionHeader("Display Uploaded Images:",
+                                  color: AppColors.textColor3),
+                              const SizedBox(height: AppConstants.labelSpacing),
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Expanded(
-                                          child: CustText(
-                                            name: item.actionBy ?? "Unknown User",
-                                            size: 11,
-                                            color: AppColors.textColor4,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        CustText(
-                                          name: item.actionOn ?? "",
-                                          size: 11,
-                                          color: AppColors.textColor4,
-                                        ),
+                                        CustText.body("Before:"),
+                                        const SizedBox(height: 8),
+                                        Obx(() => Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: controller
+                                                  .beforeImagesList
+                                                  .map<Widget>((file) =>
+                                                      _buildUploadedImagePreview(
+                                                          file['path']!))
+                                                  .toList(),
+                                            )),
                                       ],
                                     ),
-                                  ],
-                                ),
-                              );
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        CustText.body("After:"),
+                                        const SizedBox(height: 8),
+                                        Obx(() => Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: controller
+                                                  .afterImagesList
+                                                  .map<Widget>((file) =>
+                                                      _buildUploadedImagePreview(
+                                                          file['path']!))
+                                                  .toList(),
+                                            )),
+                                      ],
+                                    ),
+                                  ),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        CustText.body("RCA:"),
+                                        const SizedBox(height: 8),
+                                        Obx(() => Wrap(
+                                              spacing: 8,
+                                              runSpacing: 8,
+                                              children: controller.rcaImagesList
+                                                  .map<Widget>((file) =>
+                                                      _buildUploadedImagePreview(
+                                                          file['path']!))
+                                                  .toList(),
+                                            )),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                  if (!_isJointInspectionFlow)
+                    CustSection(
+                      title: "Failure Rectification Details",
+                      child: Column(
+                        children: [
+                          CustomTextField(
+                            label: "Failure Rectification Details *",
+                            controller: controller
+                                .failureRectificationDetailsController,
+                            hintText: "Enter Rectification Details",
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                            maxLines: 4,
+                            validator: (val) {
+                              if (val == null || val.trim().isEmpty) {
+                                return "Failure Rectification Details is required";
+                              }
+                              return null;
                             },
                           ),
-                        ),
-                      ],
-                    );
-                  }
-                  return const SizedBox.shrink();
-                }),
-                if(!_isJointInspectionFlow)...[
-                const SizedBox(height: AppConstants.labelSpacing),
-                CustomTextField(
-                  controller: controller.failureDescriptionController,
-                  hintText: "Enter description",
-                  maxLines: 4,
-                  enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,
-                ),],
-                const SizedBox(height: AppConstants.elementSpacing),
-                if (_isJointInspectionFlow) ...[
-                  CustomTextField(
-                    label: "Location",
-                    controller: controller.locationDisplayController,
-                    enabled: false,
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustomTextField(
-                    label: "Functional Location",
-                    controller: controller.functionalLocationDisplayController,
-                    enabled: false,
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustomTextField(
-                    label: "Equipment Number",
-                    controller: controller.equipmentDisplayController,
-                    enabled: false,
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustomTextField(
-                    label: "Person Responsible",
-                    controller: controller.personResponsibleDisplayController,
-                    enabled: false,
-                  ),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Obx(() => CustDateTimePicker(
-                    label: "Actual Failure Occurrence",
-                    hint: "Actual Failure Occurrence",
-                    selectedDateTime: controller.selectedFailureOccurrenceDate.value,
-                    enabled: false,
-                    onDateTimeSelected: (_) {},
-                  )),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                ] else
-                Obx(() => Column(
-                  children: [
-                    CustDropdown(label: 'Location',
-                        hint: 'Select location',
-                        items: controller.locationTypeList.map((e) => e.label ?? '').toList(),
-                        selectedValue: controller.selectedLocation.value,
-                        enabled: controller.isJE && !_isJointInspectionFlow,
-                        onChanged: (value) {
-                          controller.onLocationChanged(value);
-                        }),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    CustDropdown(label: 'Functional Location',
-                        hint: 'Select functional location',
-                        items: controller.functionalLocationList.map((e) => e.label ?? '').toList(),
-                        selectedValue: controller.selectedFunctionalLocation.value,
-                        enabled: controller.isJE && !_isJointInspectionFlow,
-                        onChanged: (value) {
-                            controller.onFunctionalLocationChanged(value);
-                        }),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    CustDropdown(
-                      label: 'Equipment Number',
-                      hint: controller.isEquipmentLoading.value ? 'Loading...' : 'Select equipment number',
-                      items: controller.equipmentList.map((e) => e.label ?? '').toList(),
-                      selectedValue: controller.selectedEquipmentNumber.value,
-                      enabled: controller.isJE && !_isJointInspectionFlow && !controller.isEquipmentLoading.value,
-                      onChanged: (value) => controller.onEquipmentChanged(value),
-                    ),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    CustDateTimePicker(
-                      label: "Actual Failure Occurrence",
-                      hint: "Actual Failure Occurrence",
-                      selectedDateTime: controller.selectedFailureOccurrenceDate.value,
-                      enabled: false,
-                      onDateTimeSelected: (value) => controller.selectedFailureOccurrenceDate.value = value,
-                    ),
-                  ],
-                )),
-                if (!_isJointInspectionFlow) ...[
-                const SizedBox(height: AppConstants.elementSpacing),
-                Obx(() => CustDropdown(label: 'Notification Type',
-                    hint: 'Select Type',
-                    items: controller.notificationTypeList.map((e) => e.label ?? '').toList(),
-                    selectedValue: controller.selectedNotificationType.value,
-                    enabled: controller.isJE && !_isJointInspectionFlow,
-                    onChanged: (v) => controller.selectedNotificationType.value = v)),
-                const SizedBox(height: AppConstants.elementSpacing),
-                CustomTextField(controller: controller.subLocationController,label: "Sub Location", enabled: controller.isJE && !_isJointInspectionFlow,),
-                const SizedBox(height: AppConstants.elementSpacing),
-                ],
-                    ],
-                  ],
-                )),
-                Obx(() => _buildToggleItem(
-                    "Service Affected", controller.isServiceAffected.value, (val) =>
-                    controller.isServiceAffected.value = val, enabled: controller.isJE && !_isJointInspectionFlow)),
-                Obx(() => Column(
-                  children: [
-                    if (controller.isServiceAffected.value) ...[
-                      Row(
-                        children: [
-                          Expanded(child: CustomTextField(label: "Train Delay In Min.", controller: controller.trainDelayMinController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(child: CustomTextField(label: "Train Delay (NOS)", controller: controller.trainDelayNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(child: CustomTextField(label: "Train Cancel (NOS)", controller: controller.trainCancelNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(child: CustomTextField(label: "Train Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                    ],
-                  ],
-                )),
-                Obx(() => _buildToggleItem(
-                    "Passenger Deboarding", controller.isPassengerDeboarding.value, (val) =>
-                    controller.isPassengerDeboarding.value = val, enabled: controller.isJE && !_isJointInspectionFlow)),
-                Obx(() => Column(
-                  children: [
-                    if (controller.isPassengerDeboarding.value) ...[
-                      CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, keyboardType: TextInputType.number, enabled: controller.isJE && !_isJointInspectionFlow),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                    ],
-                  ],
-                )),
-                if(widget.failureType != "Maintenance")
-                Obx(() => _buildToggleItem(
-                    "Passenger Affected", controller.isPassengerAffected.value, (val) =>
-                    controller.isPassengerAffected.value = val, enabled: controller.isJE && !_isJointInspectionFlow )),
-                Obx(() => Column(
-                  children: [
-                    if (controller.isPassengerAffected.value) ...[
-                      CustomTextField(
-                        label: "Number Of Passenger Affected",
-                        controller: controller.passengersAffectedCountController,
-                        keyboardType: TextInputType.number,
-                        enabled: controller.isJE && !_isJointInspectionFlow,
-                        hintText: "Enter number of Passenger Affected",
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: CustomTextField(
-                              label: "Trapped Duration (In Min)",
-                              controller: controller.trappedDurationController,
-                              keyboardType: TextInputType.number,
-                              enabled: controller.isJE && !_isJointInspectionFlow,
-                              hintText: "Enter Trapped Duration",
-                            ),
-                          ),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                            child: CustomTextField(
-                              label: "Rescued Duration (In Min)",
-                              controller: controller.rescuedDurationController,
-                              keyboardType: TextInputType.number,
-                              enabled: controller.isJE && !_isJointInspectionFlow,
-                              hintText: "Enter Rescued Duration",
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                    ],
-                  ],
-                )),
-                Obx(() => _buildToggleItem("PTW Required?", controller.isPtwRequired.value, (val) =>
-                    controller.isPtwRequired.value = val, enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician)),
-                Obx(() => Column(
-                  children: [
-                    if (controller.isPtwRequired.value) ...[
-                      const SizedBox(height: AppConstants.labelSpacing),
-                      CustomTextField(controller: controller.ptwNumberController,label: "PTW Number", enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,keyboardType: TextInputType.number,)
-                    ],
-                  ],
-                )),
-                if (_isJointInspectionFlow) ...[
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Obx(() => CustDateTimePicker(
-                    label: "Failure Attended",
-                    hint: "DD/MM/YYYY hh:mm",
-                    selectedDateTime: controller.selectedFailureAttendedDate.value,
-                    enabled: false,
-                    onDateTimeSelected: (_) {},
-                  )),
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  Obx(() => CustDateTimePicker(
-                    label: "Actual Failure Rectified",
-                    hint: "DD/MM/YYYY hh:mm",
-                    selectedDateTime: controller.selectedActualFailureRectifiedDate.value,
-                    enabled: false,
-                    onDateTimeSelected: (_) {},
-                  )),
-                ],
-                const SizedBox(height: AppConstants.sectionSpacing),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: AppConstants.elementSpacing, vertical: AppConstants.labelSpacing + 4),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppColors.textFieldFillColor),
-                    borderRadius: BorderRadius.circular(AppConstants.inputRadius),
-                  ),
-                  child: CustText.body("Failure Rectification Details (RCA)",
-                      color: AppColors.orangeColor,
-                      fontWeightName: FontWeight.w500),
-                ),
-                const SizedBox(height: AppConstants.elementSpacing),
-                if (!_isJointInspectionFlow)
-                Column(
-                    children: [
-                      Obx(() => CustDropdown(label: 'Object Part',
-                          hint: 'Object Part',
-                          items: controller.objectDataList.map((e) => e.label ?? '').toList(),
-                          selectedValue: controller.selectedObjectPart.value,
-                          enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,
-                          onChanged: (v) {
-                              final trimmedV = v?.toString().trim().toLowerCase();
-                              debugPrint("Object Part Selected: '$trimmedV'");
-                              controller.selectedObjectPart.value = v; // Keep original label for UI
-                              controller.selectedFault.value = null; // Reset fault when object changes
-                              final obj = controller.objectDataList.firstWhere(
-                                (e) => e.label?.trim().toLowerCase() == trimmedV,
-                                orElse: () => LabelValue(value: "0")
-                              );
-                              debugPrint("Object ID: ${obj.value}");
-                              if (obj.value != "0") {
-                                controller.fetchFaults(obj.value!);
-                              } else {
-                                controller.faultTypeList.clear();
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          CustDropdown(
+                            label: "User Status",
+                            hint: "Select",
+                            items: controller.userStatusList
+                                .map((e) => e.label ?? '')
+                                .toList(),
+                            selectedValue: controller.selectedUserStatus.value,
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                            disabledItemFn: controller.isCloseUserStatusBlocked
+                                ? (item) => item.trim().toLowerCase() == 'close'
+                                : null,
+                            onChanged: (v) {
+                              if (controller.isCloseUserStatusBlocked &&
+                                  v?.trim().toLowerCase() == 'close') {
+                                controller.showPendingJointInspectionPopup();
+                                return;
                               }
-                          })),
-                      Obx(() => controller.selectedObjectPart.value != null ? Column(
-                        children: [
+                              controller.selectedUserStatus.value = v;
+                            },
+                          ),
                           const SizedBox(height: AppConstants.elementSpacing),
-                          CustomTextField(controller: controller.objectPartTextController, label: "Object Part Text", enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,),
-                        ],
-                      ) : const SizedBox.shrink()),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Obx(() => CustDropdown(label: 'Fault',
-                          hint: controller.isFaultLoading.value ? 'Loading...' : 'Fault',
-                          items: controller.isFaultLoading.value ? [] : controller.faultTypeList.map((e) => e.label ?? '').toList(),
-                          selectedValue: controller.selectedFault.value,
-                          enabled: (controller.isJE || controller.isTechnician) && !controller.isFaultLoading.value,
-                          onChanged: (v) => controller.selectedFault.value = v)),
-                      Obx(() => controller.selectedFault.value != null ? Column(
-                        children: [
+                          if (controller.selectedUserStatus.value ==
+                              "Under Observation") ...[
+                            CustDateTimePicker(
+                              label: "Under Observation Date *",
+                              hint: "DD/MM/YYYY hh:mm",
+                              selectedDateTime:
+                                  controller.selectedUnderObservationDate.value,
+                              enabled:
+                                  controller.isJE && !_isJointInspectionFlow,
+                              firstDate: DateTime.now(),
+                              validator: (val) {
+                                if (controller.selectedUserStatus.value ==
+                                        "Under Observation" &&
+                                    controller.selectedUnderObservationDate
+                                            .value ==
+                                        null) {
+                                  return "Under Observation Date is required";
+                                }
+                                return null;
+                              },
+                              onDateTimeSelected: (dt) => controller
+                                  .selectedUnderObservationDate.value = dt,
+                            ),
+                            const SizedBox(height: AppConstants.elementSpacing),
+                          ],
+                          CustDateTimePicker(
+                            label: "Failure Attended",
+                            hint: "DD/MM/YYYY hh:mm",
+                            selectedDateTime:
+                                controller.selectedFailureAttendedDate.value ??
+                                    DateTime.now(),
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now(),
+                            onDateTimeSelected: (dateTime) {
+                              controller.selectedFailureAttendedDate.value =
+                                  dateTime;
+                            },
+                          ),
                           const SizedBox(height: AppConstants.elementSpacing),
-                          CustomTextField(controller: controller.faultTextController, label: "Fault Text", enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician,),
+                          CustDateTimePicker(
+                            label: "Actual Failure Rectified",
+                            hint: "DD/MM/YYYY hh:mm",
+                            selectedDateTime: controller
+                                    .selectedActualFailureRectifiedDate.value ??
+                                DateTime.now(),
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                            firstDate: DateTime.now(),
+                            lastDate: DateTime.now(),
+                            onDateTimeSelected: (dateTime) {
+                              controller.selectedActualFailureRectifiedDate
+                                  .value = dateTime;
+                            },
+                          ),
                         ],
-                      ) : const SizedBox.shrink()),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Align(
-                        alignment: Alignment.centerLeft,
+                      ),
+                    ),
+                  if (_isJointInspectionFlow) ...[
+                    const SizedBox(height: AppConstants.sectionSpacing),
+                    _buildJointInspectionActionFields(),
+                    const SizedBox(height: AppConstants.sectionSpacing),
+                  ],
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CustOutlineButton(
+                          name: "Cancel",
+                          size: double.infinity,
+                          sHeight: AppConstants.buttonHeight,
+                          onSelected: (_) => Navigator.pop(context),
+                        ),
+                      ),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(
                         child: CustButton(
-                          name: "Add",
-                          size: 100,
-                          onSelected: (controller.isJE || controller.isTechnician) ? (_) => controller.addRcaDetail() : null,
+                          name: "Submit",
+                          sHeight: AppConstants.buttonHeight,
+                          size: double.infinity,
+                          onSelected: (_) => _isJointInspectionFlow
+                              ? controller.submitJointInspection()
+                              : _submitForm(),
                         ),
                       ),
                     ],
                   ),
-                const SizedBox(height: AppConstants.elementSpacing),
-                Obx(() => Column(
-                  children: controller.rcaDetailsList.asMap().entries
-                    .map((entry) => _buildRcaDetailCard(entry.value, entry.key))
-                    .toList(),
-                )),
-                Obx(() => _buildSparePartReplaceSection(enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician)),
-                const SizedBox(height: AppConstants.elementSpacing),
-                if (!_isJointInspectionFlow)
-                  Obx(() => _buildJointInspectionSection(enabled: controller.isJE)),
-                Obx(() => controller.showMeasurementButton.value ? Padding(
-                  padding: const EdgeInsets.only(top: AppConstants.elementSpacing, bottom: AppConstants.elementSpacing),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: CustButton(
-                      name: "Measurement Reading",
-                      size: 200,
-                      onSelected: (_) => _showMeasurementDialog(),
-                    ),
-                  ),
-                ) : const SizedBox.shrink()),
-                const SizedBox(height: AppConstants.elementSpacing),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Row(
-                      children: [
-                        CustText.sectionHeader("Attachments: ", color: AppColors.textColor3),
-                        const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.red, fontSize: 12)),
-                      ],
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppConstants.labelSpacing),
-                Row(
-                  children: [
-                    CustText.body("After ", fontWeightName: FontWeight.w500),
-                    const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                    const SizedBox(width: AppConstants.sectionSpacing),
-                    if (!_isJointInspectionFlow) _buildUploadButton(controller.afterFiles, enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Obx(() => Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: controller.afterFiles
-                      .map<Widget>((file) => _buildAttachmentItem(file['name']!, file['size']!, controller.afterFiles, file))
-                      .toList(),
-                )),
-                const SizedBox(height: AppConstants.sectionSpacing),
-                Row(
-                  children: [
-                    CustText.body("Upload RCA ", fontWeightName: FontWeight.w500),
-                    const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                    const SizedBox(width: AppConstants.sectionSpacing),
-                    if (!_isJointInspectionFlow) _buildUploadButton(controller.rcaFiles, enabled: controller.isJE && !_isJointInspectionFlow || controller.isTechnician),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Obx(() => Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: controller.rcaFiles
-                      .map<Widget>((file) => _buildAttachmentItem(file['name']!, file['size']!, controller.rcaFiles, file))
-                      .toList(),
-                )),
-                const SizedBox(height: AppConstants.sectionSpacing),
-                const Divider(),
-                const SizedBox(height: AppConstants.sectionSpacing),
-                CustText.sectionHeader("Display Uploaded Images:", color: AppColors.textColor3),
-                const SizedBox(height: AppConstants.labelSpacing),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CustText.body("Before:"),
-                          const SizedBox(height: 8),
-                          Obx(() => Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: controller.beforeImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
-                          )),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CustText.body("After:"),
-                          const SizedBox(height: 8),
-                          Obx(() => Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: controller.afterImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
-                          )),
-                        ],
-                      ),
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CustText.body("RCA:"),
-                          const SizedBox(height: 8),
-                          Obx(() => Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: controller.rcaImagesList.map<Widget>((file) => _buildUploadedImagePreview(file['path']!)).toList(),
-                          )),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppConstants.sectionSpacing),
-                if (!_isJointInspectionFlow)
-                Obx(() => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    CustomTextField(
-                      label: "Failure Rectification Details *",
-                      controller: controller.failureRectificationDetailsController,
-                      hintText: "Enter Rectification Details",
-                      enabled: controller.isJE && !_isJointInspectionFlow,
-                      maxLines: 4,
-                      validator: (val) {
-                        if (val == null || val.trim().isEmpty) {
-                          return "Failure Rectification Details is required";
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    CustDropdown(
-                      label: "User Status",
-                      hint: "Select",
-                      items: controller.userStatusList.map((e) => e.label ?? '').toList(),
-                      selectedValue: controller.selectedUserStatus.value,
-                      enabled: controller.isJE && !_isJointInspectionFlow,
-                      disabledItemFn: controller.isCloseUserStatusBlocked
-                          ? (item) => item.trim().toLowerCase() == 'close'
-                          : null,
-                      onChanged: (v) {
-                        if (controller.isCloseUserStatusBlocked &&
-                            v?.trim().toLowerCase() == 'close') {
-                          controller.showPendingJointInspectionPopup();
-                          return;
-                        }
-                        controller.selectedUserStatus.value = v;
-                      },
-                    ),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    if (controller.selectedUserStatus.value == "Under Observation") ...[
-                      CustDateTimePicker(
-                        label: "Under Observation Date *",
-                        hint: "DD/MM/YYYY hh:mm",
-                        selectedDateTime: controller.selectedUnderObservationDate.value,
-                        enabled: controller.isJE && !_isJointInspectionFlow,
-                        firstDate: DateTime.now(),
-                        validator: (val) {
-                          if (controller.selectedUserStatus.value == "Under Observation" &&
-                              controller.selectedUnderObservationDate.value == null) {
-                            return "Under Observation Date is required";
-                          }
-                          return null;
-                        },
-                        onDateTimeSelected: (dt) => controller.selectedUnderObservationDate.value = dt,
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                    ],
-                    CustDateTimePicker(
-                      label: "Failure Attended",
-                      hint: "DD/MM/YYYY hh:mm",
-                      selectedDateTime: controller.selectedFailureAttendedDate.value ?? DateTime.now(),
-                      enabled: controller.isJE && !_isJointInspectionFlow,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now(),
-                      onDateTimeSelected: (dateTime) {
-                        controller.selectedFailureAttendedDate.value = dateTime;
-                      },
-                    ),
-                    const SizedBox(height: AppConstants.elementSpacing),
-                    CustDateTimePicker(
-                      label: "Actual Failure Rectified",
-                      hint: "DD/MM/YYYY hh:mm",
-                      selectedDateTime: controller.selectedActualFailureRectifiedDate.value ?? DateTime.now(),
-                      enabled: controller.isJE && !_isJointInspectionFlow,
-                      firstDate: DateTime.now(),
-                      lastDate: DateTime.now(),
-                      onDateTimeSelected: (dateTime) {
-                        controller.selectedActualFailureRectifiedDate.value = dateTime;
-                      },
-                    ),
-                  ],
-                )),
-                if (_isJointInspectionFlow) ...[
-                  const SizedBox(height: AppConstants.sectionSpacing),
-                  _buildJointInspectionActionFields(),
-                  const SizedBox(height: AppConstants.sectionSpacing),
                 ],
-                Row(
-                  children: [
-                    Expanded(
-                      child: CustOutlineButton(
-                        name: "Cancel",
-                        size: double.infinity,
-                        sHeight: AppConstants.buttonHeight,
-                        onSelected: (_) => Navigator.pop(context),
-                      ),
-                    ),
-                    const SizedBox(width: AppConstants.elementSpacing),
-                    Expanded(
-                      child: CustButton(
-                        name: "Submit",
-                        sHeight: AppConstants.buttonHeight,
-                        size: double.infinity,
-                        onSelected: (_) => _isJointInspectionFlow ? controller.submitJointInspection() : _submitForm(),
-                      ),
-                    ),
-                  ],
-                )
+              ),
+            ),
           ],
         ),
       ),
@@ -1162,62 +1748,66 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   }
 
   Widget _buildJointInspectionActionFields() {
-    return Obx(() => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildToggleItem(
-          "Joint Inspection",
-          true,
-          (_) {},
-          enabled: false,
-        ),
-        const SizedBox(height: AppConstants.elementSpacing),
-        CustomTextField(
-          label: "Department",
-          controller: controller.jiDepartmentDisplayController,
-          enabled: false,
-        ),
-        const SizedBox(height: AppConstants.elementSpacing),
-        CustomTextField(
-          label: "Assign To",
-          controller: controller.jiAssignToDisplayController,
-          enabled: false,
-        ),
-        const SizedBox(height: AppConstants.elementSpacing),
-        CustDropdown(
-          label: "Functional Location",
-          hint: "Select...",
-          items: controller.functionalLocationList.map((e) => e.label ?? '').toList(),
-          selectedValue: controller.selectedJiFunctionalLocation.value,
-          enabled: true,
-          onChanged: controller.onJiFunctionalLocationChanged,
-        ),
-        const SizedBox(height: AppConstants.elementSpacing),
-        CustDropdown(
-          label: "Equipment Number",
-          hint: "Select...",
-          items: controller.equipmentList.map((e) => e.label ?? '').toList(),
-          selectedValue: controller.selectedJiEquipmentNumber.value,
-          enabled: true,
-          onChanged: controller.onJiEquipmentChanged,
-        ),
-        const SizedBox(height: AppConstants.elementSpacing),
-        CustomTextField(
-          label: "Joint Inspection Remark",
-          controller: controller.jiRemarkDisplayController,
-          maxLines: 3,
-          enabled: false,
-        ),
-        const SizedBox(height: AppConstants.elementSpacing),
-        CustomTextField(
-          label: "User's Remark:(Max length: 500)",
-          controller: controller.jiUserRemarkController,
-          maxLines: 3,
-          enabled: true,
-          maxLength: 500,
-        ),
-      ],
-    ));
+    return CustSection(
+      title: "Joint Inspection Details",
+      child: Column(
+        children: [
+          _buildToggleItem(
+            "Joint Inspection",
+            true,
+            (_) {},
+            enabled: false,
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustomTextField(
+            label: "Department",
+            controller: controller.jiDepartmentDisplayController,
+            enabled: false,
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustomTextField(
+            label: "Assign To",
+            controller: controller.jiAssignToDisplayController,
+            enabled: false,
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustDropdown(
+            label: "Functional Location",
+            hint: "Select...",
+            items: controller.functionalLocationList
+                .map((e) => e.label ?? '')
+                .toList(),
+            selectedValue: controller.selectedJiFunctionalLocation.value,
+            enabled: true,
+            onChanged: controller.onJiFunctionalLocationChanged,
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustDropdown(
+            label: "Equipment Number",
+            hint: "Select...",
+            items: controller.equipmentList.map((e) => e.label ?? '').toList(),
+            selectedValue: controller.selectedJiEquipmentNumber.value,
+            enabled: true,
+            onChanged: controller.onJiEquipmentChanged,
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustomTextField(
+            label: "Joint Inspection Remark",
+            controller: controller.jiRemarkDisplayController,
+            maxLines: 3,
+            enabled: false,
+          ),
+          const SizedBox(height: AppConstants.elementSpacing),
+          CustomTextField(
+            label: "User's Remark:(Max length: 500)",
+            controller: controller.jiUserRemarkController,
+            maxLines: 3,
+            enabled: true,
+            maxLength: 500,
+          ),
+        ],
+      ),
+    );
   }
 
   Widget _buildStationCreateForm(BuildContext context) {
@@ -1227,213 +1817,311 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            CustText.sectionHeader("Failure Details", color: AppColors.orangeColor),
-            const SizedBox(height: AppConstants.elementSpacing),
-            Obx(() => Row(
-              children: [
-                Expanded(
-                  child: CustDropdown(
-                    label: "Priority",
-                    hint: "Select...",
-                    items: controller.priorityTypeList.map((e) => e.label ?? '').toList(),
-                    selectedValue: controller.selectedPriority.value,
-                    onChanged: (v) => controller.selectedPriority.value = v,
-                  ),
-                ),
-                const SizedBox(width: AppConstants.elementSpacing),
-                Expanded(
-                  child: CustDropdown(
-                    label: "Department",
-                    hint: "Select...",
-                    items: controller.departmentList.map((e) => e.label ?? '').toList().isNotEmpty
-                        ? controller.departmentList.map((e) => e.label ?? '').toList()
-                        : Get.find<SessionController>().departments.map((e) => e.deptName ?? '').toList(),
-                    selectedValue: controller.selectedDepartment.value ??
-                        Get.find<SessionController>().selectedDepartment.value?.deptName,
-                    onChanged: (v) => controller.selectedDepartment.value = v,
-                  ),
-                ),
-              ],
-            )),
-            const SizedBox(height: AppConstants.elementSpacing),
-            CustomTextField(
-              label: "Failure Description",
-              controller: controller.failureDescriptionController,
-              hintText: "Enter failure description",
-              maxLines: 4,
-              maxLength: 500,
-              enabled: controller.isStationController,
-              validator: (val) {
-                if (val == null || val.trim().isEmpty) {
-                  return "Failure Description is required";
-                }
-                return null;
-              },
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
-            Obx(() => CustDropdown(
-              label: "Location",
-              hint: "Select...",
-              items: controller.locationTypeList.map((e) => e.label ?? '').toList(),
-              selectedValue: controller.selectedLocation.value,
-              onChanged: (value) {
-                controller.onLocationChanged(value);
-              },
-            )),
-            const SizedBox(height: AppConstants.elementSpacing),
-            Obx(() => CustDropdown(
-              label: "Functional Location",
-              hint: "Select...",
-              items: controller.functionalLocationList.map((e) => e.label ?? '').toList(),
-              selectedValue: controller.selectedFunctionalLocation.value,
-              onChanged: (v) => controller.onFunctionalLocationChanged(v),
-            )),
-            const SizedBox(height: AppConstants.elementSpacing),
-            CustomTextField(
-              label: "Sub Location",
-              controller: controller.subLocationController,
-              hintText: "Enter Sub Location",
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
-            Row(
-              children: [
-                Expanded(
-                  child: CustomTextField(
-                    label: "System",
-                    controller: controller.systemController,
-                    hintText: "Enter System",
-                  ),
-                ),
-                const SizedBox(width: AppConstants.elementSpacing),
-                Expanded(
-                  child: CustomTextField(
-                    label: "Train Id",
-                    controller: controller.trainIdController,
-                    hintText: "Enter Train Id",
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
-            CustDateTimePicker(
-              label: "Actual Failure Occurrence",
-              hint: "DD/MM/YYYY hh:mm",
-              selectedDateTime: controller.selectedFailureOccurrenceDate.value,
-              onDateTimeSelected: (dt) => controller.selectedFailureOccurrenceDate.value = dt,
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
-            Obx(() => CustDropdown(
-              label: "Failure Reported by",
-              hint: "Select...",
-              items: controller.userList.map((e) => e.label ?? '').toList(),
-              selectedValue: controller.selectedFailureReportedBy.value,
-              onChanged: (v) => controller.selectedFailureReportedBy.value = v,
-            )),
-            const SizedBox(height: AppConstants.elementSpacing),
-            CustDateTimePicker(
-              label: "Actual Failure Completed Date & Time",
-              hint: "DD/MM/YYYY hh:mm",
-              selectedDateTime: controller.selectedFailureCompletedDate.value,
-              enabled: false,
-              onDateTimeSelected: (dt) => controller.selectedFailureCompletedDate.value = dt,
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
-            Obx(() => CustDropdown(
-              label: "Failure Category Type",
-              hint: "Select...",
-              items: controller.corrNotificationTypeList.map((e) => e.label ?? '').toList(),
-              selectedValue: controller.selectedFailureCategoryType.value,
-              onChanged: (v) => controller.selectedFailureCategoryType.value = v,
-            )),
-            const SizedBox(height: AppConstants.sectionSpacing),
-            Obx(() => _buildToggleItem(
-              "Trip Affected",
-              controller.isServiceAffected.value,
-              (val) => controller.isServiceAffected.value = val,
-            )),
-            Obx(() {
-              if (!controller.isServiceAffected.value) return const SizedBox.shrink();
-              return Column(
+            CustSection(
+              title: "Basic Information",
+              child: Column(
                 children: [
+                  Obx(() => Row(
+                        children: [
+                          Expanded(
+                            child: CustDropdown(
+                              label: "Priority",
+                              hint: "Select...",
+                              items: controller.priorityTypeList
+                                  .map((e) => e.label ?? '')
+                                  .toList(),
+                              selectedValue: controller.selectedPriority.value,
+                              onChanged: (v) =>
+                                  controller.selectedPriority.value = v,
+                            ),
+                          ),
+                          const SizedBox(width: AppConstants.elementSpacing),
+                          Expanded(
+                            child: CustDropdown(
+                              label: "Department",
+                              hint: "Select...",
+                              items: controller.departmentList
+                                      .map((e) => e.label ?? '')
+                                      .toList()
+                                      .isNotEmpty
+                                  ? controller.departmentList
+                                      .map((e) => e.label ?? '')
+                                      .toList()
+                                  : Get.find<SessionController>()
+                                      .departments
+                                      .map((e) => e.deptName ?? '')
+                                      .toList(),
+                              selectedValue:
+                                  controller.selectedDepartment.value ??
+                                      Get.find<SessionController>()
+                                          .selectedDepartment
+                                          .value
+                                          ?.deptName,
+                              onChanged: (v) =>
+                                  controller.selectedDepartment.value = v,
+                            ),
+                          ),
+                        ],
+                      )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(
+                    label: "Failure Description",
+                    controller: controller.failureDescriptionController,
+                    hintText: "Enter failure description",
+                    maxLines: 4,
+                    maxLength: 500,
+                    enabled: controller.isStationController,
+                    validator: (val) {
+                      if (val == null || val.trim().isEmpty) {
+                        return "Failure Description is required";
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => CustDropdown(
+                        label: "Location",
+                        hint: "Select...",
+                        items: controller.locationTypeList
+                            .map((e) => e.label ?? '')
+                            .toList(),
+                        selectedValue: controller.selectedLocation.value,
+                        onChanged: (value) {
+                          controller.onLocationChanged(value);
+                        },
+                      )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => CustDropdown(
+                        label: "Functional Location",
+                        hint: "Select...",
+                        items: controller.functionalLocationList
+                            .map((e) => e.label ?? '')
+                            .toList(),
+                        selectedValue:
+                            controller.selectedFunctionalLocation.value,
+                        onChanged: (v) =>
+                            controller.onFunctionalLocationChanged(v),
+                      )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustomTextField(
+                    label: "Sub Location",
+                    controller: controller.subLocationController,
+                    hintText: "Enter Sub Location",
+                  ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Row(
                     children: [
-                      Expanded(child: CustomTextField(label: "Trip Delay Upline (NOS)", controller: controller.tripDelayUplineController, keyboardType: TextInputType.number, hintText: "Enter Trip Delay Upline")),
+                      Expanded(
+                        child: CustomTextField(
+                          label: "System",
+                          controller: controller.systemController,
+                          hintText: "Enter System",
+                        ),
+                      ),
                       const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Trip Cancel (NOS)", controller: controller.trainCancelNosController, keyboardType: TextInputType.number, hintText: "Enter Trip Cancel")),
+                      Expanded(
+                        child: CustomTextField(
+                          label: "Train Id",
+                          controller: controller.trainIdController,
+                          hintText: "Enter Train Id",
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustDateTimePicker(
+                    label: "Actual Failure Occurrence",
+                    hint: "DD/MM/YYYY hh:mm",
+                    selectedDateTime:
+                        controller.selectedFailureOccurrenceDate.value,
+                    onDateTimeSelected: (dt) =>
+                        controller.selectedFailureOccurrenceDate.value = dt,
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => CustDropdown(
+                        label: "Failure Reported by",
+                        hint: "Select...",
+                        items: controller.userList
+                            .map((e) => e.label ?? '')
+                            .toList(),
+                        selectedValue:
+                            controller.selectedFailureReportedBy.value,
+                        onChanged: (v) =>
+                            controller.selectedFailureReportedBy.value = v,
+                      )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  CustDateTimePicker(
+                    label: "Actual Failure Completed Date & Time",
+                    hint: "DD/MM/YYYY hh:mm",
+                    selectedDateTime:
+                        controller.selectedFailureCompletedDate.value,
+                    enabled: false,
+                    onDateTimeSelected: (dt) =>
+                        controller.selectedFailureCompletedDate.value = dt,
+                  ),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  Obx(() => CustDropdown(
+                        label: "Failure Category Type",
+                        hint: "Select...",
+                        items: controller.corrNotificationTypeList
+                            .map((e) => e.label ?? '')
+                            .toList(),
+                        selectedValue:
+                            controller.selectedFailureCategoryType.value,
+                        onChanged: (v) =>
+                            controller.selectedFailureCategoryType.value = v,
+                      )),
+                ],
+              ),
+            ),
+            CustSection(
+              title: "Service Affected",
+              trailing: Obx(() => YesNoToggle(
+                    value: controller.isServiceAffected.value,
+                    onChanged: (val) =>
+                        controller.isServiceAffected.value = val,
+                  )),
+              isVisible: controller.isServiceAffected.value,
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Trip Delay Upline (NOS)",
+                              controller: controller.tripDelayUplineController,
+                              keyboardType: TextInputType.number,
+                              hintText: "Enter Trip Delay Upline")),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Trip Cancel (NOS)",
+                              controller: controller.trainCancelNosController,
+                              keyboardType: TextInputType.number,
+                              hintText: "Enter Trip Cancel")),
                     ],
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Row(
                     children: [
-                      Expanded(child: CustomTextField(label: "Trip Delay Downline (NOS)", controller: controller.tripDelayDownlineController, keyboardType: TextInputType.number, hintText: "Enter Trip Delay Downline")),
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Trip Delay Downline (NOS)",
+                              controller:
+                                  controller.tripDelayDownlineController,
+                              keyboardType: TextInputType.number,
+                              hintText: "Enter Trip Delay Downline")),
                       const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Trip Delay in Min.", controller: controller.trainDelayMinController, keyboardType: TextInputType.number, hintText: "Enter Trains Delayed In Min")),
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Trip Delay in Min.",
+                              controller: controller.trainDelayMinController,
+                              keyboardType: TextInputType.number,
+                              hintText: "Enter Trains Delayed In Min")),
                     ],
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Row(
                     children: [
-                      Expanded(child: CustomTextField(label: "Trip Withdrawal (NOS)", controller: controller.trainWithdrawalNosController, keyboardType: TextInputType.number, hintText: "Enter Train Withdrawal")),
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Trip Withdrawal (NOS)",
+                              controller:
+                                  controller.trainWithdrawalNosController,
+                              keyboardType: TextInputType.number,
+                              hintText: "Enter Train Withdrawal")),
                       const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Train Replace (NOS)", controller: controller.trainReplaceNosController, keyboardType: TextInputType.number, hintText: "Enter Train Replace")),
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Train Replace (NOS)",
+                              controller: controller.trainReplaceNosController,
+                              keyboardType: TextInputType.number,
+                              hintText: "Enter Train Replace")),
                     ],
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
-                  Obx(() => _buildToggleItem("Passenger Deboarding", controller.isPassengerDeboarding.value, (val) => controller.isPassengerDeboarding.value = val)),
+                  Obx(() => _buildToggleItem(
+                      "Passenger Deboarding",
+                      controller.isPassengerDeboarding.value,
+                      (val) => controller.isPassengerDeboarding.value = val)),
                   Obx(() {
-                    if (!controller.isPassengerDeboarding.value) return const SizedBox.shrink();
+                    if (!controller.isPassengerDeboarding.value)
+                      return const SizedBox.shrink();
                     return Padding(
-                      padding: const EdgeInsets.only(top: AppConstants.elementSpacing),
-                      child: CustomTextField(label: "Train Deboarded (NOS)", controller: controller.trainDeboardedNosController, keyboardType: TextInputType.number, hintText: "Enter Number Of Train Deboarded"),
+                      padding: const EdgeInsets.only(
+                          top: AppConstants.elementSpacing),
+                      child: CustomTextField(
+                          label: "Train Deboarded (NOS)",
+                          controller: controller.trainDeboardedNosController,
+                          keyboardType: TextInputType.number,
+                          hintText: "Enter Number Of Train Deboarded"),
                     );
                   }),
                 ],
-              );
-            }),
-            const SizedBox(height: AppConstants.sectionSpacing),
-            Obx(() => _buildToggleItem("Passenger Affected", controller.isPassengerAffected.value, (val) => controller.isPassengerAffected.value = val)),
-            Obx(() {
-              if (!controller.isPassengerAffected.value) return const SizedBox.shrink();
-              return Column(
+              ),
+            ),
+            CustSection(
+              title: "Passenger Affected",
+              trailing: Obx(() => YesNoToggle(
+                    value: controller.isPassengerAffected.value,
+                    onChanged: (val) =>
+                        controller.isPassengerAffected.value = val,
+                  )),
+              isVisible: controller.isPassengerAffected.value,
+              child: Column(
                 children: [
-                  const SizedBox(height: AppConstants.elementSpacing),
-                  CustomTextField(label: "Number Of Passenger Affected", controller: controller.passengersAffectedCountController, keyboardType: TextInputType.number, hintText: "Enter number of Passenger Affected"),
+                  CustomTextField(
+                      label: "Number Of Passenger Affected",
+                      controller: controller.passengersAffectedCountController,
+                      keyboardType: TextInputType.number,
+                      hintText: "Enter number of Passenger Affected"),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Row(
                     children: [
-                      Expanded(child: CustomTextField(label: "Trapped Duration", controller: controller.trappedDurationController, hintText: "Enter Trapped Duration")),
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Trapped Duration",
+                              controller: controller.trappedDurationController,
+                              hintText: "Enter Trapped Duration")),
                       const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(child: CustomTextField(label: "Rescued Duration", controller: controller.rescuedDurationController, hintText: "Enter Rescued Duration")),
+                      Expanded(
+                          child: CustomTextField(
+                              label: "Rescued Duration",
+                              controller: controller.rescuedDurationController,
+                              hintText: "Enter Rescued Duration")),
                     ],
                   ),
                 ],
-              );
-            }),
-            const SizedBox(height: AppConstants.sectionSpacing),
-            Row(
-              children: [
-                CustText.sectionHeader("Attachments: ", color: AppColors.textColor3),
-                const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.red, fontSize: 12)),
-              ],
+              ),
             ),
-            const SizedBox(height: AppConstants.labelSpacing),
-            Row(
-              children: [
-                CustText.body("Before ", fontWeightName: FontWeight.w500),
-                const Text("(Max File Size 1MB)", style: TextStyle(color: Colors.grey, fontSize: 12)),
-                const SizedBox(width: AppConstants.sectionSpacing),
-                _buildUploadButton(controller.beforeFiles, enabled: true),
-              ],
+            CustSection(
+              title: "Attachments",
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      CustText.body("Before ", fontWeightName: FontWeight.w500),
+                      const Text("(Max File Size 1MB)",
+                          style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      const SizedBox(width: AppConstants.sectionSpacing),
+                      _buildUploadButton(controller.beforeFiles, enabled: true),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Obx(() => Wrap(
+                        spacing: 12,
+                        runSpacing: 12,
+                        children: controller.beforeFiles
+                            .map<Widget>((file) => _buildAttachmentItem(
+                                file['name']!,
+                                file['size']!,
+                                controller.beforeFiles,
+                                file))
+                            .toList(),
+                      )),
+                ],
+              ),
             ),
-            const SizedBox(height: 12),
-            Obx(() => Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: controller.beforeFiles
-                  .map<Widget>((file) => _buildAttachmentItem(file['name']!, file['size']!, controller.beforeFiles, file))
-                  .toList(),
-            )),
             const SizedBox(height: AppConstants.sectionSpacing),
             Row(
               children: [
@@ -1463,12 +2151,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
     );
   }
 
-  Widget _buildToggleItem(String title, bool value,
-      ValueChanged<bool> onChanged, {bool enabled = true}) {
+  Widget _buildToggleItem(
+      String title, bool value, ValueChanged<bool> onChanged,
+      {bool enabled = true}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: AppConstants.labelSpacing),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: AppConstants.elementSpacing, vertical: AppConstants.labelSpacing),
+        padding: const EdgeInsets.symmetric(
+            horizontal: AppConstants.elementSpacing,
+            vertical: AppConstants.labelSpacing),
         decoration: BoxDecoration(
           border: Border.all(color: AppColors.textFieldFillColor),
           borderRadius: BorderRadius.circular(AppConstants.inputRadius),
@@ -1476,9 +2167,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(child: CustText.body(title,
-                color: enabled ? AppColors.orangeColor : Colors.grey,
-                fontWeightName: FontWeight.w500)),
+            Expanded(
+                child: CustText.body(title,
+                    color: enabled ? AppColors.orangeColor : Colors.grey,
+                    fontWeightName: FontWeight.w500)),
             YesNoToggle(value: value, onChanged: onChanged, enabled: enabled),
           ],
         ),
@@ -1499,16 +2191,28 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         child: Image.network(
           "${AppUrls.baseUrl.replaceAll('/api/', '/')}$path",
           fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, color: Colors.grey),
+          errorBuilder: (context, error, stackTrace) =>
+              const Icon(Icons.broken_image, color: Colors.grey),
         ),
       ),
     );
   }
 
-  Widget _buildUploadButton(List<Map<String, dynamic>> targetList, {bool enabled = true}) {
-    return CustButton(name: "Upload", size: 100, onSelected: enabled ? (_) {
-      _showUploadPopup(targetList);
-    } : null,);
+  Widget _buildUploadButton(List<Map<String, dynamic>> targetList,
+      {bool enabled = true}) {
+    return CustOutlineButton(
+      name: "Upload",
+      size: 100,
+      sHeight: 25,
+      fontSize: AppConstants.buttonFontSize,
+      borderColor: AppColors.orangeColor,
+      textColor: AppColors.orangeColor,
+      onSelected: enabled
+          ? (_) {
+              _showUploadPopup(targetList);
+            }
+          : null,
+    );
   }
 
   void _showUploadPopup(List<Map<String, dynamic>> targetList) {
@@ -1542,8 +2246,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       try {
                         Get.back();
                         final ImagePicker picker = ImagePicker();
-                        final XFile? image = await picker.pickImage(
-                            source: ImageSource.camera);
+                        final XFile? image =
+                            await picker.pickImage(source: ImageSource.camera);
                         if (image != null) {
                           final bytes = await image.readAsBytes();
                           final sizeInMb = bytes.length / (1024 * 1024);
@@ -1566,8 +2270,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     onTap: () async {
                       try {
                         Get.back();
-                        final FilePickerResult? result = await FilePicker
-                            .platform.pickFiles();
+                        final FilePickerResult? result =
+                            await FilePicker.platform.pickFiles();
                         if (result != null) {
                           for (var file in result.files) {
                             final sizeInMb = file.size / (1024 * 1024);
@@ -1624,10 +2328,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
     return GestureDetector(
       onTap: () => _showFilePreview(file),
       child: Container(
-        width: (MediaQuery
-            .of(context)
-            .size
-            .width - 44) / 2,
+        width: (MediaQuery.of(context).size.width - 44) / 2,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: const Color(0xFFF7F7F7),
@@ -1642,8 +2343,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                 color: const Color(0xFFE2E8F7),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(
-                  TablerIcons.photo, color: AppColors.textColor7, size: 18),
+              child: const Icon(TablerIcons.photo,
+                  color: AppColors.textColor7, size: 18),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -1691,7 +2392,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
               AppBar(
                 backgroundColor: Colors.transparent,
                 elevation: 0,
-                title: CustText(name: name,
+                title: CustText(
+                    name: name,
                     size: 16,
                     color: Colors.black,
                     fontWeightName: FontWeight.bold),
@@ -1704,19 +2406,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                 padding: const EdgeInsets.all(16.0),
                 child: isImage && path.isNotEmpty
                     ? Image.file(
-                  File(path),
-                  fit: BoxFit.contain,
-                )
+                        File(path),
+                        fit: BoxFit.contain,
+                      )
                     : Column(
-                  children: [
-                    const Icon(TablerIcons.file_description, size: 80,
-                        color: Colors.grey),
-                    const SizedBox(height: 16),
-                    CustText(name: "Preview not available for this file type",
-                        size: 14,
-                        color: Colors.grey),
-                  ],
-                ),
+                        children: [
+                          const Icon(TablerIcons.file_description,
+                              size: 80, color: Colors.grey),
+                          const SizedBox(height: 16),
+                          CustText(
+                              name: "Preview not available for this file type",
+                              size: 14,
+                              color: Colors.grey),
+                        ],
+                      ),
               ),
               const SizedBox(height: 16),
             ],
@@ -1727,14 +2430,21 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   }
 
   Widget _buildActionCard(
-      {required String priority, required String status, required String actionBy, required String dateTime, required String remarks}) {
+      {required String priority,
+      required String status,
+      required String actionBy,
+      required String dateTime,
+      required String remarks}) {
     return Container(
       padding: const EdgeInsets.all(AppConstants.cardPadding),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(AppConstants.cardRadius),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 4, offset: const Offset(0, 2)),
+          BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 4,
+              offset: const Offset(0, 2)),
         ],
       ),
       child: Column(
@@ -1753,7 +2463,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                             horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                             color: AppColors.orangeColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(AppConstants.inputRadius)),
+                            borderRadius: BorderRadius.circular(
+                                AppConstants.inputRadius)),
                         child: CustText(
                           name: priority,
                           size: 14,
@@ -1777,7 +2488,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                             horizontal: 8, vertical: 2),
                         decoration: BoxDecoration(
                             color: Colors.red.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(AppConstants.inputRadius)),
+                            borderRadius: BorderRadius.circular(
+                                AppConstants.inputRadius)),
                         child: CustText(
                           name: status,
                           size: 14,
@@ -1806,20 +2518,27 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   }
 
   void _submitForm() {
-    if (_formKey.currentState?.validate() ?? false) {
+    if (_validateSubmitForms()) {
       if (widget.isUpdate && widget.failureType == 'Station') {
         controller.updateStationFailureDetails(widget.failureNo ?? "0");
         return;
       }
-      if (!controller.isStation && controller.isRcaRequired.value && controller.rcaDetailsList.isEmpty) {
-        Get.snackbar(
-          "Validation Error",
-          "At least one RCA detail is required.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM,
-        );
-        return;
+      if (!controller.isStation && controller.isRcaRequired.value) {
+        final hasExistingRca = controller.rcaDetailsList
+            .any((rca) => (rca['isNew'] ?? true) == false);
+        final hasNewRca = controller.rcaDetailsList
+            .any((rca) => (rca['isNew'] ?? true) == true);
+
+        if (!hasExistingRca && !hasNewRca) {
+          Get.snackbar(
+            "Validation Error",
+            "At least one RCA detail is required.",
+            backgroundColor: Colors.red.withOpacity(0.9),
+            colorText: Colors.white,
+            snackPosition: SnackPosition.BOTTOM,
+          );
+          return;
+        }
       }
       controller.submitFailure(isCreate: widget.failureNo == null);
     } else {
@@ -1833,7 +2552,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
     }
   }
 
-
   Widget _buildRcaDetailCard(Map<String, dynamic> item, int index) {
     final List<Map<String, dynamic>> rootCauses = item['rootCauses'] ?? [];
     final List<Map<String, dynamic>> actionTakens = item['actionTakens'] ?? [];
@@ -1845,7 +2563,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         decoration: BoxDecoration(
           color: AppColors.white1,
           borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-          border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
+          border:
+              Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(0.03),
@@ -1876,11 +2595,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     children: [
                       if (!_isJointInspectionFlow)
                         IconButton(
-                          icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 24),
+                          icon: const Icon(TablerIcons.trash,
+                              color: Colors.grey, size: 24),
                           onPressed: () => controller.removeRcaDetail(item),
                         ),
                       IconButton(
-                        icon: Icon(isExpanded ? TablerIcons.chevron_up : TablerIcons.chevron_down, color: AppColors.orangeColor),
+                        icon: Icon(
+                            isExpanded
+                                ? TablerIcons.chevron_up
+                                : TablerIcons.chevron_down,
+                            color: AppColors.orangeColor),
                         onPressed: () => controller.toggleRcaExpansion(index),
                       ),
                     ],
@@ -1905,7 +2629,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     CustText.detailLabel("Fault Text"),
                     const SizedBox(height: AppConstants.labelSpacing),
                     CustText.detailValue(item['faultText'] ?? "N/A"),
-                    
                     if (rootCauses.isNotEmpty || actionTakens.isNotEmpty) ...[
                       const SizedBox(height: 16),
                       DefaultTabController(
@@ -1928,24 +2651,44 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                             const SizedBox(height: 16),
                             Builder(
                               builder: (context) {
-                                final tabController = DefaultTabController.of(context);
+                                final tabController =
+                                    DefaultTabController.of(context);
                                 return AnimatedBuilder(
                                   animation: tabController,
                                   builder: (context, _) {
-                                    final bool isRootCauseTab = tabController.index == 0;
-                                    final currentList = isRootCauseTab ? rootCauses : actionTakens;
-                                    final currentLabel = isRootCauseTab ? "Root Cause" : "Action Taken";
-                                    
+                                    final bool isRootCauseTab =
+                                        tabController.index == 0;
+                                    final currentList = isRootCauseTab
+                                        ? rootCauses
+                                        : actionTakens;
+                                    final currentLabel = isRootCauseTab
+                                        ? "Root Cause"
+                                        : "Action Taken";
+
                                     return Column(
-                                      children: currentList.asMap().entries.map((entry) => _buildRcaSubItem(
-                                        label: currentLabel,
-                                        value: entry.value[isRootCauseTab ? 'rootCause' : 'actionTaken'],
-                                        text: entry.value[isRootCauseTab ? 'rootCauseText' : 'actionTakenText'],
-                                        imagePath: entry.value['imagePath'],
-                                        onDelete: () => isRootCauseTab 
-                                          ? controller.removeRootCauseFromRca(index, entry.key)
-                                          : controller.removeActionTakenFromRca(index, entry.key),
-                                      )).toList(),
+                                      children: currentList
+                                          .asMap()
+                                          .entries
+                                          .map((entry) => _buildRcaSubItem(
+                                                label: currentLabel,
+                                                value: entry.value[
+                                                    isRootCauseTab
+                                                        ? 'rootCause'
+                                                        : 'actionTaken'],
+                                                text: entry.value[isRootCauseTab
+                                                    ? 'rootCauseText'
+                                                    : 'actionTakenText'],
+                                                imagePath:
+                                                    entry.value['imagePath'],
+                                                onDelete: () => isRootCauseTab
+                                                    ? controller
+                                                        .removeRootCauseFromRca(
+                                                            index, entry.key)
+                                                    : controller
+                                                        .removeActionTakenFromRca(
+                                                            index, entry.key),
+                                              ))
+                                          .toList(),
                                     );
                                   },
                                 );
@@ -1965,10 +2708,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                 child: CustButton(
                   name: "Add RCA",
                   size: 100,
+                  fontSize: AppConstants.buttonFontSize,
                   onSelected: (_) async {
-                    final objectPartId = item['ObjectPartId']?.toString() ?? "0";
+                    final objectPartId =
+                        item['ObjectPartId']?.toString() ?? "0";
                     final faultId = item['FaultId']?.toString() ?? "0";
-                    await controller.fetchRootCauseAndAction(objectPartId, faultId);
+                    await controller.fetchRootCauseAndAction(
+                        objectPartId, faultId);
                     _showAddRcaPopup(index);
                   },
                 ),
@@ -2033,13 +2779,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(color: Colors.grey.shade200),
                   ),
-                  child: const Icon(Icons.image_outlined, color: Colors.grey, size: 24),
+                  child: const Icon(Icons.image_outlined,
+                      color: Colors.grey, size: 24),
                 ),
               const SizedBox(height: 8),
               if (!_isJointInspectionFlow)
                 GestureDetector(
                   onTap: onDelete,
-                  child: const Icon(TablerIcons.trash, color: Colors.red, size: 20),
+                  child: const Icon(TablerIcons.trash,
+                      color: Colors.red, size: 20),
                 ),
             ],
           ),
@@ -2054,7 +2802,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         length: 2,
         child: Dialog(
           backgroundColor: AppColors.white1,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(AppConstants.cardRadius)),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppConstants.cardRadius)),
           child: Container(
             width: double.infinity,
             constraints: const BoxConstraints(maxHeight: 600),
@@ -2067,7 +2816,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.close, color: AppColors.iconColor,size: AppConstants.iconSize,),
+                        icon: const Icon(
+                          Icons.close,
+                          color: AppColors.iconColor,
+                          size: AppConstants.iconSize,
+                        ),
                         onPressed: () {
                           controller.clearPopupState();
                           Get.back();
@@ -2077,13 +2830,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                   ),
                 ),
                 TabBar(
-                  labelColor: const Color(0xFF4285F4),
-                  unselectedLabelColor: const Color(0xFF6C7A9C),
-                  indicatorColor: const Color(0xFF4285F4),
+                  labelColor: AppColors.orangeColor,
+                  unselectedLabelColor: Colors.grey,
+                  indicatorColor: AppColors.orangeColor,
                   indicatorSize: TabBarIndicatorSize.tab,
                   tabs: [
-                    _buildTabWithBadge("Root Cause", controller.tempPopupRootCauses),
-                    _buildTabWithBadge("Action Taken", controller.tempPopupActionTakens),
+                    _buildTabWithBadge(
+                        "Root Cause", controller.tempPopupRootCauses),
+                    _buildTabWithBadge(
+                        "Action Taken", controller.tempPopupActionTakens),
                   ],
                 ),
                 Flexible(
@@ -2092,13 +2847,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       _buildPopupTab(
                         index: index,
                         isRootCause: true,
+                        formKey: _rcaRootCausePopupFormKey,
                         dropdownLabel: "Root Cause",
                         dropdownHint: "Select Root Cause",
-                        items: controller.rootCauseList.map((e) => e.label ?? '').toList(),
+                        items: controller.rootCauseList
+                            .map((e) => e.label ?? '')
+                            .toList(),
                         controller: controller.popupRootCauseTextController,
                         files: controller.popupRootCauseFiles,
                         tempList: controller.tempPopupRootCauses,
-                        onAddClick: () => controller.addToTempRootCauses(),
+                        onAddClick: () {
+                          if (_validateForm(_rcaRootCausePopupFormKey)) {
+                            controller.addToTempRootCauses();
+                          }
+                        },
                         onSave: () {
                           controller.savePopupDataToRca(index);
                           Get.back();
@@ -2107,13 +2869,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
                       _buildPopupTab(
                         index: index,
                         isRootCause: false,
+                        formKey: _rcaActionPopupFormKey,
                         dropdownLabel: "Action Taken",
                         dropdownHint: "Select Action Taken",
-                        items: controller.actionTakenList.map((e) => e.label ?? '').toList(),
+                        items: controller.actionTakenList
+                            .map((e) => e.label ?? '')
+                            .toList(),
                         controller: controller.popupActionTakenTextController,
                         files: controller.popupActionTakenFiles,
                         tempList: controller.tempPopupActionTakens,
-                        onAddClick: () => controller.addToTempActionTakens(),
+                        onAddClick: () {
+                          if (_validateForm(_rcaActionPopupFormKey)) {
+                            controller.addToTempActionTakens();
+                          }
+                        },
                         onSave: () {
                           controller.savePopupDataToRca(index);
                           Get.back();
@@ -2133,6 +2902,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   Widget _buildPopupTab({
     required int index,
     required bool isRootCause,
+    required GlobalKey<FormState> formKey,
     required String dropdownLabel,
     required String dropdownHint,
     required List<String> items,
@@ -2148,81 +2918,79 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                CustDropdown(
-                  label: dropdownLabel,
-                  hint: dropdownHint,
-                  items: items,
-                  onChanged: (v) {
-                    if (isRootCause) {
-                      createController.selectedPopupRootCause.value = v;
-                    } else {
-                      createController.selectedPopupActionTaken.value = v;
-                    }
-                  },
-                ),
-                const SizedBox(height: 16),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: CustomTextField(
-                        label: "$dropdownLabel Text",
-                        controller: controller,
-                      ),
+            child: Form(
+              key: formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CustDropdown(
+                    label: "$dropdownLabel *",
+                    hint: dropdownHint,
+                    items: items,
+                    selectedValue: isRootCause
+                        ? createController.selectedPopupRootCause.value
+                        : createController.selectedPopupActionTaken.value,
+                    validator: (v) => _requiredDropdown(
+                      isRootCause
+                          ? createController.selectedPopupRootCause.value
+                          : createController.selectedPopupActionTaken.value,
+                      dropdownLabel,
                     ),
-                    // const SizedBox(width: 12),
-                    // GestureDetector(
-                    //   onTap: () => _showUploadPopup(files),
-                    //   child: Padding(
-                    //     padding: const EdgeInsets.only(bottom: 12.0),
-                    //     child: Icon(TablerIcons.paperclip, color: AppColors.orangeColor, size: 28),
-                    //   ),
-                    // ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Obx(() => Wrap(
-                  spacing: 8,
-                  children: files.map((file) => Chip(
-                    label: Text(file['name'], style: const TextStyle(fontSize: 10)),
-                    onDeleted: () => files.remove(file),
-                  )).toList(),
-                )),
-                const SizedBox(height: 12),
-                CustButton(name: "Add", size: 100,sHeight: 40,onSelected:(_) =>  onAddClick(),),
-
-                // Align(
-                //   alignment: Alignment.centerRight,
-                //   child: GestureDetector(
-                //     onTap: onAddClick,
-                //     child: Container(
-                //       width: 40,
-                //       height: 40,
-                //       decoration: const BoxDecoration(
-                //         color: AppColors.orangeColor,
-                //         shape: BoxShape.circle,
-                //         boxShadow: [
-                //           BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2)),
-                //         ],
-                //       ),
-                //       child: const Icon(TablerIcons.plus, color: AppColors.white1, size: AppConstants.iconSize),
-                //     ),
-                //   ),
-                // ),
-                const SizedBox(height: 24),
-                Obx(() => Column(
-                  children: tempList.asMap().entries.map((entry) => _buildRcaSubItem(
-                    label: isRootCause ? "Root Cause" : "Action Taken",
-                    value: entry.value[isRootCause ? 'rootCause' : 'actionTaken'],
-                    text: entry.value[isRootCause ? 'rootCauseText' : 'actionTakenText'],
-                    imagePath: entry.value['imagePath'],
-                    onDelete: () => tempList.removeAt(entry.key),
-                  )).toList(),
-                )),
-              ],
+                    onChanged: (v) {
+                      if (isRootCause) {
+                        createController.selectedPopupRootCause.value = v;
+                      } else {
+                        createController.selectedPopupActionTaken.value = v;
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  CustomTextField(
+                    label: "$dropdownLabel Text *",
+                    controller: controller,
+                    validator: (val) =>
+                        _requiredText(val, '$dropdownLabel Text'),
+                  ),
+                  const SizedBox(height: 8),
+                  Obx(() => Wrap(
+                        spacing: 8,
+                        children: files
+                            .map((file) => Chip(
+                                  label: Text(file['name'],
+                                      style: const TextStyle(fontSize: 10)),
+                                  onDeleted: () => files.remove(file),
+                                ))
+                            .toList(),
+                      )),
+                  const SizedBox(height: 12),
+                  CustButton(
+                      name: "Add",
+                      size: 100,
+                      fontSize: AppConstants.buttonFontSize,
+                      sHeight: 40,
+                      onSelected: (_) => onAddClick()),
+                  const SizedBox(height: 24),
+                  Obx(() => Column(
+                        children: tempList
+                            .asMap()
+                            .entries
+                            .map((entry) => _buildRcaSubItem(
+                                  label: isRootCause
+                                      ? "Root Cause"
+                                      : "Action Taken",
+                                  value: entry.value[isRootCause
+                                      ? 'rootCause'
+                                      : 'actionTaken'],
+                                  text: entry.value[isRootCause
+                                      ? 'rootCauseText'
+                                      : 'actionTakenText'],
+                                  imagePath: entry.value['imagePath'],
+                                  onDelete: () => tempList.removeAt(entry.key),
+                                ))
+                            .toList(),
+                      )),
+                ],
+              ),
             ),
           ),
         ),
@@ -2271,483 +3039,697 @@ class _CreateFailureScreenState extends State<CreateFailureScreen> with SingleTi
   }
 
   Widget _buildSparePartReplaceSection({bool enabled = true}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        CustDropdown(
-          label: "Failure Type",
-          hint: "Select...",
-          items: controller.materialTypeList,
-          selectedValue: controller.selectedMaterialType.value,
-          enabled: enabled,
-          onChanged: (v) => controller.selectedMaterialType.value = v!,
-        ),
-        if (controller.selectedMaterialType.value.toLowerCase() == "other") ...[
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustomTextField(label: "Other", controller: controller.failureTypeController, enabled: enabled),
-        ],
-        if (controller.selectedMaterialType.value == "Hardware") ...[
-          const SizedBox(height: AppConstants.elementSpacing),
-          _buildToggleItem("Spare Part Replace", controller.isSparePartReplaced.value, (val) => controller.isSparePartReplaced.value = val, enabled: enabled),
-        ],
-        if (controller.selectedMaterialType.value == "Hardware" && controller.isSparePartReplaced.value) ...[
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustDropdown(
-            label: "Material Code & Description",
-            hint: "Select...",
-            items: controller.materialDataList.map((e) => e.label ?? '').toList(),
-            selectedValue: controller.selectedMaterialCode.value,
-            enabled: enabled,
-            onChanged: (v) {
-              controller.selectedMaterialCode.value = v;
-              controller.uomController.text = "NO";
-            },
-          ),
-           const SizedBox(height: AppConstants.elementSpacing),
-           CustomTextField(label: "Unit of Measurement", controller: controller.uomController, enabled: false),
-           const SizedBox(width: AppConstants.elementSpacing),
-           CustDropdown(
-             label: "Store Location",
-             hint: "Select...",
-             items: controller.storageLocationList.map((e) => e.label ?? '').toList(),
-             selectedValue: controller.selectedStoreLocation.value,
-             enabled: enabled,
-             onChanged: (v) {
-               controller.selectedStoreLocation.value = v;
-               controller.balanceQtyController.text = "0.00";
-               },
-             ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          Row(
-            children: [
-              Expanded(child: CustomTextField(label: "Balance Quantity", controller: controller.balanceQtyController, enabled: false)),
-              const SizedBox(width: AppConstants.elementSpacing),
-              Expanded(child: CustomTextField(label: "Required Quantity", controller: controller.requiredQtyController, hintText: "Enter Required Quantity", enabled: enabled)),
+    return Obx(() {
+      if (controller.selectedMaterialType.value != "Hardware" ||
+          !controller.isSparePartReplaced.value) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustDropdown(
+              label: "Failure Type",
+              hint: "Select...",
+              items: controller.materialTypeList,
+              selectedValue: controller.selectedMaterialType.value,
+              enabled: enabled,
+              onChanged: (v) => controller.selectedMaterialType.value = v!,
+            ),
+            if ((controller.selectedMaterialType.value ?? '').toLowerCase() ==
+                "other") ...[
+              const SizedBox(height: AppConstants.elementSpacing),
+              CustomTextField(
+                  label: "Other",
+                  controller: controller.failureTypeController,
+                  enabled: enabled),
             ],
+            if (controller.selectedMaterialType.value == "Hardware") ...[
+              const SizedBox(height: AppConstants.elementSpacing),
+              _buildToggleItem(
+                  "Spare Part Replace",
+                  controller.isSparePartReplaced.value,
+                  (val) => controller.isSparePartReplaced.value = val,
+                  enabled: enabled),
+            ],
+            if (controller.selectedMaterialType.value == "Hardware") ...[
+              const SizedBox(height: AppConstants.elementSpacing),
+              _buildMaterialDismantleSection(enabled: controller.isJE),
+            ],
+          ],
+        );
+      }
+
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: AppConstants.elementSpacing),
+          Form(
+            key: _sparePartFormKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CustDropdown(
+                  label: "Material Code & Description *",
+                  hint: "Select...",
+                  items: controller.materialDataList
+                      .map((e) => e.label ?? '')
+                      .toList(),
+                  selectedValue: controller.selectedMaterialCode.value,
+                  enabled: enabled,
+                  validator: (v) => _requiredDropdown(
+                    controller.selectedMaterialCode.value,
+                    'Material Code & Description',
+                  ),
+                  onChanged: (v) {
+                    controller.selectedMaterialCode.value = v;
+                    controller.uomController.text = "NO";
+                  },
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                    label: "Unit of Measurement",
+                    controller: controller.uomController,
+                    enabled: false),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustDropdown(
+                  label: "Store Location *",
+                  hint: "Select...",
+                  items: controller.storageLocationList
+                      .map((e) => e.label ?? '')
+                      .toList(),
+                  selectedValue: controller.selectedStoreLocation.value,
+                  enabled: enabled,
+                  validator: (v) => _requiredDropdown(
+                    controller.selectedStoreLocation.value,
+                    'Store Location',
+                  ),
+                  onChanged: (v) {
+                    controller.selectedStoreLocation.value = v;
+                    controller.balanceQtyController.text = "0.00";
+                  },
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Row(
+                  children: [
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Balance Quantity",
+                            controller: controller.balanceQtyController,
+                            enabled: false)),
+                    const SizedBox(width: AppConstants.elementSpacing),
+                    Expanded(
+                        child: CustomTextField(
+                      label: "Required Quantity *",
+                      controller: controller.requiredQtyController,
+                      hintText: "Enter Required Quantity",
+                      enabled: enabled,
+                      keyboardType: TextInputType.number,
+                      validator: (val) =>
+                          _requiredText(val, 'Required Quantity'),
+                    )),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustButton(
+                  name: controller.editingReplacedMaterialIndex.value >= 0
+                      ? "Update Material"
+                      : "Add Material",
+                  size: 150,
+                  fontSize: AppConstants.buttonFontSize,
+                  onSelected: enabled
+                      ? (_) {
+                          if (_validateForm(_sparePartFormKey)) {
+                            controller.addReplacedMaterial();
+                            _sparePartFormKey.currentState?.reset();
+                          }
+                        }
+                      : null,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: AppConstants.elementSpacing),
-          Obx(() => CustButton(
-            name: controller.editingReplacedMaterialIndex.value >= 0 ? "Update Material" : "Add Material",
-            size: 150,
-            onSelected: enabled ? (_) => controller.addReplacedMaterial() : null,
-          )),
-          const SizedBox(height: AppConstants.elementSpacing),
-          if (controller.replacedMaterialsList.isNotEmpty) _buildReplacedMaterialTable(enabled: enabled),
+          if (controller.replacedMaterialsList.isNotEmpty)
+            _buildReplacedMaterialTable(enabled: enabled),
         ],
-        if (controller.selectedMaterialType.value == "Hardware") ...[
-          const SizedBox(height: AppConstants.elementSpacing),
-          _buildMaterialDismantleSection(enabled: controller.isJE),
-        ],
-      ],
-    );
+      );
+    });
   }
 
   Widget _buildReplacedMaterialTable({bool enabled = true}) {
     return Obx(() => Column(
-      children: controller.replacedMaterialsList.asMap().entries.map((entry) {
-        final index = entry.key;
-        final item = entry.value;
-        final isExpanded = controller.isExpandedReplaced[index] ?? false;
+          children:
+              controller.replacedMaterialsList.asMap().entries.map((entry) {
+            final index = entry.key;
+            final item = entry.value;
+            final isExpanded = controller.isExpandedReplaced[index] ?? false;
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: AppColors.white1,
-            borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-            border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: AppColors.white1,
+                borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+                border: Border.all(
+                    color: AppColors.textFieldFillColor.withOpacity(0.5)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CustText.detailLabel("Material Description"),
+                              const SizedBox(height: AppConstants.labelSpacing),
+                              CustText.detailValue(item['materialCode'] ?? ""),
+                            ],
+                          ),
+                        ),
+                        Row(
+                          children: [
+                            if (enabled) ...[
+                              IconButton(
+                                icon: const Icon(TablerIcons.pencil,
+                                    color: AppColors.orangeColor, size: 20),
+                                onPressed: () =>
+                                    controller.editReplacedMaterial(index),
+                                padding: const EdgeInsets.only(right: 12),
+                                constraints: const BoxConstraints(),
+                              ),
+                              IconButton(
+                                icon: const Icon(TablerIcons.trash,
+                                    color: Colors.grey, size: 20),
+                                onPressed: () =>
+                                    controller.removeReplacedMaterial(index),
+                                padding: const EdgeInsets.only(right: 12),
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                            IconButton(
+                              icon: Icon(
+                                  isExpanded
+                                      ? TablerIcons.chevron_up
+                                      : TablerIcons.chevron_down,
+                                  color: AppColors.orangeColor,
+                                  size: 20),
+                              onPressed: () =>
+                                  controller.toggleReplacedExpansion(index),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isExpanded) ...[
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final double width = (constraints.maxWidth - 10) / 2;
+                          Widget buildCol(String label, String value) {
+                            return SizedBox(
+                              width: width,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CustText.detailLabel(label),
+                                  const SizedBox(height: 2),
+                                  CustText.detailValue(value),
+                                ],
+                              ),
+                            );
+                          }
+
+                          return Wrap(
+                            runSpacing: 10,
+                            spacing: 10,
+                            children: [
+                              buildCol(
+                                  "Unit of Measurement", item['uom'] ?? ""),
+                              buildCol("Storage Location",
+                                  item['storeLocation'] ?? ""),
+                              buildCol("Balance Qty",
+                                  item['balanceQty']?.toString() ?? ""),
+                              buildCol("Required Qty",
+                                  item['requiredQty']?.toString() ?? ""),
+                              buildCol("Issued Qty",
+                                  item['issuedQty']?.toString() ?? "0"),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          CustText.detailLabel("Material Description"),
-                          const SizedBox(height: AppConstants.labelSpacing),
-                          CustText.detailValue(item['materialCode'] ?? ""),
+                          CustText.detailLabel("Used Qty"),
+                          const SizedBox(height: 8),
+                          TextFormField(
+                            initialValue: item['usedQty']?.toString() ?? "0",
+                            enabled: enabled,
+                            decoration: InputDecoration(
+                              hintText: "Enter Used Quantity",
+                              hintStyle: const TextStyle(fontSize: 12),
+                              isDense: true,
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 12),
+                              border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide:
+                                      BorderSide(color: Colors.grey.shade300)),
+                              enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide:
+                                      BorderSide(color: Colors.grey.shade300)),
+                              focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: const BorderSide(
+                                      color: AppColors.orangeColor)),
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: (val) {
+                              if (val == null || val.trim().isEmpty) {
+                                return "Used Qty is required";
+                              }
+                              return null;
+                            },
+                            onChanged: (val) {
+                              controller.replacedMaterialsList[index]
+                                  ['usedQty'] = val;
+                            },
+                          ),
                         ],
                       ),
                     ),
-                    Row(
-                      children: [
-                        if (enabled) ...[
-                          IconButton(
-                            icon: const Icon(TablerIcons.pencil, color: AppColors.orangeColor, size: 20),
-                            onPressed: () => controller.editReplacedMaterial(index),
-                            padding: const EdgeInsets.only(right: 12),
-                            constraints: const BoxConstraints(),
-                          ),
-                          IconButton(
-                            icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 20),
-                            onPressed: () => controller.removeReplacedMaterial(index),
-                            padding: const EdgeInsets.only(right: 12),
-                            constraints: const BoxConstraints(),
-                          ),
-                        ],
-                        IconButton(
-                          icon: Icon(isExpanded ? TablerIcons.chevron_up : TablerIcons.chevron_down, color: AppColors.orangeColor, size: 20),
-                          onPressed: () => controller.toggleReplacedExpansion(index),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
+                  ],
+                ],
+              ),
+            );
+          }).toList(),
+        ));
+  }
+
+  Widget _buildMaterialDismantleSection({bool enabled = true}) {
+    return Obx(() => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (controller.isMaterialDismantle.value) ...[
+              const SizedBox(height: AppConstants.elementSpacing),
+              Form(
+                key: _dismantleFormKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Builder(builder: (context) {
+                      final sparePartItems = controller.replacedMaterialsList
+                          .map((e) => e['materialCode'] as String? ?? '')
+                          .where((e) => e.isNotEmpty)
+                          .toList();
+                      return CustDropdown(
+                        label: "Material Code & Description *",
+                        hint: "Select...",
+                        items: sparePartItems,
+                        selectedValue:
+                            controller.selectedDismantleMaterialCode.value,
+                        enabled: enabled && sparePartItems.isNotEmpty,
+                        validator: (v) => _requiredDropdown(
+                          controller.selectedDismantleMaterialCode.value,
+                          'Material Code & Description',
                         ),
-                      ],
+                        onChanged: (v) =>
+                            controller.selectedDismantleMaterialCode.value = v,
+                      );
+                    }),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustomTextField(
+                      label: "Old Serial Number *",
+                      controller: controller.oldSerialNumberController,
+                      hintText: "Enter Old Series Number",
+                      enabled: enabled,
+                      validator: (val) =>
+                          _requiredText(val, 'Old Serial Number'),
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustDateTimePicker(
+                      label: "Old Serial No Dismantle Date *",
+                      hint: "DD/MM/YYYY hh:mm",
+                      selectedDateTime: controller.oldSerialDismantleDate.value,
+                      enabled: enabled,
+                      lastDate: DateTime.now(),
+                      validator: (val) =>
+                          controller.oldSerialDismantleDate.value == null
+                              ? 'Old Serial No Dismantle Date is required'
+                              : null,
+                      onDateTimeSelected: (dt) =>
+                          controller.oldSerialDismantleDate.value = dt,
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustomTextField(
+                      label: "New Serial Number *",
+                      controller: controller.newSerialNumberController,
+                      hintText: "Enter New Series Number",
+                      enabled: enabled,
+                      validator: (val) =>
+                          _requiredText(val, 'New Serial Number'),
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustDateTimePicker(
+                      label: "New Serial No Installation Date *",
+                      hint: "DD/MM/YYYY hh:mm",
+                      selectedDateTime:
+                          controller.newSerialInstallationDate.value,
+                      enabled: enabled,
+                      lastDate: DateTime.now(),
+                      validator: (val) =>
+                          controller.newSerialInstallationDate.value == null
+                              ? 'New Serial No Installation Date is required'
+                              : null,
+                      onDateTimeSelected: (dt) =>
+                          controller.newSerialInstallationDate.value = dt,
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustButton(
+                      name: controller.editingDismantleMaterialIndex.value >= 0
+                          ? "Update"
+                          : "Add",
+                      size: 100,
+                      fontSize: AppConstants.buttonFontSize,
+                      onSelected: enabled
+                          ? (_) {
+                              if (_validateForm(_dismantleFormKey)) {
+                                controller.addDismantleMaterial();
+                                _dismantleFormKey.currentState?.reset();
+                              }
+                            }
+                          : null,
                     ),
                   ],
                 ),
               ),
-              if (isExpanded) ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final double width = (constraints.maxWidth - 10) / 2;
-                      Widget buildCol(String label, String value) {
-                        return SizedBox(
-                          width: width,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CustText.detailLabel(label),
-                              const SizedBox(height: 2),
-                              CustText.detailValue(value),
-                            ],
-                          ),
-                        );
-                      }
-                      return Wrap(
-                        runSpacing: 10,
-                        spacing: 10,
-                        children: [
-                          buildCol("Unit of Measurement", item['uom'] ?? ""),
-                          buildCol("Storage Location", item['storeLocation'] ?? ""),
-                          buildCol("Balance Qty", item['balanceQty']?.toString() ?? ""),
-                          buildCol("Required Qty", item['requiredQty']?.toString() ?? ""),
-                          buildCol("Issued Qty", item['issuedQty']?.toString() ?? "0"),
-                        ],
-                      );
-                    },
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      CustText.detailLabel("Used Qty"),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        initialValue: item['usedQty']?.toString() ?? "0",
-                        enabled: enabled,
-                        decoration: InputDecoration(
-                          hintText: "Enter Used Quantity",
-                          hintStyle: const TextStyle(fontSize: 12),
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: Colors.grey.shade300)),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppColors.orangeColor)),
-                        ),
-                        keyboardType: TextInputType.number,
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return "Used Qty is required";
-                          }
-                          return null;
-                        },
-                        onChanged: (val) {
-                          controller.replacedMaterialsList[index]['usedQty'] = val;
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              const SizedBox(height: AppConstants.elementSpacing),
+              if (controller.dismantleMaterialsList.isNotEmpty)
+                _buildDismantleMaterialTable(enabled: enabled),
             ],
-          ),
-        );
-      }).toList(),
-    ));
-  }
-
-  Widget _buildMaterialDismantleSection({bool enabled = true}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildToggleItem("Material Dismantle", controller.isMaterialDismantle.value, (val) => controller.isMaterialDismantle.value = val, enabled: enabled),
-        if (controller.isMaterialDismantle.value) ...[
-          const SizedBox(height: AppConstants.elementSpacing),
-          Obx(() {
-            final sparePartItems = controller.replacedMaterialsList
-                .map((e) => e['materialCode'] as String? ?? '')
-                .where((e) => e.isNotEmpty)
-                .toList();
-            return CustDropdown(
-              label: "Material Code & Description",
-              hint:  "Select...",
-              items: sparePartItems,
-              selectedValue: controller.selectedDismantleMaterialCode.value,
-              enabled: enabled && sparePartItems.isNotEmpty,
-              onChanged: (v) => controller.selectedDismantleMaterialCode.value = v,
-            );
-          }),
-          const SizedBox(height: AppConstants.elementSpacing),
-               CustomTextField(label: "Old Serial Number", controller: controller.oldSerialNumberController, hintText: "Enter Old Series Number", enabled: enabled),
-               const SizedBox(height: AppConstants.elementSpacing),
-               CustDateTimePicker(
-                 label: "Old Serial No Dismantle Date",
-                 hint: "DD/MM/YYYY hh:mm",
-                 selectedDateTime: controller.oldSerialDismantleDate.value,
-                 enabled: enabled,
-                 lastDate: DateTime.now(),
-                 onDateTimeSelected: (dt) => controller.oldSerialDismantleDate.value = dt,
-               ),
-           const SizedBox(height: AppConstants.elementSpacing),
-           Column(
-             mainAxisSize: MainAxisSize.min,
-             children: [
-               CustomTextField(label: "New Serial Number", controller: controller.newSerialNumberController, hintText: "Enter New Series Number", enabled: enabled),
-               const SizedBox(height: AppConstants.elementSpacing),
-               CustDateTimePicker(
-                 label: "New Serial No Installation Date",
-                 hint: "DD/MM/YYYY hh:mm",
-                 selectedDateTime: controller.newSerialInstallationDate.value,
-                 enabled: enabled,
-                 lastDate: DateTime.now(),
-                 onDateTimeSelected: (dt) => controller.newSerialInstallationDate.value = dt,
-               ),
-             ],
-           ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          Obx(() => CustButton(
-            name: controller.editingDismantleMaterialIndex.value >= 0 ? "Update" : "Add",
-            size: 100,
-            onSelected: enabled ? (_) => controller.addDismantleMaterial() : null,
-          )),
-          const SizedBox(height: AppConstants.elementSpacing),
-          if (controller.dismantleMaterialsList.isNotEmpty) _buildDismantleMaterialTable(enabled: enabled),
-        ],
-      ],
-    );
+          ],
+        ));
   }
 
   Widget _buildDismantleMaterialTable({bool enabled = true}) {
     return Obx(() => Column(
-      children: controller.dismantleMaterialsList.asMap().entries.map((entry) {
-        final index = entry.key;
-        final item = entry.value;
-        final isExpanded = controller.isExpandedDismantle[index] ?? false;
-        
-        String dismantleDate = "";
-        if (item['dismantleDateRaw'] != null) {
-          dismantleDate = item['dismantleDateRaw'];
-        } else if (item['dismantleDate'] != null) {
-          dismantleDate = "${item['dismantleDate'].day}/${item['dismantleDate'].month}/${item['dismantleDate'].year}";
-        }
+          children:
+              controller.dismantleMaterialsList.asMap().entries.map((entry) {
+            final index = entry.key;
+            final item = entry.value;
+            final isExpanded = controller.isExpandedDismantle[index] ?? false;
 
-        String installDate = "";
-        if (item['installationDateRaw'] != null) {
-          installDate = item['installationDateRaw'];
-        } else if (item['installationDate'] != null) {
-          installDate = "${item['installationDate'].day}/${item['installationDate'].month}/${item['installationDate'].year}";
-        }
+            String dismantleDate = "";
+            if (item['dismantleDateRaw'] != null) {
+              dismantleDate = item['dismantleDateRaw'];
+            } else if (item['dismantleDate'] != null) {
+              dismantleDate =
+                  "${item['dismantleDate'].day}/${item['dismantleDate'].month}/${item['dismantleDate'].year}";
+            }
 
-        return Container(
-          margin: const EdgeInsets.only(bottom: 16),
-          decoration: BoxDecoration(
-            color: AppColors.white1,
-            borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-            border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.03),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
+            String installDate = "";
+            if (item['installationDateRaw'] != null) {
+              installDate = item['installationDateRaw'];
+            } else if (item['installationDate'] != null) {
+              installDate =
+                  "${item['installationDate'].day}/${item['installationDate'].month}/${item['installationDate'].year}";
+            }
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16),
+              decoration: BoxDecoration(
+                color: AppColors.white1,
+                borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+                border: Border.all(
+                    color: AppColors.textFieldFillColor.withOpacity(0.5)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.03),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
               ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CustText.detailLabel("Material Description"),
-                          const SizedBox(height: AppConstants.labelSpacing),
-                          CustText.detailValue(item['materialCode'] ?? ""),
-                        ],
-                      ),
-                    ),
-                    Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        if (enabled) ...[
-                          IconButton(
-                            icon: const Icon(TablerIcons.pencil, color: AppColors.orangeColor, size: 20),
-                            onPressed: () => controller.editDismantleMaterial(index),
-                            padding: const EdgeInsets.only(right: 12),
-                            constraints: const BoxConstraints(),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CustText.detailLabel("Material Description"),
+                              const SizedBox(height: AppConstants.labelSpacing),
+                              CustText.detailValue(item['materialCode'] ?? ""),
+                            ],
                           ),
-                          IconButton(
-                            icon: const Icon(TablerIcons.trash, color: Colors.grey, size: 20),
-                            onPressed: () => controller.removeDismantleMaterial(index),
-                            padding: const EdgeInsets.only(right: 12),
-                            constraints: const BoxConstraints(),
-                          ),
-                        ],
-                        IconButton(
-                          icon: Icon(isExpanded ? TablerIcons.chevron_up : TablerIcons.chevron_down, color: AppColors.orangeColor, size: 20),
-                          onPressed: () => controller.toggleDismantleExpansion(index),
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
+                        ),
+                        Row(
+                          children: [
+                            if (enabled) ...[
+                              IconButton(
+                                icon: const Icon(TablerIcons.pencil,
+                                    color: AppColors.orangeColor, size: 20),
+                                onPressed: () =>
+                                    controller.editDismantleMaterial(index),
+                                padding: const EdgeInsets.only(right: 12),
+                                constraints: const BoxConstraints(),
+                              ),
+                              IconButton(
+                                icon: const Icon(TablerIcons.trash,
+                                    color: Colors.grey, size: 20),
+                                onPressed: () =>
+                                    controller.removeDismantleMaterial(index),
+                                padding: const EdgeInsets.only(right: 12),
+                                constraints: const BoxConstraints(),
+                              ),
+                            ],
+                            IconButton(
+                              icon: Icon(
+                                  isExpanded
+                                      ? TablerIcons.chevron_up
+                                      : TablerIcons.chevron_down,
+                                  color: AppColors.orangeColor,
+                                  size: 20),
+                              onPressed: () =>
+                                  controller.toggleDismantleExpansion(index),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                            ),
+                          ],
                         ),
                       ],
+                    ),
+                  ),
+                  if (isExpanded)
+                    Padding(
+                      padding: const EdgeInsets.only(
+                          left: 16, right: 16, bottom: 16),
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final double width = (constraints.maxWidth - 10) / 2;
+                          Widget buildCol(String label, String value) {
+                            return SizedBox(
+                              width: width,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CustText.detailLabel(label),
+                                  const SizedBox(height: 2),
+                                  CustText.detailValue(value),
+                                ],
+                              ),
+                            );
+                          }
+
+                          return Wrap(
+                            runSpacing: 10,
+                            spacing: 10,
+                            children: [
+                              buildCol("Old Serial Number",
+                                  item['oldSerialNo'] ?? ""),
+                              buildCol("Dismantle Date", dismantleDate),
+                              buildCol("New Serial Number",
+                                  item['newSerialNo'] ?? ""),
+                              buildCol("Installation Date", installDate),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            );
+          }).toList(),
+        ));
+  }
+
+  Widget _buildJointInspectionSection({bool enabled = true}) {
+    return Obx(() => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (controller.isJointInspection.value) ...[
+              const SizedBox(height: AppConstants.elementSpacing),
+              Form(
+                key: _jointInspectionFormKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                            child: CustDropdown(
+                          label: "Department *",
+                          hint: "Select...",
+                          items: controller.jointInspectionDepartments
+                              .map((e) => e.label ?? '')
+                              .toList(),
+                          selectedValue: controller.selectedJointDept.value,
+                          enabled: enabled,
+                          validator: (v) => _requiredDropdown(
+                            controller.selectedJointDept.value,
+                            'Department',
+                          ),
+                          onChanged: (v) {
+                            controller.selectedJointDept.value = v;
+                            controller.selectedJointAssignTo.value = null;
+                            controller.jointUserList.clear();
+                            if (v != null) {
+                              final dept = controller.jointInspectionDepartments
+                                  .firstWhere(
+                                (e) => e.label == v,
+                                orElse: () => LabelValue(value: "0"),
+                              );
+                              if (dept.value != "0" && dept.value != null) {
+                                controller
+                                    .fetchJointInspectionUsers(dept.value!);
+                              }
+                            }
+                          },
+                        )),
+                        const SizedBox(width: AppConstants.elementSpacing),
+                        Expanded(
+                            child: Obx(() => CustDropdown(
+                                  label: "Assign To *",
+                                  hint: controller.isJointUserLoading.value
+                                      ? "Loading..."
+                                      : "Select...",
+                                  items: controller.jointUserList
+                                      .map((e) => e.label ?? '')
+                                      .toList(),
+                                  selectedValue:
+                                      controller.selectedJointAssignTo.value,
+                                  enabled: enabled &&
+                                      !controller.isJointUserLoading.value,
+                                  validator: (v) => _requiredDropdown(
+                                    controller.selectedJointAssignTo.value,
+                                    'Assign To',
+                                  ),
+                                  onChanged: (v) => controller
+                                      .selectedJointAssignTo.value = v,
+                                ))),
+                      ],
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustomTextField(
+                      label: "Joint Inspection Remark",
+                      controller: controller.jointInspectionRemarkController,
+                      maxLines: 3,
+                      enabled: enabled,
+                    ),
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustButton(
+                      name: controller.editingJointInspectionIndex.value >= 0
+                          ? "Update"
+                          : "Add",
+                      size: 100,
+                      fontSize: AppConstants.buttonFontSize,
+                      onSelected: enabled
+                          ? (_) async {
+                              if (!_validateForm(_jointInspectionFormKey))
+                                return;
+                              if (controller
+                                      .editingJointInspectionIndex.value >=
+                                  0) {
+                                await controller.updateJointInspectionHistory();
+                              } else {
+                                await controller.addJointInspectionHistory();
+                              }
+                              _jointInspectionFormKey.currentState?.reset();
+                            }
+                          : null,
                     ),
                   ],
                 ),
               ),
-              if (isExpanded)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      final double width = (constraints.maxWidth - 10) / 2;
-                      Widget buildCol(String label, String value) {
-                        return SizedBox(
-                          width: width,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CustText.detailLabel(label),
-                              const SizedBox(height: 2),
-                              CustText.detailValue(value),
-                            ],
-                          ),
-                        );
-                      }
-                      return Wrap(
-                        runSpacing: 10,
-                        spacing: 10,
-                        children: [
-                          buildCol("Old Serial Number", item['oldSerialNo'] ?? ""),
-                          buildCol("Dismantle Date", dismantleDate),
-                          buildCol("New Serial Number", item['newSerialNo'] ?? ""),
-                          buildCol("Installation Date", installDate),
-                        ],
-                      );
-                    },
-                  ),
-                ),
+              const SizedBox(height: AppConstants.elementSpacing),
+              if (controller.jointInspectionHistoryList.isNotEmpty)
+                _buildJointInspectionTable(enabled: enabled),
             ],
-          ),
-        );
-      }).toList(),
-    ));
-  }
-
-  Widget _buildJointInspectionSection({bool enabled = true}) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildToggleItem("Joint Inspection", controller.isJointInspection.value, (val) => controller.isJointInspection.value = val, enabled: enabled),
-        if (controller.isJointInspection.value) ...[
-          const SizedBox(height: AppConstants.elementSpacing),
-          Row(
-            children: [
-              Expanded(child: CustDropdown(
-                label: "Department",
-                hint: "Select...",
-                items: controller.jointInspectionDepartments.map((e) => e.label ?? '').toList(),
-                selectedValue: controller.selectedJointDept.value,
-                enabled: enabled,
-                onChanged: (v) {
-                  controller.selectedJointDept.value = v;
-                  controller.selectedJointAssignTo.value = null;
-                  controller.jointUserList.clear();
-                  if (v != null) {
-                    final dept = controller.jointInspectionDepartments.firstWhere(
-                      (e) => e.label == v,
-                      orElse: () => LabelValue(value: "0"),
-                    );
-                    if (dept.value != "0" && dept.value != null) {
-                      controller.fetchJointInspectionUsers(dept.value!);
-                    }
-                  }
-                },
-              )),
-              const SizedBox(width: AppConstants.elementSpacing),
-              Expanded(child: Obx(() => CustDropdown(
-                label: "Assign To",
-                hint: controller.isJointUserLoading.value ? "Loading..." : "Select...",
-                items: controller.jointUserList.map((e) => e.label ?? '').toList(),
-                selectedValue: controller.selectedJointAssignTo.value,
-                enabled: enabled && !controller.isJointUserLoading.value,
-                onChanged: (v) => controller.selectedJointAssignTo.value = v,
-              ))),
-            ],
-          ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustomTextField(label: "Joint Inspection Remark", controller: controller.jointInspectionRemarkController, maxLines: 3, enabled: enabled),
-          const SizedBox(height: AppConstants.elementSpacing),
-          Obx(() => CustButton(
-            name: controller.editingJointInspectionIndex.value >= 0 ? "Update" : "Add",
-            size: 100,
-            onSelected: enabled ? (_) {
-              if (controller.editingJointInspectionIndex.value >= 0) {
-                controller.updateJointInspectionHistory();
-              } else {
-                controller.addJointInspectionHistory();
-              }
-            } : null,
-          )),
-          const SizedBox(height: AppConstants.elementSpacing),
-          if (controller.jointInspectionHistoryList.isNotEmpty) _buildJointInspectionTable(enabled: enabled),
-        ],
-      ],
-    );
+          ],
+        ));
   }
 
   Widget _buildJointInspectionTable({bool enabled = true}) {
     return Column(
-      children: controller.jointInspectionHistoryList.asMap().entries.map((entry) {
+      children:
+          controller.jointInspectionHistoryList.asMap().entries.map((entry) {
         final index = entry.key;
         final item = entry.value;
         return CustDataCard(
           items: [
             DataCardItem(label: 'Department', value: item['department'] ?? ""),
             DataCardItem(label: 'Assigned To', value: item['assignedTo'] ?? ""),
-            DataCardItem(label: 'Assigned Date/Time', value: item['assignedDateTime'] ?? "", isFullWidth: true),
-            DataCardItem(label: 'Remark', value: item['remark'] ?? "", isFullWidth: true),
-            DataCardItem(label: 'User Remark', value: (item['userRemark'] != null && item['userRemark'].toString().isNotEmpty) ? item['userRemark'] : "N/A", isFullWidth: true),
-            DataCardItem(label: 'Status', value: item['status'] ?? "", isFullWidth: true),
+            DataCardItem(
+                label: 'Assigned Date/Time',
+                value: item['assignedDateTime'] ?? "",
+                isFullWidth: true),
+            DataCardItem(
+                label: 'Remark',
+                value: item['remark'] ?? "",
+                isFullWidth: true),
+            DataCardItem(
+                label: 'User Remark',
+                value: (item['userRemark'] != null &&
+                        item['userRemark'].toString().isNotEmpty)
+                    ? item['userRemark']
+                    : "N/A",
+                isFullWidth: true),
+            DataCardItem(
+                label: 'Status',
+                value: item['status'] ?? "",
+                isFullWidth: true),
           ],
           onEdit: enabled ? () => controller.editJointInspection(index) : null,
-          onDelete: enabled ? () => controller.removeJointInspectionHistory(index) : null,
+          onDelete: enabled
+              ? () => controller.removeJointInspectionHistory(index)
+              : null,
         );
       }).toList(),
     );
   }
-
 }
-
-
 
 class DashedBorderPainter extends CustomPainter {
   final Color color;

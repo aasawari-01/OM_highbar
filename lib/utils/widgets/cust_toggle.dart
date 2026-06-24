@@ -50,14 +50,14 @@ class YesNoToggle extends StatelessWidget {
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
-                color: value ? Colors.white : Colors.transparent,
+                color: value && enabled ? AppColors.green : Colors.transparent,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: value ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)] : [],
               ),
               child: CustText(
                 name: "Yes",
                 size: 14,
-                color: value ? (enabled ? Colors.black87 : Colors.grey) : Colors.grey.shade600,
+                color: value && enabled ? Colors.white : Colors.grey.shade600,
                 fontWeightName: value ? FontWeight.bold : FontWeight.normal,
               ),
             ),

@@ -44,16 +44,19 @@ class CustDropdown extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CustText.formLabel(label),
+          buildRequiredLabel(context, label),
           SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
-          SizedBox(
-            height: AppConstants.inputHeight,
+          ConstrainedBox(
+            constraints: BoxConstraints(minHeight: AppConstants.inputHeight),
             child: DropdownSearch<String>(
               enabled: enabled,
               selectedItem: selectedValue,
               onChanged: onChanged,
               validator: validator,
-              items: (filter, loadProps) => items,
+              items: (filter, loadProps) {
+                if (filter.isEmpty) return items;
+                return items.where((item) => item.toLowerCase().contains(filter.toLowerCase())).toList();
+              },
               popupProps: PopupProps.modalBottomSheet(
                 showSearchBox: true,
                 fit: FlexFit.loose,
@@ -84,7 +87,7 @@ class CustDropdown extends StatelessWidget {
                     child: CustText(
                       name: item,
                       color: isSelected 
-                          ? AppColors.appBarColor 
+                          ? AppColors.appBarColor
                           : (isDisabled ? Colors.grey.shade400 : AppColors.textColor4),
                       size: AppConstants.bodySize,
                       fontWeightName: isSelected ? FontWeight.bold : FontWeight.normal,
@@ -94,8 +97,7 @@ class CustDropdown extends StatelessWidget {
                 searchFieldProps: TextFieldProps(
                   decoration: InputDecoration(
                     isDense: true,
-                    contentPadding: const EdgeInsets.fromLTRB(0, 10, 12, 10),
-                    prefix: const SizedBox(width: 10),
+                    contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
                       borderSide: BorderSide(color: AppColors.textFieldColor),
@@ -122,7 +124,7 @@ class CustDropdown extends StatelessWidget {
               ),
               decoratorProps: DropDownDecoratorProps(
                 baseStyle: GoogleFonts.lato(
-                  color: AppColors.textColor4,
+                  color: AppColors.black,
                   fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
                 ),
                 decoration: InputDecoration(
@@ -149,17 +151,16 @@ class CustDropdown extends StatelessWidget {
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                    borderSide: const BorderSide(color: AppColors.textColor),
+                    borderSide: const BorderSide(color: AppColors.orangeColor),
                   ),
-                  contentPadding: const EdgeInsets.fromLTRB(0, 10, 12, 10),
-                  prefix: const SizedBox(width: 10),
+                  contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
                   errorStyle: GoogleFonts.lato(
                     fontSize: ResponsiveHelper.fontSize(context, 10),
                     height: 1.0,
                   ),
                   suffixIcon: const Padding(
                     padding: EdgeInsets.only(right: 12.0),
-                    child: Icon(TablerIcons.chevron_down, size: 16.0, color: AppColors.iconColor),
+                    child: Icon(TablerIcons.chevron_down, size: 16.0, color: AppColors.orangeColor),
                   ),
                   suffixIconConstraints: const BoxConstraints(
                     minHeight: 24,

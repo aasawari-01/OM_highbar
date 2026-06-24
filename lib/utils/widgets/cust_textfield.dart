@@ -69,7 +69,7 @@ class CustomTextField extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (label != null) ...[
-            CustText.formLabel(label!),
+            buildRequiredLabel(context, label!),
             SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
           ],
           ConstrainedBox(
@@ -79,7 +79,7 @@ class CustomTextField extends StatelessWidget {
             child: TextFormField(
               enabled: enabled,
               style: GoogleFonts.lato(
-                color: AppColors.textColor4,
+                color: AppColors.black,
                 fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
               ),
               cursorColor: AppColors.textColor,
@@ -139,10 +139,9 @@ class CustomTextField extends StatelessWidget {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                  borderSide: const BorderSide(color: AppColors.textColor,),
+                  borderSide: const BorderSide(color: AppColors.orangeColor,),
                 ),
-                contentPadding: const EdgeInsets.fromLTRB(0, 10, 12, 10),
-                prefix: const SizedBox(width: 10),
+                contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
               ),
             ),
           ),

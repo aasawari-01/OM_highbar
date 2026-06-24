@@ -21,8 +21,18 @@ class AuthManager {
   static const String _keyRoleMaster = 'role_master';
   static const String _keySelectedDeptId = 'selected_dept_id';
   static const String _keySelectedRoleId = 'selected_role_id';
+  static const String _keyBusinessArea = 'business_area';
 
   static const String _keyRememberMe = 'remember_me';
+
+  // Roles allowed on mobile
+  static const List<String> allowedMobileRoles = [
+    "Technician",
+    "Junior Engineer",
+    "Station Controller",
+    "OCC Controller",
+    "Chief Engineer",
+  ];
 
   // Save login data
   Future<void> login(LoginResponse response, {bool rememberMe = false}) async {
@@ -33,17 +43,27 @@ class AuthManager {
     await prefs.setString(_keyToken, response.token ?? '');
     await prefs.setString(_keyUserName, response.userName ?? '');
     await prefs.setString(_keyFullName, response.fullName ?? '');
+    if (response.businessArea != null) {
+      await prefs.setInt(_keyBusinessArea, response.businessArea!);
+    }
     
     // Store lists as JSON strings
     await prefs.setString(_keyDeptMaster, jsonEncode(response.deptMaster.map((e) => e.toJson()).toList()));
     await prefs.setString(_keyRoleMaster, jsonEncode(response.roleMaster.map((e) => e.toJson()).toList()));
     
-    // Default selected to first in list if available
+    // Default selected dept to first in list
     if (response.deptMaster.isNotEmpty) {
        await prefs.setInt(_keySelectedDeptId, response.deptMaster.first.deptId ?? 0);
     }
+    // Default selected role to the FIRST allowed mobile role; fallback to first role overall
     if (response.roleMaster.isNotEmpty) {
-       await prefs.setInt(_keySelectedRoleId, response.roleMaster.first.roleId ?? 0);
+      final firstAllowed = response.roleMaster.firstWhere(
+        (r) => allowedMobileRoles.any(
+          (a) => (r.roleDescr ?? '').trim().toLowerCase() == a.trim().toLowerCase(),
+        ),
+        orElse: () => response.roleMaster.first,
+      );
+      await prefs.setInt(_keySelectedRoleId, firstAllowed.roleId ?? 0);
     }
   }
 
@@ -80,6 +100,11 @@ class AuthManager {
   Future<String?> getFullName() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyFullName);
+  }
+
+  Future<int?> getBusinessArea() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_keyBusinessArea);
   }
 
   Future<List<DeptMaster>> getDeptMaster() async {

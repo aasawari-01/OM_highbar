@@ -17,8 +17,20 @@ class FailureListController extends GetxController {
   final SessionController _sessionController = Get.find<SessionController>();
 
   final RxList<FailureItem> failures = <FailureItem>[].obs;
+  final RxString searchQuery = "".obs;
   final RxBool isLoading = false.obs;
   final RxString errorMessage = "".obs;
+
+  List<FailureItem> get filteredFailures {
+    if (searchQuery.value.trim().isEmpty) return failures;
+    final q = searchQuery.value.trim().toLowerCase();
+    return failures.where((item) {
+      final code = (item.notificationCode ?? '').toLowerCase();
+      final loc = (item.locationName ?? '').toLowerCase();
+      final status = (item.statusName ?? '').toLowerCase();
+      return code.contains(q) || loc.contains(q) || status.contains(q);
+    }).toList();
+  }
   final selectedStationTab = StationFailureListTab.active.obs;
   final selectedJETab = JEFailureListTab.inbox.obs;
   String failureType = 'Maintenance';

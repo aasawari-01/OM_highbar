@@ -182,7 +182,7 @@ class _ViewDetailScreenState extends State<ViewDetailScreen> {
         ),
         SizedBox(height: 8),
         DetailRow(
-          label1: 'Passengers Deboarding', value1: 'Yes', boldValue1: true,
+          label1: 'Passengers Deboarded', value1: 'Yes', boldValue1: true,
           label2: 'Train Replace', value2: 'No',
         ),
         SizedBox(height: 8),
