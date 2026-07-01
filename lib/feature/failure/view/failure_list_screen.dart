@@ -29,6 +29,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   TabController? _tabController;
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
+  final session = Get.find<SessionController>();
 
   bool get _showStationTabs {
     final role = Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
@@ -43,7 +44,12 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   @override
   void initState() {
     super.initState();
-    controller = Get.put(FailureListController(), tag: widget.failureType);
+
+    controller = Get.put(
+      FailureListController(),
+      tag: widget.failureType,
+    );
+
     controller.setFailureType(widget.failureType);
 
     if (_showStationTabs || _showJETabs) {
@@ -51,7 +57,17 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       _tabController!.addListener(_onTabChanged);
     }
 
-    controller.fetchFailures();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (widget.failureType == "Station") {
+        if (session.selectedStationId.value == null) {
+          await controller.fetchAndShowStationPopup();
+        }
+
+        controller.fetchFailures();
+      } else {
+        controller.fetchFailures();
+      }
+    });
   }
 
   void _onTabChanged() {

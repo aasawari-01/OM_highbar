@@ -1,9 +1,12 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../../constants/app_constants.dart';
 import 'app_urls.dart';
 
+/// HTTP client wrapper that handles JSON, multipart requests and auth headers.
 class ApiClient {
   ApiClient({
     http.Client? httpClient,
@@ -18,51 +21,47 @@ class ApiClient {
     return Uri.parse('$normalizedBase$endpoint');
   }
 
+  /// Sends a JSON POST request.
   Future<http.Response> post(
     String endpoint, {
     Map<String, String>? headers,
     Map<String, dynamic>? body,
   }) async {
-    print("endpoint==${_buildUri(endpoint)} body==$body");
     final uri = _buildUri(endpoint);
+    debugPrint('[POST] $uri');
     final mergedHeaders = <String, String>{
       'Content-Type': 'application/json',
       'accept': '*/*',
       if (headers != null) ...headers,
     };
-    print("endpoint==${_buildUri(endpoint)} body==$body");
     final encodedBody = body == null ? null : jsonEncode(body);
-
     final response = await _client
         .post(uri, headers: mergedHeaders, body: encodedBody)
-        .timeout(const Duration(seconds: 30));
-    print("response status===${response.statusCode}");
-    print("response body===${response.body}");
-    final printStr = "jsonBody===${response.body}";
-    final pattern = RegExp('.{1,2000}');
-    pattern.allMatches(printStr).forEach((match) => print(match.group(0)));
+        .timeout(AppConstants.apiTimeout);
+    debugPrint('[POST] ${response.statusCode} — $uri');
     return response;
   }
 
+  /// Sends a JSON GET request.
   Future<http.Response> get(
     String endpoint, {
     Map<String, String>? headers,
   }) async {
     final uri = _buildUri(endpoint);
+    debugPrint('[GET] $uri');
     final mergedHeaders = <String, String>{
       'Content-Type': 'application/json',
       'accept': '*/*',
       if (headers != null) ...headers,
     };
-    print("endpoint==$uri");
     final response = await _client
         .get(uri, headers: mergedHeaders)
-        .timeout(const Duration(seconds: 30));
-    print("response status===${response.statusCode}");
-    print("response body===${response.body}");
+        .timeout(AppConstants.apiTimeout);
+    debugPrint('[GET] ${response.statusCode} — $uri');
     return response;
   }
 
+  /// Sends a multipart POST request (for file uploads and form fields).
   Future<http.Response> postMultipart(
     String endpoint, {
     Map<String, String>? headers,
@@ -70,19 +69,16 @@ class ApiClient {
     List<http.MultipartFile>? files,
   }) async {
     final uri = _buildUri(endpoint);
-    print("endpoint==$uri fields==$fields");
+    debugPrint('[MULTIPART POST] $uri  fields=${fields?.keys.toList()}');
     final request = http.MultipartRequest('POST', uri);
-
     request.headers['accept'] = 'application/json';
     if (headers != null) request.headers.addAll(headers);
     if (fields != null) request.fields.addAll(fields);
     if (files != null) request.files.addAll(files);
-
-    final streamedResponse = await request.send().timeout(const Duration(seconds: 60));
+    final streamedResponse =
+        await request.send().timeout(AppConstants.apiMultipartTimeout);
     final response = await http.Response.fromStream(streamedResponse);
-    print("response status===${response.statusCode}");
-    print("response body===${response.body}");
+    debugPrint('[MULTIPART POST] ${response.statusCode} — $uri');
     return response;
   }
 }
-

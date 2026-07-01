@@ -1,6 +1,9 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:http/http.dart' as http;
 import '../feature/auth_login/model/login_response.dart';
+import 'network_service/app_urls.dart';
+import 'network_service/api_client.dart';
 
 class AuthManager {
   // Singleton instance
@@ -145,6 +148,18 @@ class AuthManager {
 
   // Logout and clear data
   Future<void> logout() async {
+    try {
+      final userId = await getUserId();
+      final apiClient = ApiClient();
+      await apiClient.post(
+        AppUrls.logout,
+        body: {'userId': userId},
+      );
+    } catch (e) {
+      // Continue with local cleanup even if API call fails
+      print('Logout API call failed: $e');
+    }
+    // Clear local storage regardless of API result
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.clear();
   }

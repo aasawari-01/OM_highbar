@@ -146,6 +146,7 @@ class CustDateTimePicker extends StatelessWidget {
               controller: TextEditingController(text: displayText),
               hintText: hint,
               enabled: enabled,
+              readOnly: true,
               validator: validator,
               suffixIcon: Icon(suffixIcon,
                   size: 20,

@@ -181,7 +181,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (isStationController) {
                         return const SizedBox.shrink();
                       }
-                      return _drawerItem('Maintenance Failure', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance'));
+                      return _drawerItem('Maintenance JE Inbox', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance'));
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
@@ -190,7 +190,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (!canAccessStationFailure) {
                         return const SizedBox.shrink();
                       }
-                      return _drawerItem('Station Failure', 'station_failure', const FailureListScreen(failureType: 'Station'));
+                      return _drawerItem( role.contains('Station Controller')?'Station Failure': "Station JE Inbox", 'station_failure', const FailureListScreen(failureType: 'Station'));
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
@@ -198,7 +198,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (isStationController) {
                         return const SizedBox.shrink();
                       }
-                      return _drawerItem('OCC Failure', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
+                      return _drawerItem('OCC JE Inbox', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
@@ -206,7 +206,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (isStationController) {
                         return const SizedBox.shrink();
                       }
-                      return _drawerItem('Depot Failure', 'depot_failure', const FailureListScreen(failureType: 'Depot'));
+                      return _drawerItem('Depot JE Inbox', 'depot_failure', const FailureListScreen(failureType: 'Depot'));
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
@@ -214,7 +214,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (isStationController) {
                         return const SizedBox.shrink();
                       }
-                      return _drawerItem('RST Failure', 'rst_failure', const RstFailureScreen());
+                      return _drawerItem('RST JE Inbox', 'rst_failure', const RstFailureScreen());
                     }),
                   ],
                 ),
@@ -266,7 +266,13 @@ class _CustomDrawerState extends State<CustomDrawer> {
           ),
           const Divider(height: 1, color: AppColors.dividerColor2),
 
-          IconButton(onPressed:() =>  Get.offAll(()=>LoginView()), icon: Icon(TablerIcons.logout,size:30,color: AppColors.orangeColor,)),
+          IconButton(
+            onPressed: () async {
+              await AuthManager().logout();
+              Get.offAll(() =>  LoginView());
+            },
+            icon: const Icon(TablerIcons.logout, size: 30, color: AppColors.orangeColor),
+          ),
           Padding(
             padding: const EdgeInsets.only(bottom: AppConstants.elementSpacing, left: AppConstants.screenPadding, right: AppConstants.screenPadding),
             child: CustText(

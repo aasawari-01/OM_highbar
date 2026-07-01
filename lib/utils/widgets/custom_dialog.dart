@@ -16,7 +16,7 @@ class CustomDialog extends StatelessWidget {
       icon: Icons.check_circle_outline,
       iconColor: Colors.green,
       onConfirm: () {
-        Get.offAll(() => const HomeScreen());
+        Get.back();
       },
     );
   }

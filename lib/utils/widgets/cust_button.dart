@@ -38,7 +38,7 @@ class CustButton extends StatelessWidget {
     return GestureDetector(
       onTap: onSelected != null ? () => onSelected!(true) : null,
       child: Container(
-        width: size == null ? MediaQuery.of(context).size.width / 2 - 20 : ResponsiveHelper.width(context, size!),
+        width: ResponsiveHelper.width(context, size),
         height: sHeight ?? ResponsiveHelper.height(context, AppConstants.buttonHeight),
         decoration: BoxDecoration(
           gradient: LinearGradient(
@@ -71,7 +71,8 @@ class CustButton extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               MediaQuery(
-                data: MediaQuery.of(context).copyWith(textScaleFactor: 1.0),
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: const TextScaler.linear(1.0)),
                 child: Text(
                   name,
                   style: GoogleFonts.lato(
@@ -119,7 +120,7 @@ class CustOutlineButton extends StatelessWidget {
     return GestureDetector(
       onTap: onSelected != null ? () => onSelected!(true) : null,
       child: Container(
-        width: size == null ? MediaQuery.of(context).size.width / 2 - 20 : ResponsiveHelper.width(context, size!),
+        width: ResponsiveHelper.width(context, size),
         height: sHeight ?? ResponsiveHelper.height(context, AppConstants.buttonHeight),
         decoration: BoxDecoration(
           color: Colors.transparent,
@@ -136,11 +137,14 @@ class CustOutlineButton extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               MediaQuery(
-                data: MediaQuery.of(context).copyWith(textScaleFactor: 1.0),
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: const TextScaler.linear(1.0)),
                 child: Text(
                   name,
                   style: GoogleFonts.lato(
-                    color: onSelected != null ? (textColor ?? AppColors.textColor) : Colors.grey.shade400,
+                    color: onSelected != null
+                        ? (textColor ?? AppColors.textColor)
+                        : Colors.grey.shade400,
                     fontWeight: fontweight ?? FontWeight.w400,
                     fontSize: ResponsiveHelper.fontSize(context, fontSize ?? 16),
                   ),

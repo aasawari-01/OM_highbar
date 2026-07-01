@@ -82,6 +82,9 @@ class CustomTextField extends StatelessWidget {
                 color: AppColors.black,
                 fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
               ),
+              onTapOutside: (_) {
+                FocusManager.instance.primaryFocus?.unfocus();
+              },
               cursorColor: AppColors.textColor,
               controller: controller,
               obscureText: obscureText,
@@ -97,7 +100,6 @@ class CustomTextField extends StatelessWidget {
               maxLines: effectiveMaxLines,
               textCapitalization: textCapitalization,
               onTap: onTap,
-              onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
               inputFormatters: inputFormatters,
               textAlign: textAlign ?? TextAlign.start,
               decoration: InputDecoration(

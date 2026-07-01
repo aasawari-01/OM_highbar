@@ -1,3 +1,5 @@
+import '../../../core/models/label_value.dart';
+
 class FailureDetailResponse {
   final int? responseCode;
   final String? responseMessage;
@@ -35,6 +37,7 @@ class FailureDetailOutput {
   final List<LabelValue>? getCorrNotificationTypeList;
   final List<LabelValue>? getFaultData;
   final List<NotificationActionHistory>? getNotificationActionUserHistory;
+  final List<NotificationHistory>? getNotificationHistory;
   final List<LabelValue>? getFunctionalLocationList;
   final List<LabelValue>? getEquipmentDetails;
   final List<LabelValue>? getRootCausetData;
@@ -47,6 +50,7 @@ class FailureDetailOutput {
   final List<Map<String, dynamic>>? getMaterialReqDetails;
   final List<Map<String, dynamic>>? getMaterialDismantleDetails;
   final List<Map<String, dynamic>>? getImageBefor;
+  final List<Map<String, dynamic>>? getJoinInspectionHistory;
 
   FailureDetailOutput({
     this.getNotificationTypeList,
@@ -63,6 +67,7 @@ class FailureDetailOutput {
     this.getCorrNotificationTypeList,
     this.getFaultData,
     this.getNotificationActionUserHistory,
+    this.getNotificationHistory,
     this.getFunctionalLocationList,
     this.getEquipmentDetails,
     this.getRootCausetData,
@@ -75,6 +80,7 @@ class FailureDetailOutput {
     this.getMaterialReqDetails,
     this.getMaterialDismantleDetails,
     this.getImageBefor,
+    this.getJoinInspectionHistory,
   });
 
   factory FailureDetailOutput.fromJson(Map<String, dynamic> json) {
@@ -99,9 +105,16 @@ class FailureDetailOutput {
       measurementPoint: json['measurementPoint'] != null
           ? (json['measurementPoint'] as List).map((e) => e as Map<String, dynamic>).toList()
           : null,
-      getNotificationActionUserHistory: (json['getNotificationActionUserHistory'] ?? json['getNotificationHistory'] ?? json['notificationHistory']) != null
-          ? ((json['getNotificationActionUserHistory'] ?? json['getNotificationHistory'] ?? json['notificationHistory']) as List)
+
+      getNotificationActionUserHistory: json['getNotificationActionUserHistory'] != null
+          ? (json['getNotificationActionUserHistory'] as List)
               .map((e) => NotificationActionHistory.fromJson(e as Map<String, dynamic>))
+              .toList()
+          : null,
+
+      getNotificationHistory: json['getNotificationHistory'] != null
+          ? (json['getNotificationHistory'] as List)
+              .map((e) => NotificationHistory.fromJson(e as Map<String, dynamic>))
               .toList()
           : null,
       getCreateVMModel: json['getCreateVMModel'] != null
@@ -124,6 +137,15 @@ class FailureDetailOutput {
           : null,
       getImageBefor: json['getImageBefor'] != null
           ? List<Map<String, dynamic>>.from(json['getImageBefor'])
+          : null,
+      getJoinInspectionHistory: (json['joinInspectionHistory'] ??
+                  json['getJointInspectionHistory'] ??
+                  json['JoinInspectionHistory']) !=
+              null
+          ? List<Map<String, dynamic>>.from(json['getJoinInspectionHistory'] ??
+              json['joinInspectionHistory'] ??
+              json['getJointInspectionHistory'] ??
+              json['JoinInspectionHistory'])
           : null,
     );
   }
@@ -176,26 +198,7 @@ List<LabelValue>? _mapList(dynamic list) {
       .toList();
 }
 
-class LabelValue {
-  final String? label;
-  final String? value;
-  final dynamic uniqueId;
-
-  LabelValue({this.label, this.value, this.uniqueId});
-
-  factory LabelValue.fromJson(Map<String, dynamic> json) {
-    return LabelValue(
-      label: json['label']?.toString(),
-      value: json['value']?.toString(),
-      uniqueId: json['uniqueId'],
-    );
-  }
-
-  @override
-  String toString() {
-    return 'LabelValue(label: $label, value: $value, uniqueId: $uniqueId)';
-  }
-}
+// LabelValue is re-exported for convenience by importing this file.
 
 class CreateVMModel {
   final String? id;
@@ -424,6 +427,32 @@ class CreateVMModel {
       getObjectANDFaultRootCauseList: json['getObjectANDFaultRootCauseList'] != null
           ? (json['getObjectANDFaultRootCauseList'] as List).map((e) => e as Map<String, dynamic>).toList()
           : null,
+    );
+  }
+}
+
+class NotificationHistory {
+  final int? historyId;
+  final int? createdById;
+  final String? description;
+  final String? createdBy;
+  final String? createdOn;
+
+  NotificationHistory({
+    this.historyId,
+    this.createdById,
+    this.description,
+    this.createdBy,
+    this.createdOn,
+  });
+
+  factory NotificationHistory.fromJson(Map<String, dynamic> json) {
+    return NotificationHistory(
+      historyId: json['historyId'] as int?,
+      createdById: json['createdById'] as int?,
+      description: json['description']?.toString(),
+      createdBy: json['createdBy']?.toString(),
+      createdOn: json['createdOn']?.toString(),
     );
   }
 }

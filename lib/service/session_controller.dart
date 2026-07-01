@@ -11,6 +11,8 @@ class SessionController extends GetxController {
   final Rxn<RoleMaster> selectedRole = Rxn<RoleMaster>();
   final RxList<Map<String, dynamic>> userMappings = <Map<String, dynamic>>[].obs;
   final RxString userName = "".obs;
+  final selectedStationId = Rxn<String>();
+  final selectedStationName = Rxn<String>();
 
   String get userInitials {
     if (userName.value.isEmpty) return "??";
@@ -45,16 +47,18 @@ class SessionController extends GetxController {
 
   Future<void> loadSessionData() async {
     userName.value = await AuthManager().getFullName() ?? "";
+    final String? currentUserId = await AuthManager().getUserId();
     final List<DeptMaster> depts = await AuthManager().getDeptMaster();
     final List<RoleMaster> allRoles = await AuthManager().getRoleMaster();
     
     // Load mappings from DB
     final List<Map<String, dynamic>> dbUsers = await LocalDatabaseService().getMasterUsers();
     
-    // Filter mappings to only allowed roles
+    // Filter mappings to only allowed roles AND logged-in user's userId
     userMappings.assignAll(dbUsers.where((u) {
       final roleDesc = u['roleDescr']?.toString() ?? '';
-      return isRoleAllowed(roleDesc);
+      final userId = u['userId']?.toString();
+      return isRoleAllowed(roleDesc) && (currentUserId == null || userId == currentUserId);
     }).toList());
     
     if (userMappings.isNotEmpty) {

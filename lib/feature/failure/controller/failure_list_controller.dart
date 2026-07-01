@@ -1,18 +1,27 @@
 import 'dart:convert';
+import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/material.dart';
 import 'package:om_mobile/constants/colors.dart';
+import '../../../constants/app_constants.dart';
+import '../../../core/models/label_value.dart';
 import '../../../service/network_service/api_client.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/session_controller.dart';
+import '../../../utils/widgets/cust_button.dart';
+import '../../../utils/widgets/cust_dropdown.dart';
+import '../../../utils/widgets/cust_loader.dart';
+import '../../../utils/widgets/cust_text.dart';
 import '../model/failure_list_response.dart';
+import '../service/failure_service.dart';
 
 enum StationFailureListTab { active, closed }
 enum JEFailureListTab { inbox, jointInspection }
 
 class FailureListController extends GetxController {
+  final FailureService _failureService = FailureService();
   final ApiClient _apiClient = ApiClient();
   final SessionController _sessionController = Get.find<SessionController>();
 
@@ -105,6 +114,137 @@ class FailureListController extends GetxController {
     }
     return "Server error: ${response.statusCode}";
   }
+  final popupStationList = <LabelValue>[].obs;
+  final isPopupStationLoading = false.obs;
+  final session = Get.find<SessionController>();
+
+  Future<void> fetchAndShowStationPopup() async {
+    isPopupStationLoading.value = true;
+
+    Get.dialog(
+      WillPopScope(
+        onWillPop: () async => false,
+        child: Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 8,
+          backgroundColor: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.white1,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.textColor4,
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(15),
+            child: Obx(() {
+              if (isPopupStationLoading.value) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CustLoader(),
+                    const SizedBox(height: 16),
+                    const Text("Fetching stations...", style: TextStyle(color: AppColors.textColor3)),
+                  ],
+                );
+              }
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: GestureDetector(
+                      onTap: () {
+                        Get.back();
+                        Get.back();
+                      },
+                      child: const Icon(TablerIcons.x, color: AppColors.textColor, size: 24),
+                    ),
+                  ),
+                  CustText(name: "Select Station", size: AppConstants.HeaderSize, color: AppColors.textColor7, fontWeightName: FontWeight.w600),
+                  const SizedBox(height: 16),
+                  Obx(() => CustDropdown(
+                    label: "Station",
+                    hint: "Select Station",
+                    items: popupStationList
+                        .map((e) => e.label ?? "")
+                        .toList(),
+                    selectedValue: session.selectedStationName.value,
+                    onChanged: (val) {
+                      session.selectedStationName.value = val;
+
+                      session.selectedStationId.value =
+                          popupStationList
+                              .firstWhere(
+                                (e) => e.label == val,
+                            orElse: () => LabelValue(value: "0"),
+                          )
+                              .value;
+                    },
+                  )),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CustOutlineButton(
+                          name: "Cancel",
+                          size: double.infinity,
+                          sHeight: 35,
+                          onSelected: (_) {
+                            Get.back();
+                            Get.back();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: CustButton(
+                          name: "OK",
+                          size: double.infinity,
+                          sHeight: 35,
+                            onSelected: (_) async {
+                              if (session.selectedStationId.value == null) {
+                                Get.snackbar(
+                                  "Error",
+                                  "Please select a station",
+                                  backgroundColor: Colors.red,
+                                  colorText: Colors.white,
+                                );
+                                return;
+                              }
+
+                              Get.back();
+
+                              await fetchFailures();
+                            }
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            }),
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    try {
+      final stations = await _failureService.getStationNames();
+      popupStationList.assignAll(stations);
+    } catch (e) {
+      debugPrint('Error fetching stations: $e');
+    } finally {
+      isPopupStationLoading.value = false;
+    }
+  }
 
   Future<void> fetchFailures() async {
     try {
@@ -121,7 +261,8 @@ class FailureListController extends GetxController {
         response = await _apiClient.post(
           isClosedList ? AppUrls.getStationFailureClosedList : AppUrls.getStationFailureList,
           body: {
-            "LocationId": 0,
+              "LocationId":
+              int.tryParse(session.selectedStationId.value ?? "0") ?? 0,
             "UserId": userId,
             "DepartmentIds": "",
             "Action": isClosedList ? "ClosedFailureList" : "",
@@ -152,6 +293,7 @@ class FailureListController extends GetxController {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonBody = jsonDecode(response.body);
+        print("jsonBody===$jsonBody");
         final result = FailureListResponse.fromJson(jsonBody);
         if (result.responseCode == 200) {
           final allItems = result.responseOutput;

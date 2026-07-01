@@ -11,6 +11,8 @@ import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../utils/widgets/cust_dropdown.dart';
+import '../../../utils/widgets/cust_loader.dart';
+import '../../../utils/widgets/cust_popup.dart';
 import '../../../utils/widgets/cust_section.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
@@ -20,7 +22,7 @@ import '../../../constants/app_constants.dart';
 import '../controller/create_failure_controller.dart';
 import '../../../utils/widgets/cust_data_card.dart';
 import '../../../service/session_controller.dart';
-import '../model/failure_detail_response.dart';
+import '../../../core/models/label_value.dart';
 
 class CreateFailureScreen extends StatefulWidget {
   final String failureType;
@@ -45,17 +47,22 @@ class CreateFailureScreen extends StatefulWidget {
 class _CreateFailureScreenState extends State<CreateFailureScreen>
     with SingleTickerProviderStateMixin {
   late final CreateFailureController controller;
+  final session = Get.find<SessionController>();
   final _formKey = GlobalKey<FormState>();
+  final _stationFormKey = GlobalKey<FormState>();
   final _formBottomKey = GlobalKey<FormState>();
   final _rcaFormKey = GlobalKey<FormState>();
+  final _ptw = GlobalKey<FormState>();
   final _jointInspectionFormKey = GlobalKey<FormState>();
+  final _jointInspectionOherDeptFormKey = GlobalKey<FormState>();
   final _sparePartFormKey = GlobalKey<FormState>();
   final _dismantleFormKey = GlobalKey<FormState>();
   final _rcaRootCausePopupFormKey = GlobalKey<FormState>();
   final _rcaActionPopupFormKey = GlobalKey<FormState>();
+  final _reqQtyFormKeys = <int, GlobalKey<FormState>>{};
 
   String? _requiredDropdown(String? value, String label) {
-    if (value == null || value.trim().isEmpty || value == 'Select') {
+    if (value == null || value.trim().isEmpty || value == 'Select $label') {
       return '$label is required';
     }
     return null;
@@ -71,8 +78,59 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   bool _validateForm(GlobalKey<FormState> key) =>
       key.currentState?.validate() ?? false;
 
-  bool _validateSubmitForms() =>
-      _validateForm(_formKey) && _validateForm(_formBottomKey);
+  bool _validateSubmitForms() {
+
+    if (_isStationCreate) {
+      print("step1");
+      return _validateForm(_stationFormKey);
+    }
+
+    if (controller.replacedMaterialsList.isNotEmpty) {
+      print("step2");
+      return _validateForm(_formKey) &&
+          _validateForm(_formBottomKey) &&
+          _reqQtyFormKeys.values.every((key) => _validateForm(key));
+    }
+    print("step3");
+    return _validateForm(_formKey) &&
+        _validateForm(_formBottomKey);
+  }
+
+  bool _hasUnsavedChanges() {
+    return controller.failureDescriptionController.text.isNotEmpty ||
+        controller.selectedPriority.value != null ||
+        controller.selectedDepartment.value != null ||
+        controller.selectedLocation.value != null ||
+        controller.selectedFunctionalLocation.value != null ||
+        controller.selectedFailureCategoryType.value != null ||
+        controller.selectedFailureOccurrenceDate.value != null ||
+        controller.isServiceAffected.value ||
+        controller.isPassengerAffected.value ||
+        controller.isPtwRequired.value;
+  }
+
+  void _handleCancel() {
+    if (_hasUnsavedChanges()) {
+      Get.dialog(
+        CustPopup(
+          title: 'Unsaved Changes',
+          message: 'Changes you made may not be saved. Do you want to continue?',
+          confirmText: 'Yes',
+          cancelText: 'No',
+          onConfirm: (){
+            Navigator.pop(context);
+            Navigator.pop(context);
+          },
+          onCancel: () => Navigator.pop(context),
+          showIcon: true,
+          icon: Icons.warning_amber_outlined,
+          iconColor: AppColors.orangeColor,
+        ),
+      );
+    } else {
+      Navigator.pop(context);
+    }
+  }
 
   @override
   void initState() {
@@ -107,7 +165,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           return;
         }
         // Show station popup immediately; load dropdown master data in parallel
-        controller.fetchAndShowStationPopup();
+        if (session.selectedStationId.value == null) {
+          controller.fetchAndShowStationPopup();
+        }
         controller.loadStationCreateDropdowns();
       });
     }
@@ -381,7 +441,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             ? 'Edit ${widget.failureType} Failure'
             : 'Create ${widget.failureType} Failure',
         showDrawer: false,
-        onLeadingPressed: () => Navigator.pop(context),
+        onLeadingPressed: () {
+          _handleCancel();
+        },
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12.0),
@@ -421,15 +483,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         ),
         child: Obx(() {
           if (controller.isLoading.value) {
-            return const Center(child: CircularProgressIndicator());
+            return const CustLoader();
           }
           if (_isStationCreate ||
               (widget.isUpdate && widget.failureType == 'Station') ||
               _isStationControllerView) {
-            return Form(
-              key: _formKey,
-              child: _buildFailureFormBody(context),
-            );
+            return _buildFailureFormBody(context);
           }
           return _buildFailureFormBody(context);
         }),
@@ -440,12 +499,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   Widget _buildFailureFormBody(BuildContext context) {
     if (_isStationCreate ||
         (widget.isUpdate && widget.failureType == 'Station')) {
-      return _buildStationCreateForm(context);
+      return Form(
+          key: _stationFormKey,
+          child: _buildStationCreateForm(context));
     }
     if (_isStationControllerView) {
       return _buildStationControllerView(context);
     }
-    return _buildJeChangeNotificationForm(context);
+    return Form(
+        key: _formKey,
+        child: _buildJeChangeNotificationForm(context));
   }
 
   Widget _buildStationControllerView(BuildContext context) {
@@ -477,255 +540,440 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   fontWeightName: FontWeight.w600,
                 )),
             const SizedBox(height: AppConstants.sectionSpacing),
-            Obx(() => _buildToggleItem(
-                "Basic Information",
-                controller.isBasicInfoVisible.value,
-                (val) => controller.isBasicInfoVisible.value = val)),
-            Obx(() => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (controller.isBasicInfoVisible.value) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Priority",
-                                  controller: TextEditingController(
-                                      text: controller.selectedPriority.value),
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Current Status",
-                                  controller: TextEditingController(
-                                      text: controller.mainStatusName.value),
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      CustomTextField(
-                        label: "Failure Description",
-                        controller: controller.failureDescriptionController,
-                        maxLines: 3,
-                        enabled: false,
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Department",
-                                  controller: TextEditingController(
-                                      text:
-                                          controller.selectedDepartment.value),
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Location",
-                                  controller: TextEditingController(
-                                      text: controller.selectedLocation.value),
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Functional Location",
-                                  controller: TextEditingController(
-                                      text: controller
-                                          .selectedFunctionalLocation.value),
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Sub Location",
-                                  controller: controller.subLocationController,
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "System",
-                                  controller: controller.systemController,
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Train Id",
-                                  controller: controller.trainIdController,
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      CustDateTimePicker(
-                        label: "Actual Failure Occurrence",
-                        hint: "Actual Failure Occurrence",
-                        selectedDateTime:
-                            controller.selectedFailureOccurrenceDate.value,
-                        enabled: false,
-                        onDateTimeSelected: (v) {},
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      CustomTextField(
-                          label: "Failure Reported by",
-                          controller: TextEditingController(
-                              text: controller.selectedFailureReportedBy.value),
-                          enabled: false),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      CustDateTimePicker(
-                        label: "Actual Failure Completed Date & Time",
-                        hint: "Actual Failure Completed Date & Time",
-                        selectedDateTime:
-                            controller.selectedFailureCompletedDate.value,
-                        enabled: false,
-                        onDateTimeSelected: (v) {},
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      CustomTextField(
-                          label: "Failure Category Type",
-                          controller: TextEditingController(
-                              text:
-                                  controller.selectedFailureCategoryType.value),
-                          enabled: false),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                    ]
-                  ],
-                )),
-            Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              CustomTextField(
-                label: "Failure Rectification Details",
-                controller: controller.failureRectificationDetailsController,
-                maxLines: 4,
-                enabled: false,
-              ),
-              const SizedBox(height: AppConstants.elementSpacing),
-            ]),
-            Obx(() => _buildToggleItem(
-                "Trip Affected", controller.isTripAffected.value, (val) => {},
-                enabled: false)),
-            Obx(() => Column(
-                  children: [
-                    if (controller.isTripAffected.value) ...[
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Trip Delay Upline (NOS)",
-                                  controller:
-                                      controller.tripDelayUplineController,
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Trip Cancel (NOS)",
-                                  controller:
-                                      controller.trainCancelNosController,
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Trip Delay Downline (NOS)",
-                                  controller:
-                                      controller.tripDelayDownlineController,
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Trip Delay in Min.",
-                                  controller:
-                                      controller.trainDelayMinController,
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Trip Withdrawal (NOS)",
-                                  controller:
-                                      controller.trainWithdrawalNosController,
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Train Replace (NOS)",
-                                  controller:
-                                      controller.trainReplaceNosController,
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      _buildToggleItem("Passenger Deboarding",
-                          controller.isPassengerDeboarding.value, (val) => {},
-                          enabled: false),
-                      if (controller.isPassengerDeboarding.value) ...[
-                        CustomTextField(
-                            label: "Train Deboarded (NOS)",
-                            controller: controller.trainDeboardedNosController,
-                            enabled: false),
-                        const SizedBox(height: AppConstants.elementSpacing),
-                      ]
-                    ]
-                  ],
-                )),
-            Obx(() => _buildToggleItem("Passenger Affected",
-                controller.isPassengerAffected.value, (val) => {},
-                enabled: false)),
-            Obx(() => Column(
-                  children: [
-                    if (controller.isPassengerAffected.value) ...[
-                      CustomTextField(
-                          label: "Number Of Passenger Affected",
-                          controller:
-                              controller.passengersAffectedCountController,
-                          enabled: false),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                      Row(
-                        children: [
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Trapped Duration",
-                                  controller:
-                                      controller.trappedDurationController,
-                                  enabled: false)),
-                          const SizedBox(width: AppConstants.elementSpacing),
-                          Expanded(
-                              child: CustomTextField(
-                                  label: "Rescued Duration",
-                                  controller:
-                                      controller.rescuedDurationController,
-                                  enabled: false)),
-                        ],
-                      ),
-                      const SizedBox(height: AppConstants.elementSpacing),
-                    ]
-                  ],
-                )),
-            CustText.sectionHeader("Display Uploaded Images:",
-                color: AppColors.textColor3),
-            const SizedBox(height: AppConstants.labelSpacing),
-            CustText.body("Before:"),
-            const SizedBox(height: 8),
-            Obx(() => Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: controller.beforeImagesList
-                      .map<Widget>(
-                          (file) => _buildUploadedImagePreview(file['path']!))
-                      .toList(),
+            Obx(() => CustSection(
+                  title: "Station Selection",
+                  child: CustomTextField(
+                    label: "Selected Station",
+                    controller: TextEditingController(text: session.selectedStationName.value),
+                    enabled: false,
+                  ),
                 )),
             const SizedBox(height: AppConstants.sectionSpacing),
+        Obx(() => CustSection(
+          title: "Basic Information",
+          trailing: YesNoToggle(
+            value: controller.isBasicInfoVisible.value,
+            onChanged: (val) =>
+            controller.isBasicInfoVisible.value = val,
+            enabled: true,
+          ),
+          isVisible: controller.isBasicInfoVisible.value,
+          child:Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (controller.isBasicInfoVisible.value) ...[
+                Row(
+                  children: [
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Priority",
+                            controller: TextEditingController(
+                                text: controller.selectedPriority.value),
+                            enabled: false)),
+                    const SizedBox(width: AppConstants.elementSpacing),
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Current Status",
+                            controller: TextEditingController(
+                                text: controller.mainStatusName.value),
+                            enabled: false)),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                  label: "Failure Description",
+                  controller: controller.failureDescriptionController,
+                  maxLines: 3,
+                  enabled: false,
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Row(
+                  children: [
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Department",
+                            controller: TextEditingController(
+                                text:
+                                controller.selectedDepartment.value),
+                            enabled: false)),
+                    const SizedBox(width: AppConstants.elementSpacing),
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Location",
+                            controller: TextEditingController(
+                                text: controller.selectedLocation.value),
+                            enabled: false)),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Row(
+                  children: [
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Functional Location",
+                            controller: TextEditingController(
+                                text: controller
+                                    .selectedFunctionalLocation.value),
+                            enabled: false)),
+                    const SizedBox(width: AppConstants.elementSpacing),
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Sub Location",
+                            controller: controller.subLocationController,
+                            enabled: false)),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                Row(
+                  children: [
+                    Expanded(
+                        child: CustomTextField(
+                            label: "System",
+                            controller: controller.systemController,
+                            enabled: false)),
+                    const SizedBox(width: AppConstants.elementSpacing),
+                    Expanded(
+                        child: CustomTextField(
+                            label: "Train Id",
+                            controller: controller.trainIdController,
+                            enabled: false)),
+                  ],
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustDateTimePicker(
+                  label: "Actual Failure Occurrence",
+                  hint: "Actual Failure Occurrence",
+                  selectedDateTime:
+                  controller.selectedFailureOccurrenceDate.value,
+                  enabled: false,
+                  onDateTimeSelected: (v) {},
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                    label: "Failure Reported by",
+                    controller: TextEditingController(
+                        text: controller.selectedFailureReportedBy.value),
+                    enabled: false),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustDateTimePicker(
+                  label: "Actual Failure Completed Date & Time",
+                  hint: "Actual Failure Completed Date & Time",
+                  selectedDateTime:
+                  controller.selectedFailureCompletedDate.value,
+                  enabled: false,
+                  onDateTimeSelected: (v) {},
+                ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                    label: "Failure Category Type",
+                    controller: TextEditingController(
+                        text:
+                        controller.selectedFailureCategoryType.value),
+                    enabled: false),
+                const SizedBox(height: AppConstants.elementSpacing),
+              ]
+            ],
+          )
+        )),
+        //     Obx(() => CustSection(
+        //         title: "",
+        //         isVisible: true,
+        //         child:Column(
+        //           crossAxisAlignment: CrossAxisAlignment.start,
+        //           children: [
+        //             Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        //               CustomTextField(
+        //                 label: "Failure Rectification Details",
+        //                 controller: controller.failureRectificationDetailsController,
+        //                 maxLines: 4,
+        //                 enabled: false,
+        //               ),
+        //               const SizedBox(height: AppConstants.elementSpacing),
+        //             ]),
+        //             Obx(() => _buildToggleItem(
+        //                 "Trip Affected", controller.isTripAffected.value, (val) {
+        //               if (val == false) {
+        //                 controller.tripDelayUplineController.clear();
+        //                 controller.tripDelayDownlineController.clear();
+        //                 controller.trainCancelNosController.clear();
+        //                 controller.trainWithdrawalNosController.clear();
+        //                 controller.trainReplaceNosController.clear();
+        //                 controller.trainDeboardedNosController.clear();
+        //               } else if (val == true) {
+        //                 controller.tripDelayUplineController.clear();
+        //                 controller.tripDelayDownlineController.clear();
+        //                 controller.trainCancelNosController.clear();
+        //                 controller.trainWithdrawalNosController.clear();
+        //                 controller.trainReplaceNosController.clear();
+        //                 controller.trainDeboardedNosController.clear();
+        //               }
+        //             },
+        //                 enabled: false)),
+        //             Obx(() => Column(
+        //               children: [
+        //                 if (controller.isTripAffected.value) ...[
+        //                   Row(
+        //                     children: [
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Trip Delay Upline (NOS)",
+        //                               controller:
+        //                               controller.tripDelayUplineController,
+        //                               enabled: false)),
+        //                       const SizedBox(width: AppConstants.elementSpacing),
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Trip Cancel (NOS)",
+        //                               controller:
+        //                               controller.trainCancelNosController,
+        //                               enabled: false)),
+        //                     ],
+        //                   ),
+        //                   const SizedBox(height: AppConstants.elementSpacing),
+        //                   Row(
+        //                     children: [
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Trip Delay Downline (NOS)",
+        //                               controller:
+        //                               controller.tripDelayDownlineController,
+        //                               enabled: false)),
+        //                       const SizedBox(width: AppConstants.elementSpacing),
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Trip Delay in Min.",
+        //                               controller:
+        //                               controller.trainDelayMinController,
+        //                               enabled: false)),
+        //                     ],
+        //                   ),
+        //                   const SizedBox(height: AppConstants.elementSpacing),
+        //                   Row(
+        //                     children: [
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Trip Withdrawal (NOS)",
+        //                               controller:
+        //                               controller.trainWithdrawalNosController,
+        //                               enabled: false)),
+        //                       const SizedBox(width: AppConstants.elementSpacing),
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Train Replace (NOS)",
+        //                               controller:
+        //                               controller.trainReplaceNosController,
+        //                               enabled: false)),
+        //                     ],
+        //                   ),
+        //                   const SizedBox(height: AppConstants.elementSpacing),
+        //                   _buildToggleItem("Passenger Deboarded",
+        //                       controller.isPassengerDeboarding.value, (val) => {},
+        //                       enabled: false),
+        //                   if (controller.isPassengerDeboarding.value) ...[
+        //                     CustomTextField(
+        //                         label: "Train Deboarded (NOS)",
+        //                         controller: controller.trainDeboardedNosController,
+        //                         enabled: false),
+        //                     const SizedBox(height: AppConstants.elementSpacing),
+        //                   ]
+        //                 ]
+        //               ],
+        //             )),
+        //             Obx(() => _buildToggleItem("Passenger Affected",
+        //                 controller.isPassengerAffected.value, (val) => {},
+        //                 enabled: false)),
+        //             Obx(() => Column(
+        //               children: [
+        //                 if (controller.isPassengerAffected.value) ...[
+        //                   CustomTextField(
+        //                       label: "Number Of Passenger Affected",
+        //                       controller:
+        //                       controller.passengersAffectedCountController,
+        //                       enabled: false),
+        //                   const SizedBox(height: AppConstants.elementSpacing),
+        //                   Row(
+        //                     children: [
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Trapped Duration",
+        //                               controller:
+        //                               controller.trappedDurationController,
+        //                               enabled: false)),
+        //                       const SizedBox(width: AppConstants.elementSpacing),
+        //                       Expanded(
+        //                           child: CustomTextField(
+        //                               label: "Rescued Duration",
+        //                               controller:
+        //                               controller.rescuedDurationController,
+        //                               enabled: false)),
+        //                     ],
+        //                   ),
+        //                   const SizedBox(height: AppConstants.elementSpacing),
+        //                 ]
+        //               ],
+        //             )),
+        //           ],
+        //         )
+        //     )),
+          CustSection(
+                title: "Failure Rectification",
+                child: CustomTextField(
+                  label: "Failure Rectification Details",
+                  controller: controller.failureRectificationDetailsController,
+                  maxLines: 4,
+                  enabled: false,
+                ),
+              ),
+            CustSection(
+                title: "Trip Information",
+                isVisible: controller.isTripAffected.value,
+                trailing: Obx(() => YesNoToggle(
+                  value:  controller.isTripAffected.value,
+                  onChanged: (val) =>
+                  controller.isTripAffected.value = val,
+                )),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Trip Delay Upline (NOS)",
+                            controller: controller.tripDelayUplineController,
+                            enabled: false,
+                          ),
+                        ),
+                        const SizedBox(width: AppConstants.elementSpacing),
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Trip Cancel (NOS)",
+                            controller: controller.trainCancelNosController,
+                            enabled: false,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: AppConstants.elementSpacing),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Trip Delay Downline (NOS)",
+                            controller: controller.tripDelayDownlineController,
+                            enabled: false,
+                          ),
+                        ),
+                        const SizedBox(width: AppConstants.elementSpacing),
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Trip Delay in Min.",
+                            controller: controller.trainDelayMinController,
+                            enabled: false,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: AppConstants.elementSpacing),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Trip Withdrawal (NOS)",
+                            controller: controller.trainWithdrawalNosController,
+                            enabled: false,
+                          ),
+                        ),
+                        const SizedBox(width: AppConstants.elementSpacing),
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Train Replace (NOS)",
+                            controller: controller.trainReplaceNosController,
+                            enabled: false,
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    if (controller.isPassengerDeboarding.value) ...[
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                        label: "Train Deboarded (NOS)",
+                        controller: controller.trainDeboardedNosController,
+                        enabled: false,
+                      ),
+                    ]
+                  ],
+                ),
+              ),
+             CustSection(
+                title: "Passenger Information",
+               isVisible: controller.isPassengerDeboarding.value,
+               trailing: Obx(() => YesNoToggle(
+                 value:  controller.isPassengerDeboarding.value,
+                 onChanged: (val) =>
+                 controller.isPassengerDeboarding.value = val,
+               )),
+                child: Column(
+                  children: [
+                    CustomTextField(
+                      label: "Number Of Passenger Affected",
+                      controller: controller.passengersAffectedCountController,
+                      enabled: false,
+                    ),
+
+                    const SizedBox(height: AppConstants.elementSpacing),
+
+                    Row(
+                      children: [
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Trapped Duration",
+                            controller: controller.trappedDurationController,
+                            enabled: false,
+                          ),
+                        ),
+                        const SizedBox(width: AppConstants.elementSpacing),
+                        Expanded(
+                          child: CustomTextField(
+                            label: "Rescued Duration",
+                            controller: controller.rescuedDurationController,
+                            enabled: false,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            Obx(() {
+              if (controller.beforeImagesList.isEmpty) {
+                return const SizedBox.shrink();
+              }
+
+              return CustSection(
+                title: "Uploaded Images",
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CustText.body("Before Images"),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: controller.beforeImagesList
+                          .map<Widget>(
+                            (file) => _buildUploadedImagePreview(file['path']!),
+                      )
+                          .toList(),
+                    ),
+                  ],
+                ),
+              );
+            })
           ],
         ),
       ),
@@ -769,9 +1017,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   fontWeightName: FontWeight.w600,
                 )),
             const SizedBox(height: AppConstants.sectionSpacing),
-            Form(
-              key: _formKey,
-              child: Column(
+            Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   CustSection(
@@ -843,8 +1089,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                                 .selectedDepartment
                                                 .value
                                                 ?.deptName,
-                                    onChanged: (value) => controller
-                                        .selectedDepartment.value = value,
+                                    onChanged: (value) {
+                                      controller.onDepartmentChanged(value);
+                                    },
                                     enabled: false,
                                   )),
                                 ],
@@ -852,7 +1099,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         const SizedBox(height: AppConstants.elementSpacing),
                         CustText.formLabel("Failure Description:"),
                         Obx(() {
-                          if (controller.notificationHistoryList.isNotEmpty) {
+                          if (controller.notificationDescriptionHistoryList.isNotEmpty) {
                             return Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -865,52 +1112,52 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                     color: Colors.grey.shade50,
                                     borderRadius: BorderRadius.circular(8),
                                     border:
-                                        Border.all(color: Colors.grey.shade200),
+                                    Border.all(color: Colors.grey.shade200),
                                   ),
                                   child: ListView.separated(
                                     shrinkWrap: true,
                                     physics:
-                                        const NeverScrollableScrollPhysics(),
+                                    const NeverScrollableScrollPhysics(),
                                     itemCount: controller
-                                        .notificationHistoryList.length,
+                                        .notificationDescriptionHistoryList.length,
                                     separatorBuilder: (context, index) =>
                                         Divider(
-                                      height: 1,
-                                      color: Colors.grey.shade200,
-                                    ),
+                                          height: 1,
+                                          color: Colors.grey.shade200,
+                                        ),
                                     itemBuilder: (context, index) {
                                       final item = controller
-                                          .notificationHistoryList[index];
+                                          .notificationDescriptionHistoryList[index];
                                       return Padding(
                                         padding: const EdgeInsets.all(12.0),
                                         child: Column(
                                           crossAxisAlignment:
-                                              CrossAxisAlignment.start,
+                                          CrossAxisAlignment.start,
                                           children: [
                                             CustText(
-                                              name: item.remark ?? "",
+                                              name: item.description ?? "",
                                               size: 13,
-                                              color: AppColors.textColor2,
+                                              color: AppColors.textColor,
                                             ),
                                             const SizedBox(height: 8),
                                             Row(
                                               mainAxisAlignment:
-                                                  MainAxisAlignment
-                                                      .spaceBetween,
+                                              MainAxisAlignment
+                                                  .spaceBetween,
                                               children: [
                                                 Expanded(
                                                   child: CustText(
-                                                    name: item.actionBy ??
+                                                    name: item.createdBy ??
                                                         "Unknown User",
                                                     size: 11,
                                                     color: AppColors.textColor4,
                                                     overflow:
-                                                        TextOverflow.ellipsis,
+                                                    TextOverflow.ellipsis,
                                                   ),
                                                 ),
                                                 const SizedBox(width: 8),
                                                 CustText(
-                                                  name: item.actionOn ?? "",
+                                                  name: item.createdOn ?? "",
                                                   size: 11,
                                                   color: AppColors.textColor4,
                                                 ),
@@ -974,11 +1221,29 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               enabled: false,
                               onDateTimeSelected: (_) {})),
                           const SizedBox(height: AppConstants.elementSpacing),
+                          Obx(() => CustDateTimePicker(
+                              label: "Failure Attended",
+                              hint: "Failure Attended",
+                              selectedDateTime: controller
+                                  .selectedFailureAttendedDate.value,
+                              enabled: false,
+                              onDateTimeSelected: (date) =>
+                                  controller.onFailureAttendedDateSelected(date))),
+                          const SizedBox(height: AppConstants.elementSpacing),
+                          Obx(() => CustDateTimePicker(
+                              label: "Actual Failure Rectified*",
+                              hint: "Actual Failure Rectified",
+                              selectedDateTime: controller
+                                  .selectedActualFailureRectifiedDate.value,
+                              enabled: false,
+                              onDateTimeSelected: (date) =>
+                                  controller.selectedActualFailureRectifiedDate.value = date)),
+                          const SizedBox(height: AppConstants.elementSpacing),
                         ] else
                           Obx(() => Column(
                                 children: [
                                   CustDropdown(
-                                      label: 'Location',
+                                      label: 'Location *',
                                       hint: 'Select location',
                                       items: controller.locationTypeList
                                           .map((e) => e.label ?? '')
@@ -989,11 +1254,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                           !_isJointInspectionFlow,
                                       onChanged: (value) {
                                         controller.onLocationChanged(value);
-                                      }),
+                                      },
+                                    validator: (val) {
+                                    if (val == null ||
+                                        val.trim().isEmpty ||
+                                        val == "Select") {
+                                      return "Location is required";
+                                    }
+                                    return null;
+                                  },
+                                 ),
                                   const SizedBox(
                                       height: AppConstants.elementSpacing),
                                   CustDropdown(
-                                      label: 'Functional Location',
+                                      label: 'Functional Location *',
                                       hint: 'Select functional location',
                                       items: controller.functionalLocationList
                                           .map((e) => e.label ?? '')
@@ -1005,11 +1279,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                       onChanged: (value) {
                                         controller
                                             .onFunctionalLocationChanged(value);
-                                      }),
+                                      },
+                                    validator: (val) {
+                                      if (val == null ||
+                                          val.trim().isEmpty ||
+                                          val == "Select") {
+                                        return "Functional Location is required";
+                                      }
+                                      return null;
+                                    },
+                                  ),
                                   const SizedBox(
                                       height: AppConstants.elementSpacing),
                                   CustDropdown(
-                                    label: 'Equipment Number',
+                                    label: 'Equipment Number *',
                                     hint: controller.isEquipmentLoading.value
                                         ? 'Loading...'
                                         : 'Select equipment number',
@@ -1023,6 +1306,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                         !controller.isEquipmentLoading.value,
                                     onChanged: (value) =>
                                         controller.onEquipmentChanged(value),
+                                    validator: (val) {
+                                      if (val == null ||
+                                          val.trim().isEmpty ||
+                                          val == "Select") {
+                                        return "Equipment Number is required";
+                                      }
+                                      return null;
+                                    },
                                   ),
                                   const SizedBox(
                                       height: AppConstants.elementSpacing),
@@ -1070,11 +1361,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     ),
                   ),
                   CustSection(
-                    title: "Service Affected",
+                    title: "Service Affected *",
                     trailing: Obx(() => YesNoToggle(
                           value: controller.isServiceAffected.value,
-                          onChanged: (val) =>
-                              controller.isServiceAffected.value = val,
+                          onChanged: (val) {
+                            controller.trainDelayNosController.clear();
+                              controller.tripDelayUplineController.clear();
+                              controller.trainCancelNosController.clear();
+                              controller.tripDelayDownlineController.clear();
+                              controller.trainDelayMinController.clear();
+                              controller.trainWithdrawalNosController.clear();
+                              controller.trainReplaceNosController.clear();
+                              controller.isPassengerDeboarding.value = false;
+                            controller.isServiceAffected.value = val;
+                          },
                           enabled: controller.isJE && !_isJointInspectionFlow,
                         )),
                     isVisible: controller.isServiceAffected.value,
@@ -1154,11 +1454,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     ),
                   ),
                   CustSection(
-                    title: "Passenger Deboarding",
+                    title: "Passenger Deboarded *",
                     trailing: Obx(() => YesNoToggle(
                           value: controller.isPassengerDeboarding.value,
-                          onChanged: (val) =>
-                              controller.isPassengerDeboarding.value = val,
+                      onChanged: (val) {
+                        controller.trainDeboardedNosController.clear();
+                        controller.isPassengerDeboarding.value = val;
+                      },
                           enabled: controller.isJE && !_isJointInspectionFlow,
                         )),
                     isVisible: controller.isPassengerDeboarding.value,
@@ -1179,11 +1481,21 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   if (widget.failureType != "Maintenance")
                     CustSection(
-                      title: "Passenger Affected",
+                      title: "Passenger Affected *",
                       trailing: Obx(() => YesNoToggle(
                             value: controller.isPassengerAffected.value,
-                            onChanged: (val) =>
-                                controller.isPassengerAffected.value = val,
+                            onChanged: (val) {
+                              if (val == false) {
+                                controller.passengersAffectedCountController.clear();
+                                controller.trappedDurationController.clear();
+                                controller.rescuedDurationController.clear();
+                              } else if (val == true) {
+                                controller.passengersAffectedCountController.clear();
+                                controller.trappedDurationController.clear();
+                                controller.rescuedDurationController.clear();
+                              }
+                              controller.isPassengerAffected.value = val;
+                            },
                             enabled: controller.isJE && !_isJointInspectionFlow,
                           )),
                       isVisible: controller.isPassengerAffected.value,
@@ -1234,9 +1546,39 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         ],
                       ),
                     ),
+                  CustSection(
+                    title: "PTW Required? *",
+                    trailing: Obx(() => YesNoToggle(
+                      enabled:  !_isJointInspectionFlow,
+                      value: controller.isPtwRequired.value,
+                      onChanged: (val) {
+                        if (val == false) {
+                          controller.ptwNumberController.clear();
+                        } else if (val == true) {
+                          controller.ptwNumberController.clear();
+                        }
+                        controller.isPtwRequired.value = val;
+                      },
+                    )),
+                    isVisible: controller.isPtwRequired.value,
+                    child: Column(
+                      children: [
+                        CustomTextField(
+                            controller: controller.ptwNumberController,
+                            label: "PTW Number *",
+                            keyboardType: TextInputType.number,
+                            hintText: "Enter PTW Number",
+                            validator: (val) {
+                              if (controller.isPtwRequired.value && (val == null || val.trim().isEmpty)) {
+                                return "PTW Number is required";
+                              }
+                              return null;
+                            }),
+                      ],
+                    ),
+                  ),
                 ],
               ),
-            ),
             CustSection(
               title: "Failure Rectification Details (RCA)",
               child: Column(
@@ -1378,15 +1720,26 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             ),
             Obx(() => CustSection(
                   title: "Failure Type",
-                  child: CustDropdown(
-                    label: "Failure Type",
-                    hint: "Select Failure Type",
-                    items: controller.materialTypeList,
-                    selectedValue: controller.selectedMaterialType.value,
-                    enabled: controller.isJE || controller.isTechnician,
-                    onChanged: (v) {
-                      controller.selectedMaterialType.value = v!;
-                    },
+                  child: Column(
+                    children: [
+                      CustDropdown(
+                        label: "Failure Type",
+                        hint: "Select Failure Type",
+                        items: controller.materialTypeList,
+                        selectedValue: controller.selectedMaterialType.value,
+                        enabled: controller.isJE || controller.isTechnician,
+                        onChanged: (v) {
+                          controller.selectedMaterialType.value = v!;
+                        },
+                      ),
+                if (controller.selectedMaterialType.value == "Other") ...[
+                const SizedBox(height: 16),
+                  CustomTextField(
+                      label: "Remark",
+                      controller: controller.failureTypeController,
+                      enabled: controller.isJE || controller.isTechnician),
+            ]
+                    ],
                   ),
                 )),
             Obx(() {
@@ -1399,6 +1752,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 trailing: YesNoToggle(
                   value: controller.isSparePartReplaced.value,
                   onChanged: (val) {
+                    if (val == false) {
+                      controller.replacedMaterialsList.clear();
+                    } else if (val == true) {
+                      controller.replacedMaterialsList.clear();
+                    }
                     controller.isSparePartReplaced.value = val;
                   },
                   enabled: controller.isJE,
@@ -1412,7 +1770,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               );
             }),
             Obx(() {
-              if (controller.replacedMaterialsList.isEmpty) {
+              if (controller.selectedMaterialType.value != "Hardware"&&controller.replacedMaterialsList.isEmpty) {
                 return const SizedBox.shrink();
               }
 
@@ -1422,6 +1780,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 trailing: YesNoToggle(
                   value: controller.isMaterialDismantle.value,
                   onChanged: (val) {
+                    if (val == false) {
+                      controller.dismantleMaterialsList.clear();
+                    } else if (val == true) {
+                      controller.dismantleMaterialsList.clear();
+                    }
                     controller.isMaterialDismantle.value = val;
                   },
                   enabled: controller.isJE || controller.isTechnician,
@@ -1433,12 +1796,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             }),
             if (!_isJointInspectionFlow)
               CustSection(
-                title: "Joint Inspection",
+                title: "Joint Inspection *",
                 trailing: Obx(() => YesNoToggle(
                       value: controller.isJointInspection.value,
                       onChanged: (val) =>
                           controller.isJointInspection.value = val,
-                      enabled: controller.isJE,
+                      enabled: controller.isJE && controller.jointInspectionHistoryList.isEmpty,
                     )),
                 isVisible: controller.isJointInspection.value,
                 child: Obx(
@@ -1535,12 +1898,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                   controller.rcaImagesList.isNotEmpty;
                           if (!hasImages) return const SizedBox.shrink();
                           return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Divider(),
                               const SizedBox(
                                   height: AppConstants.sectionSpacing),
-                              CustText.sectionHeader("Display Uploaded Images:",
-                                  color: AppColors.textColor3),
+                              CustText(name: "Display Uploaded Images:", color: AppColors.textColor3,fontWeightName: FontWeight.w500,size: AppConstants.textSize,),
                               const SizedBox(height: AppConstants.labelSpacing),
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1621,9 +1984,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             label: "Failure Rectification Details *",
                             controller: controller
                                 .failureRectificationDetailsController,
+                            focusNode: controller.failureRectificationFocusNode,
                             hintText: "Enter Rectification Details",
                             enabled: controller.isJE && !_isJointInspectionFlow,
                             maxLines: 4,
+                            autofocus: false,
                             validator: (val) {
                               if (val == null || val.trim().isEmpty) {
                                 return "Failure Rectification Details is required";
@@ -1643,13 +2008,27 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             disabledItemFn: controller.isCloseUserStatusBlocked
                                 ? (item) => item.trim().toLowerCase() == 'close'
                                 : null,
-                            onChanged: (v) {
-                              if (controller.isCloseUserStatusBlocked &&
-                                  v?.trim().toLowerCase() == 'close') {
-                                controller.showPendingJointInspectionPopup();
-                                return;
+                              onChanged: (v) {
+                                print("Selected User Status = $v");
+                                print("Main Status = ${controller.mainStatusName.value}");
+                                print("Blocked = ${controller.isCloseUserStatusBlocked}");
+
+                                if (controller.isCloseUserStatusBlocked &&
+                                    v?.trim().toLowerCase() == 'closed') {
+                                  controller.showPendingJointInspectionPopup();
+                                  return;
+                                }
+
+                                controller.selectedUserStatus.value = v;
+                                // Unfocus the failure rectification details field
+                                controller.failureRectificationFocusNode.unfocus();
+                              },
+                            validator: (value) {
+                              if (controller.selectedUserStatus.value == null ||
+                                  controller.selectedUserStatus.value!.trim().isEmpty||controller.selectedUserStatus.value=="Select User Status") {
+                                return "User Status is required";
                               }
-                              controller.selectedUserStatus.value = v;
+                              return null;
                             },
                           ),
                           const SizedBox(height: AppConstants.elementSpacing),
@@ -1673,8 +2052,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 }
                                 return null;
                               },
-                              onDateTimeSelected: (dt) => controller
-                                  .selectedUnderObservationDate.value = dt,
+                              onDateTimeSelected: (dt) {
+                                controller.selectedUnderObservationDate.value = dt;
+                                controller.failureRectificationFocusNode.unfocus();
+                              },
                             ),
                             const SizedBox(height: AppConstants.elementSpacing),
                           ],
@@ -1682,14 +2063,19 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             label: "Failure Attended",
                             hint: "DD/MM/YYYY hh:mm",
                             selectedDateTime:
-                                controller.selectedFailureAttendedDate.value ??
-                                    DateTime.now(),
+                                controller.selectedFailureAttendedDate.value,
                             enabled: controller.isJE && !_isJointInspectionFlow,
-                            firstDate: DateTime.now(),
+                            firstDate: controller.selectedFailureOccurrenceDate.value,
                             lastDate: DateTime.now(),
                             onDateTimeSelected: (dateTime) {
-                              controller.selectedFailureAttendedDate.value =
-                                  dateTime;
+                              controller.onFailureAttendedDateSelected(dateTime);
+                              controller.failureRectificationFocusNode.unfocus();
+                            },
+                            validator: (value) {
+                              if (controller.selectedFailureAttendedDate.value == null) {
+                                return "Failure Attended is required";
+                              }
+                              return null;
                             },
                           ),
                           const SizedBox(height: AppConstants.elementSpacing),
@@ -1697,14 +2083,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             label: "Actual Failure Rectified",
                             hint: "DD/MM/YYYY hh:mm",
                             selectedDateTime: controller
-                                    .selectedActualFailureRectifiedDate.value ??
-                                DateTime.now(),
+                                    .selectedActualFailureRectifiedDate.value,
                             enabled: controller.isJE && !_isJointInspectionFlow,
-                            firstDate: DateTime.now(),
+                            firstDate: controller.selectedFailureAttendedDate.value ??
+                                controller.selectedFailureOccurrenceDate.value,
                             lastDate: DateTime.now(),
                             onDateTimeSelected: (dateTime) {
-                              controller.selectedActualFailureRectifiedDate
-                                  .value = dateTime;
+                              controller.onActualFailureRectifiedDateSelected(dateTime);
+                              controller.failureRectificationFocusNode.unfocus();
+                            },
+                            validator: (value) {
+                              if (controller.selectedActualFailureRectifiedDate.value == null) {
+                                return "Actual Failure Rectified is required";
+                              }
+                              return null;
                             },
                           ),
                         ],
@@ -1722,7 +2114,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           name: "Cancel",
                           size: double.infinity,
                           sHeight: AppConstants.buttonHeight,
-                          onSelected: (_) => Navigator.pop(context),
+                          onSelected: (_) => _handleCancel(),
                         ),
                       ),
                       const SizedBox(width: AppConstants.elementSpacing),
@@ -1732,7 +2124,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           sHeight: AppConstants.buttonHeight,
                           size: double.infinity,
                           onSelected: (_) => _isJointInspectionFlow
-                              ? controller.submitJointInspection()
+                              ? _submitJointInspectionForm()
                               : _submitForm(),
                         ),
                       ),
@@ -1750,62 +2142,71 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   Widget _buildJointInspectionActionFields() {
     return CustSection(
       title: "Joint Inspection Details",
-      child: Column(
-        children: [
-          _buildToggleItem(
-            "Joint Inspection",
-            true,
-            (_) {},
-            enabled: false,
-          ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustomTextField(
-            label: "Department",
-            controller: controller.jiDepartmentDisplayController,
-            enabled: false,
-          ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustomTextField(
-            label: "Assign To",
-            controller: controller.jiAssignToDisplayController,
-            enabled: false,
-          ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustDropdown(
-            label: "Functional Location",
-            hint: "Select...",
-            items: controller.functionalLocationList
-                .map((e) => e.label ?? '')
-                .toList(),
-            selectedValue: controller.selectedJiFunctionalLocation.value,
-            enabled: true,
-            onChanged: controller.onJiFunctionalLocationChanged,
-          ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustDropdown(
-            label: "Equipment Number",
-            hint: "Select...",
-            items: controller.equipmentList.map((e) => e.label ?? '').toList(),
-            selectedValue: controller.selectedJiEquipmentNumber.value,
-            enabled: true,
-            onChanged: controller.onJiEquipmentChanged,
-          ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustomTextField(
-            label: "Joint Inspection Remark",
-            controller: controller.jiRemarkDisplayController,
-            maxLines: 3,
-            enabled: false,
-          ),
-          const SizedBox(height: AppConstants.elementSpacing),
-          CustomTextField(
-            label: "User's Remark:(Max length: 500)",
-            controller: controller.jiUserRemarkController,
-            maxLines: 3,
-            enabled: true,
-            maxLength: 500,
-          ),
-        ],
+      child: Form(
+        key: _jointInspectionOherDeptFormKey,
+        child: Column(
+          children: [
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustomTextField(
+              label: "Department",
+              controller: controller.jiDepartmentDisplayController,
+              enabled: false,
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustomTextField(
+              label: "Assign To",
+              controller: controller.jiAssignToDisplayController,
+              enabled: false,
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustDropdown(
+              label: "Functional Location *",
+              hint: "Select...",
+              items: controller.functionalLocationList
+                  .map((e) => e.label ?? '')
+                  .toList(),
+              selectedValue: controller.selectedJiFunctionalLocation.value,
+              enabled: true,
+              onChanged: controller.onJiFunctionalLocationChanged,
+              validator: (value) {
+                if (value == null || value.isEmpty) {
+                  return "Please select Functional Location";
+                }
+                return null;
+              },
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustDropdown(
+              label: "Equipment Number",
+              hint: "Select...",
+              items: controller.equipmentList.map((e) => e.label ?? '').toList(),
+              selectedValue: controller.selectedJiEquipmentNumber.value,
+              enabled: true,
+              onChanged: controller.onJiEquipmentChanged,
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustomTextField(
+              label: "Joint Inspection Remark",
+              controller: controller.jiRemarkDisplayController,
+              maxLines: 3,
+              enabled: false,
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustomTextField(
+              label: "User's Remark * (Max length: 500)",
+              controller: controller.jiUserRemarkController,
+              maxLines: 3,
+              enabled: true,
+              maxLength: 500,
+              validator: (value) {
+                if (value == null || value.trim().isEmpty) {
+                  return "Please enter User's Remark";
+                }
+                return null;
+              },
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1817,15 +2218,58 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Row(
+              children: [
+                CustText.sectionHeader(
+                  "Failure Details",
+                  color: AppColors.orangeColor,
+                ),
+                Spacer(),
+                GestureDetector(
+                  onTap: _showActionByDialog,
+                  child: Icon(TablerIcons.hand_click,
+                      size: 24, color: AppColors.orangeColor),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            Obx(() => CustText.body(
+              "Failure No.: ${controller.notificationCode.value} ${controller.mainStatusName.value == null ? "" : "(${controller.mainStatusName.value ?? ''})"}",
+              size: 18,
+              color: AppColors.black,
+              fontWeightName: FontWeight.w600,
+            )),
+            const SizedBox(height: AppConstants.sectionSpacing),
+            Obx(() => CustSection(
+                  title: "Station Selection",
+                  child: CustDropdown(
+                    label: "Selected Station",
+                    hint: "Select Station",
+                    items: controller.popupStationList.map((e) => e.label ?? '').toList(),
+                    selectedValue: session.selectedStationName.value,
+                    onChanged: (val) {
+                      session.selectedStationName.value = val;
+                      session.selectedStationId.value = controller.popupStationList
+                          .firstWhere((e) => e.label == val, orElse: () => LabelValue(value: '0'))
+                          .value ?? '0';
+                    },
+                  ),
+                )),
             CustSection(
               title: "Basic Information",
+              trailing: Obx(() => YesNoToggle(
+                value: controller.isBasicInfoVisible.value,
+                onChanged: (val) =>
+                controller.isBasicInfoVisible.value = val,
+              )),
+              isVisible: controller.isBasicInfoVisible.value,
               child: Column(
                 children: [
                   Obx(() => Row(
                         children: [
                           Expanded(
                             child: CustDropdown(
-                              label: "Priority",
+                              label: "Priority *",
                               hint: "Select...",
                               items: controller.priorityTypeList
                                   .map((e) => e.label ?? '')
@@ -1833,32 +2277,22 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               selectedValue: controller.selectedPriority.value,
                               onChanged: (v) =>
                                   controller.selectedPriority.value = v,
+                              validator: (val) => _requiredDropdown(val, "Priority"),
                             ),
                           ),
                           const SizedBox(width: AppConstants.elementSpacing),
                           Expanded(
                             child: CustDropdown(
-                              label: "Department",
+                              label: "Department *",
                               hint: "Select...",
                               items: controller.departmentList
                                       .map((e) => e.label ?? '')
-                                      .toList()
-                                      .isNotEmpty
-                                  ? controller.departmentList
-                                      .map((e) => e.label ?? '')
-                                      .toList()
-                                  : Get.find<SessionController>()
-                                      .departments
-                                      .map((e) => e.deptName ?? '')
                                       .toList(),
                               selectedValue:
-                                  controller.selectedDepartment.value ??
-                                      Get.find<SessionController>()
-                                          .selectedDepartment
-                                          .value
-                                          ?.deptName,
+                                  controller.selectedDepartment.value,
                               onChanged: (v) =>
-                                  controller.selectedDepartment.value = v,
+                                  controller.onDepartmentChanged(v),
+                              validator: (val) => _requiredDropdown(val, "Department"),
                             ),
                           ),
                         ],
@@ -1880,7 +2314,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => CustDropdown(
-                        label: "Location",
+                        label: "Location *",
                         hint: "Select...",
                         items: controller.locationTypeList
                             .map((e) => e.label ?? '')
@@ -1889,10 +2323,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         onChanged: (value) {
                           controller.onLocationChanged(value);
                         },
+                        validator: (val) => _requiredDropdown(val, "Location"),
                       )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => CustDropdown(
-                        label: "Functional Location",
+                        label: "Functional Location *",
                         hint: "Select...",
                         items: controller.functionalLocationList
                             .map((e) => e.label ?? '')
@@ -1901,6 +2336,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             controller.selectedFunctionalLocation.value,
                         onChanged: (v) =>
                             controller.onFunctionalLocationChanged(v),
+                        validator: (val) => _requiredDropdown(val, "Functional Location"),
                       )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   CustomTextField(
@@ -1936,6 +2372,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         controller.selectedFailureOccurrenceDate.value,
                     onDateTimeSelected: (dt) =>
                         controller.selectedFailureOccurrenceDate.value = dt,
+                    validator: (val) {
+                      if (controller.selectedFailureOccurrenceDate.value == null) {
+                        return "Actual Failure Occurrence is required";
+                      }
+                      return null;
+                    },
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => CustDropdown(
@@ -1970,16 +2412,28 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             controller.selectedFailureCategoryType.value,
                         onChanged: (v) =>
                             controller.selectedFailureCategoryType.value = v,
+                        validator: (val) => _requiredDropdown(val, "Failure Category Type"),
                       )),
                 ],
               ),
             ),
             CustSection(
-              title: "Service Affected",
+              title: "Trip Affected",
               trailing: Obx(() => YesNoToggle(
                     value: controller.isServiceAffected.value,
-                    onChanged: (val) =>
-                        controller.isServiceAffected.value = val,
+                    onChanged: (val) {
+                      if (val == false) {
+                        controller.tripDelayUplineController.clear();
+                        controller.trainCancelNosController.clear();
+                        controller.tripDelayDownlineController.clear();
+                        controller.trainDelayMinController.clear();
+                        controller.trainWithdrawalNosController.clear();
+                        controller.trainReplaceNosController.clear();
+                        controller.trainDeboardedNosController.clear();
+                        controller.isPassengerDeboarding.value = false;
+                      }
+                      controller.isServiceAffected.value = val;
+                    },
                   )),
               isVisible: controller.isServiceAffected.value,
               child: Column(
@@ -1988,17 +2442,29 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                           child: CustomTextField(
-                              label: "Trip Delay Upline (NOS)",
+                              label: "Trip Delay Upline (NOS) *",
                               controller: controller.tripDelayUplineController,
                               keyboardType: TextInputType.number,
-                              hintText: "Enter Trip Delay Upline")),
+                              hintText: "Enter Trip Delay Upline",
+                              validator: (val) {
+                                if (controller.isServiceAffected.value && (val == null || val.trim().isEmpty)) {
+                                  return "Trip Delay Upline is required";
+                                }
+                                return null;
+                              })),
                       const SizedBox(width: AppConstants.elementSpacing),
                       Expanded(
                           child: CustomTextField(
-                              label: "Trip Cancel (NOS)",
+                              label: "Trip Cancel (NOS) *",
                               controller: controller.trainCancelNosController,
                               keyboardType: TextInputType.number,
-                              hintText: "Enter Trip Cancel")),
+                              hintText: "Enter Trip Cancel",
+                              validator: (val) {
+                                if (controller.isServiceAffected.value && (val == null || val.trim().isEmpty)) {
+                                  return "Trip Cancel is required";
+                                }
+                                return null;
+                              })),
                     ],
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
@@ -2006,18 +2472,30 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                           child: CustomTextField(
-                              label: "Trip Delay Downline (NOS)",
+                              label: "Trip Delay Downline (NOS) *",
                               controller:
                                   controller.tripDelayDownlineController,
                               keyboardType: TextInputType.number,
-                              hintText: "Enter Trip Delay Downline")),
+                              hintText: "Enter Trip Delay Downline",
+                              validator: (val) {
+                                if (controller.isServiceAffected.value && (val == null || val.trim().isEmpty)) {
+                                  return "Trip Delay Downline is required";
+                                }
+                                return null;
+                              })),
                       const SizedBox(width: AppConstants.elementSpacing),
                       Expanded(
                           child: CustomTextField(
-                              label: "Trip Delay in Min.",
+                              label: "Trip Delay in Min. *",
                               controller: controller.trainDelayMinController,
                               keyboardType: TextInputType.number,
-                              hintText: "Enter Trains Delayed In Min")),
+                              hintText: "Enter Trains Delayed In Min",
+                              validator: (val) {
+                                if (controller.isServiceAffected.value && (val == null || val.trim().isEmpty)) {
+                                  return "Trip Delay in Min is required";
+                                }
+                                return null;
+                              })),
                     ],
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
@@ -2025,23 +2503,35 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                           child: CustomTextField(
-                              label: "Trip Withdrawal (NOS)",
+                              label: "Trip Withdrawal (NOS) *",
                               controller:
                                   controller.trainWithdrawalNosController,
                               keyboardType: TextInputType.number,
-                              hintText: "Enter Train Withdrawal")),
+                              hintText: "Enter Train Withdrawal",
+                              validator: (val) {
+                                if (controller.isServiceAffected.value && (val == null || val.trim().isEmpty)) {
+                                  return "Trip Withdrawal is required";
+                                }
+                                return null;
+                              })),
                       const SizedBox(width: AppConstants.elementSpacing),
                       Expanded(
                           child: CustomTextField(
-                              label: "Train Replace (NOS)",
+                              label: "Train Replace (NOS) *",
                               controller: controller.trainReplaceNosController,
                               keyboardType: TextInputType.number,
-                              hintText: "Enter Train Replace")),
+                              hintText: "Enter Train Replace",
+                              validator: (val) {
+                                if (controller.isServiceAffected.value && (val == null || val.trim().isEmpty)) {
+                                  return "Train Replace is required";
+                                }
+                                return null;
+                              })),
                     ],
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => _buildToggleItem(
-                      "Passenger Deboarding",
+                      "Passenger Deboarded *",
                       controller.isPassengerDeboarding.value,
                       (val) => controller.isPassengerDeboarding.value = val)),
                   Obx(() {
@@ -2051,44 +2541,80 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       padding: const EdgeInsets.only(
                           top: AppConstants.elementSpacing),
                       child: CustomTextField(
-                          label: "Train Deboarded (NOS)",
+                          label: "Train Deboarded (NOS) *",
                           controller: controller.trainDeboardedNosController,
                           keyboardType: TextInputType.number,
-                          hintText: "Enter Number Of Train Deboarded"),
+                          hintText: "Enter Number Of Train Deboarded",
+                          validator: (val) {
+                                if (controller.isPassengerDeboarding.value && (val == null || val.trim().isEmpty)) {
+                                  return "Train Deboarded is required";
+                                }
+                                return null;
+                              }),
                     );
                   }),
                 ],
               ),
             ),
             CustSection(
-              title: "Passenger Affected",
+              title: "Passenger Affected *",
               trailing: Obx(() => YesNoToggle(
                     value: controller.isPassengerAffected.value,
-                    onChanged: (val) =>
-                        controller.isPassengerAffected.value = val,
+                    onChanged: (val) {
+                      if (val == false) {
+                        controller.passengersAffectedCountController.clear();
+                        controller.trappedDurationController.clear();
+                        controller.rescuedDurationController.clear();
+                      }
+                      controller.isPassengerAffected.value = val;
+                    },
                   )),
               isVisible: controller.isPassengerAffected.value,
               child: Column(
                 children: [
                   CustomTextField(
-                      label: "Number Of Passenger Affected",
+                      label: "Number Of Passenger Affected *",
                       controller: controller.passengersAffectedCountController,
                       keyboardType: TextInputType.number,
-                      hintText: "Enter number of Passenger Affected"),
+                      hintText: "Enter number of Passenger Affected",
+                      validator: (val) {
+                        if (controller.isPassengerAffected.value && (val == null || val.trim().isEmpty)) {
+                          return "Number Of Passenger Affected is required";
+                        }
+                        return null;
+                      }),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Row(
                     children: [
                       Expanded(
                           child: CustomTextField(
-                              label: "Trapped Duration",
+                              label: "Trapped Duration *",
                               controller: controller.trappedDurationController,
-                              hintText: "Enter Trapped Duration")),
+                              hintText: "Enter Trapped Duration",
+                              validator: (val) {
+                              if (controller.isPassengerAffected.value && (val == null || val.trim().isEmpty)) {
+                              return "Trapped Duration is required";
+                              }
+                              return null;
+                              }
+                          )),
+
                       const SizedBox(width: AppConstants.elementSpacing),
                       Expanded(
                           child: CustomTextField(
-                              label: "Rescued Duration",
+                              label: "Rescued Duration *",
                               controller: controller.rescuedDurationController,
-                              hintText: "Enter Rescued Duration")),
+                              hintText: "Enter Rescued Duration",
+                              validator: (val) {
+                                if (controller.isPassengerAffected.value &&
+                                    (val == null || val
+                                        .trim()
+                                        .isEmpty)) {
+                                  return "Number Of Passenger Affected is required";
+                                }
+                                return null;
+                              }
+                              )),
                     ],
                   ),
                 ],
@@ -2129,8 +2655,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   child: CustOutlineButton(
                     name: "Cancel",
                     size: double.infinity,
+                    sHeight: AppConstants.buttonHeight,
                     borderRadius: AppConstants.inputRadius,
-                    onSelected: (_) => Navigator.pop(context),
+                    onSelected: (_) => _handleCancel(),
                   ),
                 ),
                 const SizedBox(width: AppConstants.elementSpacing),
@@ -2138,6 +2665,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   child: CustButton(
                     name: "Save",
                     size: double.infinity,
+                    sHeight: AppConstants.buttonHeight,
                     borderRadius: AppConstants.inputRadius,
                     onSelected: (_) => _submitForm(),
                   ),
@@ -2517,7 +3045,50 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     );
   }
 
+  void _submitJointInspectionForm() {
+    if (_jointInspectionOherDeptFormKey.currentState?.validate() ?? false) {
+      controller.submitJointInspection();
+    } else {
+      Get.snackbar(
+        "Validation Error",
+        "Please fill all compulsory fields marked with *",
+        backgroundColor: Colors.red.withOpacity(0.9),
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
+  }
+
   void _submitForm() {
+    // Validate used qty for spare parts
+    List<int> errorIndices = [];
+    for (int i = 0; i < controller.replacedMaterialsList.length; i++) {
+      final item = controller.replacedMaterialsList[i];
+      final usedQty = int.tryParse(item['usedQty']?.toString() ?? "0") ?? 0;
+      final requiredQty = int.tryParse(item['requiredQty']?.toString() ?? "0") ?? 0;
+
+      if (usedQty > requiredQty) {
+        errorIndices.add(i);
+        // Expand this item to show the error
+        controller.isExpandedReplaced[i] = true;
+      }
+    }
+
+    if (errorIndices.isNotEmpty) {
+      final errorMsg = errorIndices.length > 1
+          ? 'Used Quantity cannot be greater than Required Quantity for ${errorIndices.length} items.'
+          : 'Used Quantity cannot be greater than Required Quantity.';
+      Get.snackbar(
+        'Invalid Quantity',
+        errorMsg,
+        snackPosition: SnackPosition.BOTTOM,
+        backgroundColor: AppColors.darkRed,
+        colorText: Colors.white,
+        duration: const Duration(seconds: 3),
+      );
+      return;
+    }
+
     if (_validateSubmitForms()) {
       if (widget.isUpdate && widget.failureType == 'Station') {
         controller.updateStationFailureDetails(widget.failureNo ?? "0");
@@ -2760,29 +3331,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           const SizedBox(width: 12),
           Column(
             children: [
-              if (imagePath != null && imagePath.isNotEmpty)
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    File(imagePath),
-                    width: 60,
-                    height: 60,
-                    fit: BoxFit.cover,
-                  ),
-                )
-              else
-                Container(
-                  width: 60,
-                  height: 60,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.grey.shade200),
-                  ),
-                  child: const Icon(Icons.image_outlined,
-                      color: Colors.grey, size: 24),
-                ),
-              const SizedBox(height: 8),
               if (!_isJointInspectionFlow)
                 GestureDetector(
                   onTap: onDelete,
@@ -2923,7 +3471,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  CustDropdown(
+                  Obx(() => CustDropdown(
                     label: "$dropdownLabel *",
                     hint: dropdownHint,
                     items: items,
@@ -2943,7 +3491,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         createController.selectedPopupActionTaken.value = v;
                       }
                     },
-                  ),
+                  )),
                   const SizedBox(height: 16),
                   CustomTextField(
                     label: "$dropdownLabel Text *",
@@ -3101,6 +3649,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   onChanged: (v) {
                     controller.selectedMaterialCode.value = v;
                     controller.uomController.text = "NO";
+                    // Unfocus all used qty fields
+                    for (final focusNode in controller.usedQtyFocusNodes.values) {
+                      focusNode.unfocus();
+                    }
                   },
                 ),
                 const SizedBox(height: AppConstants.elementSpacing),
@@ -3124,6 +3676,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   onChanged: (v) {
                     controller.selectedStoreLocation.value = v;
                     controller.balanceQtyController.text = "0.00";
+                    controller.requiredQtyFocusNode.unfocus();
+                    // Unfocus all used qty fields
+                    for (final focusNode in controller.usedQtyFocusNodes.values) {
+                      focusNode.unfocus();
+                    }
                   },
                 ),
                 const SizedBox(height: AppConstants.elementSpacing),
@@ -3139,9 +3696,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         child: CustomTextField(
                       label: "Required Quantity *",
                       controller: controller.requiredQtyController,
+                      focusNode: controller.requiredQtyFocusNode,
                       hintText: "Enter Required Quantity",
                       enabled: enabled,
                       keyboardType: TextInputType.number,
+                      autofocus: false,
                       validator: (val) =>
                           _requiredText(val, 'Required Quantity'),
                     )),
@@ -3252,6 +3811,61 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ],
                     ),
                   ),
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Form(
+                      key: _reqQtyFormKeys.putIfAbsent(index, () => GlobalKey<FormState>()),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Builder(
+                            builder: (context) {
+                              final ctrl = controller.usedQtyControllers.putIfAbsent(index, () => TextEditingController());
+                              final focusNode = controller.usedQtyFocusNodes.putIfAbsent(index, () => FocusNode());
+                              // Sync controller text with data
+                              if (ctrl.text != (item['usedQty']?.toString() ?? '')) {
+                                ctrl.text = item['usedQty']?.toString() ?? '';
+                              }
+                              return CustomTextField(
+                                key: ValueKey('used_qty_$index'),
+                                label: "Used Qty",
+                                controller: ctrl,
+                                focusNode: focusNode,
+                                enabled: enabled,
+                                hintText: "Enter Used Quantity",
+                                keyboardType: TextInputType.number,
+                                autofocus: false,
+                                onChanged: (val) {
+                                  final usedQty = int.tryParse(val) ?? 0;
+                                  final requiredQty =
+                                      int.tryParse(item['requiredQty']?.toString() ?? "0") ?? 0;
+
+                                  if (usedQty > requiredQty) {
+                                    // Clear the invalid value
+                                    controller.replacedMaterialsList[index]['usedQty'] = "";
+                                    ctrl.clear();
+                                    // Show snackbar
+                                    Get.snackbar(
+                                      'Invalid Quantity',
+                                      'Used Quantity cannot be greater than Required Quantity.',
+                                      snackPosition: SnackPosition.BOTTOM,
+                                      backgroundColor: AppColors.darkRed,
+                                      colorText: Colors.white,
+                                      duration: const Duration(seconds: 3),
+                                    );
+                                    return;
+                                  }
+                                  controller.replacedMaterialsList[index]['usedQty'] = val;
+                                },
+                                validator: (val) =>
+                                   _requiredText(val, 'Used Quantity'),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   if (isExpanded) ...[
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -3289,50 +3903,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             ],
                           );
                         },
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          CustText.detailLabel("Used Qty"),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            initialValue: item['usedQty']?.toString() ?? "0",
-                            enabled: enabled,
-                            decoration: InputDecoration(
-                              hintText: "Enter Used Quantity",
-                              hintStyle: const TextStyle(fontSize: 12),
-                              isDense: true,
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 12),
-                              border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide:
-                                      BorderSide(color: Colors.grey.shade300)),
-                              enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide:
-                                      BorderSide(color: Colors.grey.shade300)),
-                              focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                  borderSide: const BorderSide(
-                                      color: AppColors.orangeColor)),
-                            ),
-                            keyboardType: TextInputType.number,
-                            validator: (val) {
-                              if (val == null || val.trim().isEmpty) {
-                                return "Used Qty is required";
-                              }
-                              return null;
-                            },
-                            onChanged: (val) {
-                              controller.replacedMaterialsList[index]
-                                  ['usedQty'] = val;
-                            },
-                          ),
-                        ],
                       ),
                     ),
                   ],
@@ -3653,10 +4223,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     ),
                     const SizedBox(height: AppConstants.elementSpacing),
                     CustomTextField(
-                      label: "Joint Inspection Remark",
+                      label: "Joint Inspection Remark *",
                       controller: controller.jointInspectionRemarkController,
                       maxLines: 3,
                       enabled: enabled,
+                      validator: (val) {
+                        if (val == null || val.trim().isEmpty) {
+                          return "Joint Inspection Remark is required";
+                        }
+                        return null;
+                      },
                     ),
                     const SizedBox(height: AppConstants.elementSpacing),
                     CustButton(
@@ -3677,6 +4253,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 await controller.addJointInspectionHistory();
                               }
                               _jointInspectionFormKey.currentState?.reset();
+                              controller.jointInspectionRemarkController.clear();
                             }
                           : null,
                     ),
@@ -3699,26 +4276,26 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         final item = entry.value;
         return CustDataCard(
           items: [
-            DataCardItem(label: 'Department', value: item['department'] ?? ""),
-            DataCardItem(label: 'Assigned To', value: item['assignedTo'] ?? ""),
+            DataCardItem(label: 'Department', value: item.deptName ?? ""),
+            DataCardItem(label: 'Assigned To', value: item.assignedUserName ?? ""),
             DataCardItem(
                 label: 'Assigned Date/Time',
-                value: item['assignedDateTime'] ?? "",
+                value: item.assignedDateTime ?? "",
                 isFullWidth: true),
             DataCardItem(
                 label: 'Remark',
-                value: item['remark'] ?? "",
+                value: item.remark ?? "",
                 isFullWidth: true),
             DataCardItem(
                 label: 'User Remark',
-                value: (item['userRemark'] != null &&
-                        item['userRemark'].toString().isNotEmpty)
-                    ? item['userRemark']
+                value: (item.userRemark != null &&
+                        item.userRemark!.isNotEmpty)
+                    ? item.userRemark!
                     : "N/A",
                 isFullWidth: true),
             DataCardItem(
                 label: 'Status',
-                value: item['status'] ?? "",
+                value: item.statusName ?? "",
                 isFullWidth: true),
           ],
           onEdit: enabled ? () => controller.editJointInspection(index) : null,

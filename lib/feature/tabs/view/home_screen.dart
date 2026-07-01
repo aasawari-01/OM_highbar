@@ -591,7 +591,7 @@ class _HomeScreenState extends State<HomeScreen> {
             badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
             badgeTextColor: AppColors.orangeColor,
             onTap: () {
-              Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateFailureScreen(failureType: "Station")));
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const FailureListScreen(failureType: "Station")));
             },
           ),
           const SizedBox(height: AppConstants.subElementSpacing,),

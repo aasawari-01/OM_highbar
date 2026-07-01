@@ -28,6 +28,7 @@ class LoginController extends GetxController {
       final LoginResponse result =
           await _authService.login(email: email, password: password);
       if (result.message == "Success" || result.messageCode == 200) {
+        debugPrint("Login successful. Received Business Area: ${result.businessArea}");
         await AuthManager().login(result, rememberMe: rememberMe.value);
         if (Get.isRegistered<SessionController>()) {
           await Get.find<SessionController>().loadSessionData();

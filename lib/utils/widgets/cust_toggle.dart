@@ -21,7 +21,7 @@ class YesNoToggle extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: const Color(0xFFE5E5E5).withOpacity(enabled ? 1.0 : 0.5),
+        color: enabled?const Color(0xFFE5E5E5).withOpacity(0.5):AppColors.textFieldFillColor,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -50,14 +50,14 @@ class YesNoToggle extends StatelessWidget {
               duration: const Duration(milliseconds: 200),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
-                color: value && enabled ? AppColors.green : Colors.transparent,
+                color: value? AppColors.green : Colors.transparent,
                 borderRadius: BorderRadius.circular(20),
                 boxShadow: value ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)] : [],
               ),
               child: CustText(
                 name: "Yes",
                 size: 14,
-                color: value && enabled ? Colors.white : Colors.grey.shade600,
+                color: value ? Colors.white : Colors.grey.shade600,
                 fontWeightName: value ? FontWeight.bold : FontWeight.normal,
               ),
             ),

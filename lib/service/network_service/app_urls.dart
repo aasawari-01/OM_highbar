@@ -3,12 +3,13 @@ class AppUrls {
   // static const String baseUrl = 'http://192.168.1.50:7878/api/';
   //  static const String baseUrl = "http://192.168.1.35:8080/api/";
   //   static const String baseUrl = "http://192.168.1.35:8080/api/";
-   static const String baseUrl = "http://192.168.24.53:81/api/";
+   static const String baseUrl = "http://192.168.24.158:5000/api/";
 
 
 
   /// Auth endpoints
   static const String login = 'UserLogin/userLoginValidate';
+  static const String logout = 'UserLogin/userLogout';
 
   /// Failure endpoints
   static const String jeInboxList = 'JECorrectivesMaintenance/jeinboxlist';
