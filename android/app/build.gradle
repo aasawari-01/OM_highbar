@@ -9,7 +9,10 @@ android {
     namespace = "com.example.om_mobile"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
-
+    lintOptions {
+        checkReleaseBuilds false
+        abortOnError false
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8

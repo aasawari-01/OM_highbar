@@ -32,5 +32,4 @@ class AppUrls {
   static const String updateStationAcknowledgeStatus = 'OCCMaintainance/updateStationAcknowledgeStatus';
   static const String getStationName = 'Lookup/GetLookup_StationName';
   static const String getMasterData = 'mobileAppAPI/GetMasterData';
-  static const String getMaster = 'mobileAppAPI/GetMaster';
 }

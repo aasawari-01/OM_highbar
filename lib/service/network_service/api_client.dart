@@ -78,7 +78,7 @@ class ApiClient {
     final streamedResponse =
         await request.send().timeout(AppConstants.apiMultipartTimeout);
     final response = await http.Response.fromStream(streamedResponse);
-    debugPrint('[MULTIPART POST] ${response.statusCode} — $uri');
+    debugPrint('[MULTIPART POST] ${response.statusCode} — $uri -$fields');
     return response;
   }
 }

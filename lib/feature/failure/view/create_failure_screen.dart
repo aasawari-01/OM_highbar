@@ -80,7 +80,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
   bool _validateSubmitForms() {
 
-    if (_isStationCreate) {
+    if (_isStationCreate||_isStationUpdate) {
       print("step1");
       return _validateForm(_stationFormKey);
     }
@@ -149,7 +149,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           controller.isStationController) {
         controller.loadStationFailureDetails(widget.failureNo!);
       } else {
-        controller.loadFailureDetails(widget.failureNo!);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.loadFailureDetails(widget.failureNo!);
+        });
       }
     } else if (widget.failureType == "Station") {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -176,7 +178,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   /// Station Controller create only.
   bool get _isStationCreate =>
       widget.failureType == 'Station' && widget.failureNo == null;
-
+  bool get _isStationUpdate =>
+      widget.failureType == 'Station' && widget.failureNo != null;
   /// Station Controller view (read-only for existing station failure).
   bool get _isStationControllerView =>
       widget.failureType == 'Station' &&

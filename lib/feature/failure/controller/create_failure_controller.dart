@@ -30,6 +30,18 @@ class CreateFailureController extends GetxController {
   final ApiClient _apiClient = ApiClient();
 
   final isLoading = false.obs;
+  // Add near isLoading declaration
+  int _loadingRefCount = 0;
+
+  void _pushLoading() {
+    _loadingRefCount++;
+    isLoading.value = true;
+  }
+
+  void _popLoading() {
+    _loadingRefCount = (_loadingRefCount - 1).clamp(0, 1 << 30);
+    if (_loadingRefCount == 0) isLoading.value = false;
+  }
   final isFaultLoading = false.obs;
   final isEquipmentLoading = false.obs;
   final showMeasurementButton = false.obs;
@@ -418,8 +430,8 @@ class CreateFailureController extends GetxController {
   }
 
   Future<void> _initializeAllData() async {
+    _pushLoading();
     try {
-      isLoading.value = true;
       await Future.wait([
         fetchMasterJointInspectionDepartments(),
         _loadMasterDataFromDb(),
@@ -429,7 +441,7 @@ class CreateFailureController extends GetxController {
     } catch (e) {
       debugPrint("Error in _initializeAllData: $e");
     } finally {
-      isLoading.value = false;
+      _popLoading();
     }
   }
 
@@ -1710,6 +1722,7 @@ class CreateFailureController extends GetxController {
     encryptedId.value = failureNo;
     notificationId.value = 0;
     jointInspectionHistoryList.clear();
+    _pushLoading();
     try {
       isLoading.value = true;
       errorMessage.value = "";
@@ -1742,7 +1755,7 @@ class CreateFailureController extends GetxController {
 
           notificationHistoryList.assignAll(
               output.getNotificationActionUserHistory ?? []);
-          
+
           notificationDescriptionHistoryList.assignAll(
               output.getNotificationHistory ?? []);
 
@@ -2059,7 +2072,7 @@ class CreateFailureController extends GetxController {
     } catch (e) {
       errorMessage.value = 'Error: $e';
     } finally {
-      isLoading.value = false;
+      _popLoading();
     }
   }
 
@@ -2196,17 +2209,11 @@ class CreateFailureController extends GetxController {
       if (selectedFunctionalLocation.value == null || selectedFunctionalLocation.value!.isEmpty || selectedFunctionalLocation.value == 'Select') {
         errors.add("Functional Location is required.");
       }
-      if (selectedEquipmentNumber.value == null || selectedEquipmentNumber.value!.isEmpty || selectedEquipmentNumber.value == 'Select') {
-        errors.add("Equipment No is required.");
-      }
       if (selectedFailureOccurrenceDate.value == null) {
         errors.add("Actual Failure Occurrence is required.");
       }
       if (selectedFailureCategoryType.value == null || selectedFailureCategoryType.value!.isEmpty || selectedFailureCategoryType.value == 'Select') {
         errors.add("Failure Category Type is required.");
-      }
-      if (selectedNotificationType.value == null || selectedNotificationType.value!.isEmpty || selectedNotificationType.value == 'Select') {
-        errors.add("Notification Type is required.");
       }
 
       if (isServiceAffected.value) {
@@ -2322,17 +2329,23 @@ class CreateFailureController extends GetxController {
 
       try {
         await _failureService.updateStationFailure(payload);
+        print("steppppp");
+        Get.back(result: true);
         Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
             backgroundColor: Colors.green, colorText: Colors.white);
-        Get.back(result: true);
-      } catch (e) {
+
+      } catch (e, s) {
+        print("UPDATE ERROR: $e");
+        print(s);
         errorMessage.value = e.toString();
         Get.snackbar(AppStrings.error, errorMessage.value,
             backgroundColor: Colors.red, colorText: Colors.white);
       } finally {
         isLoading.value = false;
       }
-    } catch (e) {
+    } catch (e, s) {
+      print("UPDATE ERROR: $e");
+      print(s);
       errorMessage.value = 'Error: $e';
       Get.snackbar(AppStrings.error, errorMessage.value,
           backgroundColor: Colors.red, colorText: Colors.white);
@@ -2570,7 +2583,7 @@ class CreateFailureController extends GetxController {
     for (var item in masterLocations.where((e) => (e['locationName']?.toString() ?? '').toLowerCase() != 'select')) {
       final labelValue = LabelValue(
             label: item['locationName']?.toString() ?? '',
-            value: item['locationTypeCode']?.toString() ?? '',
+            value: item['locationTypeId']?.toString() ?? '',
           );
       if (!locationTypeList.any((e) => e.label == labelValue.label)) {
         locationTypeList.add(labelValue);
@@ -2641,7 +2654,7 @@ class CreateFailureController extends GetxController {
           .where((e) => (e['locationName']?.toString() ?? '').isNotEmpty && (e['locationName']?.toString() ?? '').toLowerCase() != 'select')
           .map((e) => LabelValue(
                 label: e['locationName']?.toString() ?? '',
-                value: e['locationTypeCode']?.toString() ?? '',
+                value: e['locationTypeId']?.toString() ?? '',
               ))
           .toList(),
     );
@@ -3145,6 +3158,7 @@ class CreateFailureController extends GetxController {
       );
       final priorityId = _lookupValue(priorityTypeList, selectedPriority.value);
       final locationId = _lookupValue(locationTypeList, selectedLocation.value);
+      print("locationId===$locationId");
       final funcLocId = _lookupValue(
           functionalLocationList, selectedFunctionalLocation.value);
       final stationCategoryId = corrNotificationTypeList
