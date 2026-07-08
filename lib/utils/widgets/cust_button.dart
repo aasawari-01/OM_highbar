@@ -11,7 +11,7 @@ class CustButton extends StatelessWidget {
   final Color? color1;
   final Color? color2;
   final double? sHeight;
-  final Color? textColor;
+  final Color? textDarkPrimary;
   final double? fontSize;
   final FontWeight? fontweight;
   final Color? borderColor;
@@ -27,7 +27,7 @@ class CustButton extends StatelessWidget {
     this.color2,
     this.sHeight,
     this.borderRadius,
-    this.textColor,
+    this.textDarkPrimary,
     this.fontSize,
     this.fontweight,
     this.borderColor,
@@ -76,7 +76,7 @@ class CustButton extends StatelessWidget {
                 child: Text(
                   name,
                   style: GoogleFonts.lato(
-                    color: textColor ?? AppColors.white1,
+                    color: textDarkPrimary ?? AppColors.white1,
                     fontWeight: fontweight ?? FontWeight.w600,
                     fontSize: ResponsiveHelper.fontSize(context, fontSize ?? 18),
                   ),
@@ -95,7 +95,7 @@ class CustOutlineButton extends StatelessWidget {
   final String name;
   final double size;
   final Color? borderColor;
-  final Color? textColor;
+  final Color? textDarkPrimary;
   final double? sHeight;
   final double? borderRadius;
   final double? fontSize;
@@ -108,7 +108,7 @@ class CustOutlineButton extends StatelessWidget {
     required this.size,
     this.onSelected,
     this.borderColor,
-    this.textColor,
+    this.textDarkPrimary,
     this.sHeight,
     this.borderRadius,
     this.fontSize,
@@ -143,7 +143,7 @@ class CustOutlineButton extends StatelessWidget {
                   name,
                   style: GoogleFonts.lato(
                     color: onSelected != null
-                        ? (textColor ?? AppColors.textColor)
+                        ? (textDarkPrimary ?? AppColors.textDarkPrimary)
                         : Colors.grey.shade400,
                     fontWeight: fontweight ?? FontWeight.w400,
                     fontSize: ResponsiveHelper.fontSize(context, fontSize ?? 16),

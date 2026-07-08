@@ -58,7 +58,7 @@ class AccordionCard extends StatelessWidget {
                           child: CustText(
                             name: title,
                             size: 20,
-                            color: AppColors.textColor3,
+                            color: AppColors.textDarkSecondary,
                             fontWeightName: FontWeight.w500,
                           ),
                         ),
@@ -68,7 +68,7 @@ class AccordionCard extends StatelessWidget {
                             padding: const EdgeInsets.only(right: 15),
                             child: Icon(
                               (expanded ?? false) ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                              color: AppColors.textColor,
+                              color: AppColors.textDarkPrimary,
                             ),
                           ),
                       ],
@@ -94,7 +94,7 @@ class AccordionCard extends StatelessWidget {
                         child: CustText(
                           name: title,
                           size: 20,
-                          color: AppColors.textColor3,
+                          color: AppColors.textDarkSecondary,
                           fontWeightName: FontWeight.w500,
                         ),
                       ),

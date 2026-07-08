@@ -6,6 +6,7 @@ import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/accordion_card.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 
 
 class InspectionDetailScreen extends StatefulWidget {
@@ -45,7 +46,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
       case 'pending':
         return AppColors.red;
       default:
-        return AppColors.textColor4;
+        return AppColors.textDarkSecondary;
     }
   }
 
@@ -57,6 +58,12 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
         title: inspection['inspectionType'] ?? 'Inspection Detail',
         showDrawer: false,
         onLeadingPressed: () => Navigator.pop(context),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: const SyncIconButton(),
+          ),
+        ],
       ),
       body: SafeArea(
         child: Column(
@@ -103,13 +110,13 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: AppColors.textColor3.withOpacity(0.1),
+                                  color: AppColors.textDarkSecondary.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: CustText(
                                   name: inspection['plan'] ?? '',
                                   size: AppConstants.detailValueSize,
-                                  color: AppColors.textColor3,
+                                  color: AppColors.textDarkSecondary,
                                   fontWeightName: FontWeight.bold,
                                 ),
                               ),
@@ -177,14 +184,14 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                         });
                       },
                       child: attachments.isEmpty
-                        ? CustText(name: 'No attachments', size: 14, color: AppColors.textColor4)
+                        ? CustText(name: 'No attachments', size: 14, color: AppColors.textDarkSecondary)
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               CustText(
                                 name: '${attachments.length} File${attachments.length > 1 ? 's' : ''}',
                                 size: 16,
-                                color: AppColors.textColor,
+                                color: AppColors.textDarkPrimary,
                                 fontWeightName: FontWeight.w500,
                               ),
                               const SizedBox(height: 8),

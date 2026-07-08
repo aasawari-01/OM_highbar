@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:om_mobile/utils/widgets/cust_text.dart';
 import 'package:om_mobile/utils/widgets/cust_textfield.dart';
 import 'package:om_mobile/utils/widgets/custom_app_bar.dart';
+import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
 import '../../../constants/colors.dart';
 import '../../../constants/app_constants.dart';
 
@@ -72,20 +73,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
         onLeadingPressed: () => Navigator.pop(context),
         actions: widget.showAssetQR
               ? [
-              IconButton(
-              icon: const Icon(Icons.cloud_upload_outlined,
-                  color: Colors.white),
-              onPressed: () {},
-            ),
-            Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: CircleAvatar(
-            radius: 16,
-            backgroundColor: Colors.white24,
-            child: const Icon(Icons.person,
-            color: Colors.white, size: 18),
-            ),
-            ),
+              const SyncIconButton(),
             ]
         : []
       ),
@@ -220,7 +208,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CustText(name: label, size: 14,color: AppColors.textColor4,fontWeightName: FontWeight.w600,),
+          CustText(name: label, size: 14,color: AppColors.textDarkSecondary,fontWeightName: FontWeight.w600,),
           const SizedBox(height: 3),
           CustText(name: value, size: 14,color: AppColors.black,fontWeightName: FontWeight.w600,),
         ],
@@ -410,7 +398,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
           child: Icon(Icons.chevron_left,
               size: 22,
               color: currentPage > 1
-                  ? AppColors.textColor
+                  ? AppColors.textDarkPrimary
                   : Colors.grey.shade300),
         ),
         const SizedBox(width: 20),
@@ -423,7 +411,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
           child: Icon(Icons.chevron_right,
               size: 22,
               color: currentPage < totalPages
-                  ? AppColors.textColor
+                  ? AppColors.textDarkPrimary
                   : Colors.grey.shade300),
         ),
       ],

@@ -40,7 +40,7 @@ class CustDateTimePicker extends StatelessWidget {
       colorScheme: const ColorScheme.light(
         primary: AppColors.orangeColor,
         onPrimary: Colors.white,
-        onSurface: AppColors.textColor,
+        onSurface: AppColors.textDarkPrimary,
         surface: Colors.white,
       ),
       textButtonTheme: TextButtonThemeData(
@@ -136,9 +136,8 @@ class CustDateTimePicker extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        CustText.formLabel(label),
-        SizedBox(
-            height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
+        buildRequiredLabel(context, label),
+        SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
         InkWell(
           onTap: enabled ? () => _pickDateTime(context) : null,
           child: AbsorbPointer(
@@ -158,3 +157,4 @@ class CustDateTimePicker extends StatelessWidget {
     );
   }
 }
+

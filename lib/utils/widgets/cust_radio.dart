@@ -33,7 +33,7 @@ class CustRadio<T> extends StatelessWidget {
           Text(
             label,
             style: GoogleFonts.lato(
-              color: AppColors.textColor,
+              color: AppColors.textDarkPrimary,
               fontSize: AppConstants.formLabelSize,
               // fontWeight: FontWeight.w500,
             ),

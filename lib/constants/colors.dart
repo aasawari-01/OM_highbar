@@ -4,15 +4,17 @@ class AppColors {
   static const Color backgroundColor = Color(0xFF0D152F);
   static const Color black = Color(0xFF000000);
   static const Color iconColor = Color(0xff5F6368);
-  static const Color textColor = Color(0xFF4A4A4A);
-  static const Color textColor2 = Color(0xFF081173);
-  static const Color textColor3= Color(0xFF0089BA);
-  static const Color textColor4= Color(0xFF777777);
-  static const Color textColor5= Color(0xFF1C1C1C);
-  static const Color textColor6= Color(0xFF183F83);
-  static const Color textColor7 = Color(0xff1166D4);
-  static const Color textColor8 = Color(0xff515151);
-  static const Color textColor9= Color(0xFF797979);
+  static const Color textDarkPrimary = Color(0xFF1C1C1C);
+  static const Color textDarkSecondary = Color(0xFF4A4A4A);
+  static const Color textDarkTertiary = Color(0xFF515151);
+  static const Color textMuted = Color(0xFF777777);
+  static const Color textMutedLight = Color(0xFF797979);
+
+  // static const Color textBluePrimary = Color(0xFF081173);
+  // static const Color textBlueSecondary = Color(0xFF1166D4);
+  // static const Color textBlueTertiary = Color(0xFF183F83);
+  // static const Color textBlueAccent = Color(0xFF0089BA);
+
   static const Color orangeColor= Color(0xffE9822D);
   static const Color iconColor2= Color(0xFFA3A3A3);
   static const Color buttonOutlineColor = Color(0xFFD9D9D9);
@@ -58,12 +60,4 @@ class AppColors {
   static const Color barColor5 = Color(0xFF5D7FF5);
   static const Color barColor6 = Color(0xFFF8D895);
   static const Color barColor7 = Color(0xFF8DF5AA);
-
-
-
-
-
 }
-
-
-

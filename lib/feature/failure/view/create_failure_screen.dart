@@ -3,10 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 import 'package:om_mobile/constants/colors.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:om_mobile/feature/failure/view/maintenance_history_screen.dart';
 import '../../../service/network_service/app_urls.dart';
+import '../../../service/master_data_sync_service.dart';
 import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_date_time_picker.dart';
@@ -18,6 +20,7 @@ import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/cust_toggle.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 import '../../../constants/app_constants.dart';
 import '../controller/create_failure_controller.dart';
 import '../../../utils/widgets/cust_data_card.dart';
@@ -75,8 +78,81 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     return null;
   }
 
-  bool _validateForm(GlobalKey<FormState> key) =>
-      key.currentState?.validate() ?? false;
+  bool _validateForm(GlobalKey<FormState> key) {
+    final isValid = key.currentState?.validate() ?? false;
+    if (!isValid) {
+      print("Form validation failed for key: $key");
+      _scrollToFirstError(key);
+    }
+    return isValid;
+  }
+
+  void _scrollToFirstError(GlobalKey<FormState> formKey) {
+    final formState = formKey.currentState;
+    if (formState == null) return;
+
+    // Validate to trigger error messages
+    formState.validate();
+
+    // Scroll to the form to show error messages
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = formKey.currentContext;
+      if (context == null) return;
+
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0.0,
+        duration: const Duration(milliseconds: 300),
+      );
+    });
+  }
+
+  String _formatDate(dynamic dateValue) {
+    if (dateValue == null) return "";
+    
+    // If it's already a DateTime
+    if (dateValue is DateTime) {
+      return DateFormat('dd/MM/yyyy hh:mm a').format(dateValue);
+    }
+    
+    // If it's a string, try to parse it
+    if (dateValue is String) {
+      try {
+        // Try parsing with various formats
+        try {
+          final dt = DateTime.parse(dateValue); // ISO8601 format
+          return DateFormat('dd/MM/yyyy hh:mm a').format(dt);
+        } catch (e) {
+          try {
+            final dt = DateFormat('dd-MM-yyyy HH:mm').parse(dateValue);
+            return DateFormat('dd/MM/yyyy hh:mm a').format(dt);
+          } catch (e2) {
+            try {
+              final dt = DateFormat('dd/MM/yyyy HH:mm').parse(dateValue);
+              return DateFormat('dd/MM/yyyy hh:mm a').format(dt);
+            } catch (e3) {
+              try {
+                final dt = DateFormat('dd/MM/yyyy hh:mm a').parse(dateValue);
+                return dateValue; // Already in correct format
+              } catch (e4) {
+                try {
+                  final dt = DateFormat('MM/dd/yyyy HH:mm:ss').parse(dateValue);
+                  return DateFormat('dd/MM/yyyy hh:mm a').format(dt);
+                } catch (e5) {
+                  // Return as-is if parsing fails
+                  return dateValue;
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        return dateValue;
+      }
+    }
+    
+    return "";
+  }
 
   bool _validateSubmitForms() {
 
@@ -178,8 +254,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   /// Station Controller create only.
   bool get _isStationCreate =>
       widget.failureType == 'Station' && widget.failureNo == null;
-  bool get _isStationUpdate =>
-      widget.failureType == 'Station' && widget.failureNo != null;
+  bool get _isStationUpdate => widget.failureType == 'Station' && widget.failureNo != null && !controller.isJE;
   /// Station Controller view (read-only for existing station failure).
   bool get _isStationControllerView =>
       widget.failureType == 'Station' &&
@@ -203,13 +278,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     Get.dialog(
       Dialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        backgroundColor: AppColors.white1,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16,16,16,0),
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   CustText.body("Measurement Reading",
@@ -219,127 +295,126 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       icon: const Icon(Icons.close, size: 20)),
                 ],
               ),
-              const Divider(),
-              Expanded(
-                child: Obx(() => ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: controller.measurementPointsList.length,
-                      itemBuilder: (context, index) {
-                        final item = controller.measurementPointsList[index];
-                        return CustDataCard(
-                          items: [
-                            DataCardItem(
-                                label: 'Measurement Point',
-                                value: item['measPoint']?.toString() ?? '-',
-                                isFullWidth: true),
-                            DataCardItem(
-                                label: 'Description',
-                                value:
-                                    item['measPointDesc']?.toString() ?? '-'),
-                            DataCardItem(
-                                label: 'Unit',
-                                value: item['unitOfMeasurement']?.toString() ??
-                                    '-'),
-                            DataCardItem(
-                                label: 'Lower Limit',
-                                value:
-                                    item['lowerRangeLimit']?.toString() ?? '-'),
-                            DataCardItem(
-                                label: 'Upper Limit',
-                                value:
-                                    item['upperRangeLimit']?.toString() ?? '-'),
+            ),
+            const Divider(),
+            Expanded(
+              child: Obx(() => ListView.builder(
+                shrinkWrap: true,
+                itemCount: controller.measurementPointsList.length,
+                itemBuilder: (context, index) {
+                  final item = controller.measurementPointsList[index];
+                  return Container(
+                    margin: const EdgeInsets.fromLTRB(16,16,16,0),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppColors.white1,
+                      borderRadius: BorderRadius.circular(16),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppColors.black.withOpacity(0.2),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CustText.detailLabel("Measurement Point"),
+                        const SizedBox(height: 4),
+                        CustText(
+                          name: item['measPoint']?.toString() ?? '-',
+                          size: 16,
+                          color: AppColors.black,
+                          fontWeightName: FontWeight.bold,
+                        ),
+                        const SizedBox(height: 12),
+                        const Divider(color: AppColors.dividerColor3, height: 1),
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CustText.detailLabel("Before Readings"),
+                                  const SizedBox(height: 8),
+                                  TextFormField(
+                                    initialValue: item['beforeReading'],
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      hintText: "0",
+                                      hintStyle: TextStyle(
+                                          fontSize: 14, color: Colors.grey.shade400),
+                                      isDense: true,
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide:
+                                          BorderSide(color: Colors.grey.shade300)),
+                                      enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide:
+                                          BorderSide(color: Colors.grey.shade300)),
+                                      focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide: const BorderSide(
+                                              color: AppColors.orangeColor)),
+                                    ),
+                                    onChanged: (v) => controller.updateMeasurementReading(
+                                        index, 'beforeReading', v),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CustText.detailLabel("After Readings"),
+                                  const SizedBox(height: 8),
+                                  TextFormField(
+                                    initialValue: item['afterReading'],
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      hintText: "0",
+                                      hintStyle: TextStyle(
+                                          fontSize: 14, color: Colors.grey.shade400),
+                                      isDense: true,
+                                      contentPadding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 8),
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide:
+                                          BorderSide(color: Colors.grey.shade300)),
+                                      enabledBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide:
+                                          BorderSide(color: Colors.grey.shade300)),
+                                      focusedBorder: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(4),
+                                          borderSide: const BorderSide(
+                                              color: AppColors.orangeColor)),
+                                    ),
+                                    onChanged: (v) => controller.updateMeasurementReading(
+                                        index, 'afterReading', v),
+                                  ),
+                                ],
+                              ),
+                            ),
                           ],
-                          bottomAction: Row(
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    CustText.detailLabel("Before Reading"),
-                                    const SizedBox(height: 8),
-                                    TextFormField(
-                                      initialValue: item['beforeReading'],
-                                      keyboardType: TextInputType.number,
-                                      decoration: InputDecoration(
-                                        hintText: "Reading",
-                                        hintStyle:
-                                            const TextStyle(fontSize: 12),
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 12),
-                                        border: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            borderSide: BorderSide(
-                                                color: Colors.grey.shade300)),
-                                        enabledBorder: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            borderSide: BorderSide(
-                                                color: Colors.grey.shade300)),
-                                        focusedBorder: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            borderSide: const BorderSide(
-                                                color: AppColors.orangeColor)),
-                                      ),
-                                      onChanged: (v) =>
-                                          controller.updateMeasurementReading(
-                                              index, 'beforeReading', v),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    CustText.detailLabel("After Reading"),
-                                    const SizedBox(height: 8),
-                                    TextFormField(
-                                      initialValue: item['afterReading'],
-                                      keyboardType: TextInputType.number,
-                                      decoration: InputDecoration(
-                                        hintText: "Reading",
-                                        hintStyle:
-                                            const TextStyle(fontSize: 12),
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                                horizontal: 10, vertical: 12),
-                                        border: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            borderSide: BorderSide(
-                                                color: Colors.grey.shade300)),
-                                        enabledBorder: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            borderSide: BorderSide(
-                                                color: Colors.grey.shade300)),
-                                        focusedBorder: OutlineInputBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(8),
-                                            borderSide: const BorderSide(
-                                                color: AppColors.orangeColor)),
-                                      ),
-                                      onChanged: (v) =>
-                                          controller.updateMeasurementReading(
-                                              index, 'afterReading', v),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      },
-                    )),
-              ),
-              const SizedBox(height: 20),
-              Align(
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              )),
+            ),
+            Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Align(
                 alignment: Alignment.centerRight,
                 child: CustButton(
                   name: "Save Changes",
@@ -347,8 +422,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   onSelected: (_) => Get.back(),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -450,27 +525,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12.0),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                const CircleAvatar(
-                  radius: 16,
-                  backgroundColor: AppColors.white1,
-                ),
-                Positioned(
-                  right: 0,
-                  bottom: 5,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: BoxDecoration(
-                      color: AppColors.green,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            child: const SyncIconButton(),
           ),
         ],
       ),
@@ -485,6 +540,21 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           ),
         ),
         child: Obx(() {
+          final syncService = Get.find<MasterDataSyncService>();
+          if (syncService.isSyncing.value) {
+            return Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const CustLoader(),
+                const SizedBox(height: 16),
+                CustText(
+                  name: syncService.syncStatus.value,
+                  size: 14,
+                  color: AppColors.orangeColor,
+                ),
+              ],
+            );
+          }
           if (controller.isLoading.value) {
             return const CustLoader();
           }
@@ -1140,7 +1210,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                             CustText(
                                               name: item.description ?? "",
                                               size: 13,
-                                              color: AppColors.textColor,
+                                              color: AppColors.textDarkPrimary,
                                             ),
                                             const SizedBox(height: 8),
                                             Row(
@@ -1153,7 +1223,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                                     name: item.createdBy ??
                                                         "Unknown User",
                                                     size: 11,
-                                                    color: AppColors.textColor4,
+                                                    color: AppColors.textDarkSecondary,
                                                     overflow:
                                                     TextOverflow.ellipsis,
                                                   ),
@@ -1162,7 +1232,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                                 CustText(
                                                   name: item.createdOn ?? "",
                                                   size: 11,
-                                                  color: AppColors.textColor4,
+                                                  color: AppColors.textDarkSecondary,
                                                 ),
                                               ],
                                             ),
@@ -1309,14 +1379,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                         !controller.isEquipmentLoading.value,
                                     onChanged: (value) =>
                                         controller.onEquipmentChanged(value),
-                                    validator: (val) {
-                                      if (val == null ||
-                                          val.trim().isEmpty ||
-                                          val == "Select") {
-                                        return "Equipment Number is required";
-                                      }
-                                      return null;
-                                    },
+                                    // validator: (val) {
+                                    //   if (val == null ||
+                                    //       val.trim().isEmpty ||
+                                    //       val == "Select") {
+                                    //     return "Equipment Number is required";
+                                    //   }
+                                    //   return null;
+                                    // },
                                   ),
                                   const SizedBox(
                                       height: AppConstants.elementSpacing),
@@ -1453,32 +1523,39 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               ? _requiredText(val, 'Train Replace (NOS)')
                               : null,
                         ),
-                      ],
-                    ),
-                  ),
-                  CustSection(
-                    title: "Passenger Deboarded *",
-                    trailing: Obx(() => YesNoToggle(
-                          value: controller.isPassengerDeboarding.value,
-                      onChanged: (val) {
-                        controller.trainDeboardedNosController.clear();
-                        controller.isPassengerDeboarding.value = val;
-                      },
-                          enabled: controller.isJE && !_isJointInspectionFlow,
-                        )),
-                    isVisible: controller.isPassengerDeboarding.value,
-                    child: Column(
-                      children: [
-                        CustomTextField(
-                          label: "Train Deboarded (NOS) *",
-                          controller: controller.trainDeboardedNosController,
-                          keyboardType: TextInputType.number,
-                          enabled: controller.isJE && !_isJointInspectionFlow,
-                          validator: (val) =>
-                              controller.isPassengerDeboarding.value
-                                  ? _requiredText(val, 'Train Deboarded (NOS)')
-                                  : null,
-                        ),
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            CustText(
+                              name: "Passenger Deboarded",
+                              size: AppConstants.textSize,
+                              fontWeightName: FontWeight.w600,
+                              color: AppColors.orangeColor,
+                            ),
+                            Obx(() => YesNoToggle(
+                              value: controller.isPassengerDeboarding.value,
+                              onChanged: (val) {
+                                controller.trainDeboardedNosController.clear();
+                                controller.isPassengerDeboarding.value = val;
+                              },
+                              enabled: controller.isJE && !_isJointInspectionFlow,
+                            )),
+                        ],),
+                        Obx(() {
+                          if (!controller.isPassengerDeboarding.value)
+                            return const SizedBox.shrink();
+                          return CustomTextField(
+                            label: "Train Deboarded (NOS) *",
+                            controller: controller.trainDeboardedNosController,
+                            keyboardType: TextInputType.number,
+                            enabled: controller.isJE && !_isJointInspectionFlow,
+                            validator: (val) =>
+                                controller.isPassengerDeboarding.value
+                                    ? _requiredText(val, 'Train Deboarded (NOS)')
+                                    : null,
+                          );
+                        }),
                       ],
                     ),
                   ),
@@ -1726,11 +1803,17 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   child: Column(
                     children: [
                       CustDropdown(
-                        label: "Failure Type",
+                        label: "Failure Type *",
                         hint: "Select Failure Type",
                         items: controller.materialTypeList,
                         selectedValue: controller.selectedMaterialType.value,
                         enabled: controller.isJE || controller.isTechnician,
+                        validator: (value) {
+                          if (value == null || value.isEmpty || value == 'Select Failure Type') {
+                            return 'Please select failure type';
+                          }
+                          return null;
+                        },
                         onChanged: (v) {
                           controller.selectedMaterialType.value = v!;
                         },
@@ -1762,7 +1845,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     }
                     controller.isSparePartReplaced.value = val;
                   },
-                  enabled: controller.isJE,
+                  enabled: controller.isJE && controller.replacedMaterialsList.isEmpty,
                 ),
                 isVisible: controller.isSparePartReplaced.value,
                 child: controller.isSparePartReplaced.value
@@ -1790,7 +1873,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     }
                     controller.isMaterialDismantle.value = val;
                   },
-                  enabled: controller.isJE || controller.isTechnician,
+                  enabled: (controller.isJE || controller.isTechnician) && controller.dismantleMaterialsList.isEmpty,
                 ),
                 child: _buildMaterialDismantleSection(
                   enabled: controller.isJE || controller.isTechnician,
@@ -1906,7 +1989,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               const Divider(),
                               const SizedBox(
                                   height: AppConstants.sectionSpacing),
-                              CustText(name: "Display Uploaded Images:", color: AppColors.textColor3,fontWeightName: FontWeight.w500,size: AppConstants.textSize,),
+                              CustText(name: "Display Uploaded Images:", color: AppColors.textDarkSecondary,fontWeightName: FontWeight.w500,size: AppConstants.textSize,),
                               const SizedBox(height: AppConstants.labelSpacing),
                               Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2001,7 +2084,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           ),
                           const SizedBox(height: AppConstants.elementSpacing),
                           CustDropdown(
-                            label: "User Status",
+                            label: "User Status *",
                             hint: "Select",
                             items: controller.userStatusList
                                 .map((e) => e.label ?? '')
@@ -2063,7 +2146,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             const SizedBox(height: AppConstants.elementSpacing),
                           ],
                           CustDateTimePicker(
-                            label: "Failure Attended",
+                            label: "Failure Attended *",
                             hint: "DD/MM/YYYY hh:mm",
                             selectedDateTime:
                                 controller.selectedFailureAttendedDate.value,
@@ -2083,7 +2166,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           ),
                           const SizedBox(height: AppConstants.elementSpacing),
                           CustDateTimePicker(
-                            label: "Actual Failure Rectified",
+                            label: "Actual Failure Rectified *",
                             hint: "DD/MM/YYYY hh:mm",
                             selectedDateTime: controller
                                     .selectedActualFailureRectifiedDate.value,
@@ -2533,12 +2616,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     ],
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
-                  Obx(() => _buildToggleItem(
-                      "Passenger Deboarded *",
-                      controller.isPassengerDeboarding.value,
-                      (val) => controller.isPassengerDeboarding.value = val)),
+                  Obx(() => controller.isServiceAffected.value
+                      ? _buildToggleItem(
+                          "Passenger Deboarded *",
+                          controller.isPassengerDeboarding.value,
+                          (val) => controller.isPassengerDeboarding.value = val)
+                      : const SizedBox.shrink()),
                   Obx(() {
-                    if (!controller.isPassengerDeboarding.value)
+                    if (!controller.isPassengerDeboarding.value || !controller.isServiceAffected.value)
                       return const SizedBox.shrink();
                     return Padding(
                       padding: const EdgeInsets.only(
@@ -2737,7 +2822,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       sHeight: 25,
       fontSize: AppConstants.buttonFontSize,
       borderColor: AppColors.orangeColor,
-      textColor: AppColors.orangeColor,
+      textDarkPrimary: AppColors.orangeColor,
       onSelected: enabled
           ? (_) {
               _showUploadPopup(targetList);
@@ -2825,7 +2910,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               CustText.body(
                 "Upload Files or Take Photos",
                 size: 16,
-                color: AppColors.textColor7,
+                color: AppColors.textMutedLight,
                 fontWeightName: FontWeight.w600,
               ),
               const SizedBox(height: AppConstants.labelSpacing),
@@ -2875,7 +2960,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 borderRadius: BorderRadius.circular(8),
               ),
               child: const Icon(TablerIcons.photo,
-                  color: AppColors.textColor7, size: 18),
+                  color: AppColors.textMutedLight, size: 18),
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -3063,36 +3148,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   }
 
   void _submitForm() {
-    // Validate used qty for spare parts
-    List<int> errorIndices = [];
-    for (int i = 0; i < controller.replacedMaterialsList.length; i++) {
-      final item = controller.replacedMaterialsList[i];
-      final usedQty = int.tryParse(item['usedQty']?.toString() ?? "0") ?? 0;
-      final requiredQty = int.tryParse(item['requiredQty']?.toString() ?? "0") ?? 0;
-
-      if (usedQty > requiredQty) {
-        errorIndices.add(i);
-        // Expand this item to show the error
-        controller.isExpandedReplaced[i] = true;
-      }
-    }
-
-    if (errorIndices.isNotEmpty) {
-      final errorMsg = errorIndices.length > 1
-          ? 'Used Quantity cannot be greater than Required Quantity for ${errorIndices.length} items.'
-          : 'Used Quantity cannot be greater than Required Quantity.';
-      Get.snackbar(
-        'Invalid Quantity',
-        errorMsg,
-        snackPosition: SnackPosition.BOTTOM,
-        backgroundColor: AppColors.darkRed,
-        colorText: Colors.white,
-        duration: const Duration(seconds: 3),
-      );
-      return;
-    }
-
-    if (_validateSubmitForms()) {
+          if (_validateSubmitForms()) {
       if (widget.isUpdate && widget.failureType == 'Station') {
         controller.updateStationFailureDetails(widget.failureNo ?? "0");
         return;
@@ -3116,6 +3172,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       }
       controller.submitFailure(isCreate: widget.failureNo == null);
     } else {
+            print("this error");
       Get.snackbar(
         "Validation Error",
         "Please fill all compulsory fields marked with *",
@@ -3720,7 +3777,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ? (_) {
                           if (_validateForm(_sparePartFormKey)) {
                             controller.addReplacedMaterial();
-                            _sparePartFormKey.currentState?.reset();
                           }
                         }
                       : null,
@@ -3871,7 +3927,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   if (isExpanded) ...[
                     Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      padding: const EdgeInsets.only(left: 16,right:16,bottom: 16),
                       child: LayoutBuilder(
                         builder: (context, constraints) {
                           final double width = (constraints.maxWidth - 10) / 2;
@@ -4005,7 +4061,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           ? (_) {
                               if (_validateForm(_dismantleFormKey)) {
                                 controller.addDismantleMaterial();
-                                _dismantleFormKey.currentState?.reset();
                               }
                             }
                           : null,
@@ -4023,141 +4078,127 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
   Widget _buildDismantleMaterialTable({bool enabled = true}) {
     return Obx(() => Column(
-          children:
-              controller.dismantleMaterialsList.asMap().entries.map((entry) {
-            final index = entry.key;
-            final item = entry.value;
-            final isExpanded = controller.isExpandedDismantle[index] ?? false;
+      children:
+      controller.dismantleMaterialsList.asMap().entries.map((entry) {
+        final index = entry.key;
+        final item = entry.value;
+        final isExpanded = controller.isExpandedDismantle[index] ?? false;
 
-            String dismantleDate = "";
-            if (item['dismantleDateRaw'] != null) {
-              dismantleDate = item['dismantleDateRaw'];
-            } else if (item['dismantleDate'] != null) {
-              dismantleDate =
-                  "${item['dismantleDate'].day}/${item['dismantleDate'].month}/${item['dismantleDate'].year}";
-            }
-
-            String installDate = "";
-            if (item['installationDateRaw'] != null) {
-              installDate = item['installationDateRaw'];
-            } else if (item['installationDate'] != null) {
-              installDate =
-                  "${item['installationDate'].day}/${item['installationDate'].month}/${item['installationDate'].year}";
-            }
-
-            return Container(
-              margin: const EdgeInsets.only(bottom: 16),
-              decoration: BoxDecoration(
-                color: AppColors.white1,
-                borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-                border: Border.all(
-                    color: AppColors.textFieldFillColor.withOpacity(0.5)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+        return Container(
+          margin: const EdgeInsets.only(bottom: 16),
+          decoration: BoxDecoration(
+            color: AppColors.white1,
+            borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+            border: Border.all(
+                color: AppColors.textFieldFillColor.withOpacity(0.5)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          CustText.detailLabel("Material Description"),
+                          const SizedBox(height: AppConstants.labelSpacing),
+                          CustText.detailValue(item['materialCode'] ?? ""),
+                        ],
+                      ),
+                    ),
+                    Row(
                       children: [
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              CustText.detailLabel("Material Description"),
-                              const SizedBox(height: AppConstants.labelSpacing),
-                              CustText.detailValue(item['materialCode'] ?? ""),
-                            ],
+                        if (enabled) ...[
+                          IconButton(
+                            icon: const Icon(TablerIcons.pencil,
+                                color: AppColors.orangeColor, size: 20),
+                            onPressed: () =>
+                                controller.editDismantleMaterial(index),
+                            padding: const EdgeInsets.only(right: 12),
+                            constraints: const BoxConstraints(),
                           ),
-                        ),
-                        Row(
-                          children: [
-                            if (enabled) ...[
-                              IconButton(
-                                icon: const Icon(TablerIcons.pencil,
-                                    color: AppColors.orangeColor, size: 20),
-                                onPressed: () =>
-                                    controller.editDismantleMaterial(index),
-                                padding: const EdgeInsets.only(right: 12),
-                                constraints: const BoxConstraints(),
-                              ),
-                              IconButton(
-                                icon: const Icon(TablerIcons.trash,
-                                    color: Colors.grey, size: 20),
-                                onPressed: () =>
-                                    controller.removeDismantleMaterial(index),
-                                padding: const EdgeInsets.only(right: 12),
-                                constraints: const BoxConstraints(),
-                              ),
-                            ],
-                            IconButton(
-                              icon: Icon(
-                                  isExpanded
-                                      ? TablerIcons.chevron_up
-                                      : TablerIcons.chevron_down,
-                                  color: AppColors.orangeColor,
-                                  size: 20),
-                              onPressed: () =>
-                                  controller.toggleDismantleExpansion(index),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                            ),
-                          ],
+                          IconButton(
+                            icon: const Icon(TablerIcons.trash,
+                                color: Colors.grey, size: 20),
+                            onPressed: () =>
+                                controller.removeDismantleMaterial(index),
+                            padding: const EdgeInsets.only(right: 12),
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
+                        IconButton(
+                          icon: Icon(
+                              isExpanded
+                                  ? TablerIcons.chevron_up
+                                  : TablerIcons.chevron_down,
+                              color: AppColors.orangeColor,
+                              size: 20),
+                          onPressed: () =>
+                              controller.toggleDismantleExpansion(index),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
                         ),
                       ],
                     ),
-                  ),
-                  if (isExpanded)
-                    Padding(
-                      padding: const EdgeInsets.only(
-                          left: 16, right: 16, bottom: 16),
-                      child: LayoutBuilder(
-                        builder: (context, constraints) {
-                          final double width = (constraints.maxWidth - 10) / 2;
-                          Widget buildCol(String label, String value) {
-                            return SizedBox(
-                              width: width,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  CustText.detailLabel(label),
-                                  const SizedBox(height: 2),
-                                  CustText.detailValue(value),
-                                ],
-                              ),
-                            );
-                          }
-
-                          return Wrap(
-                            runSpacing: 10,
-                            spacing: 10,
-                            children: [
-                              buildCol("Old Serial Number",
-                                  item['oldSerialNo'] ?? ""),
-                              buildCol("Dismantle Date", dismantleDate),
-                              buildCol("New Serial Number",
-                                  item['newSerialNo'] ?? ""),
-                              buildCol("Installation Date", installDate),
-                            ],
-                          );
-                        },
-                      ),
-                    ),
-                ],
+                  ],
+                ),
               ),
-            );
-          }).toList(),
-        ));
-  }
+              if (isExpanded)
+                Padding(
+                  padding: const EdgeInsets.only(
+                      left: 16, right: 16, bottom: 16),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final double width = (constraints.maxWidth - 10) / 2;
+                      Widget buildCol(String label, String value) {
+                        return SizedBox(
+                          width: width,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              CustText.detailLabel(label),
+                              const SizedBox(height: 2),
+                              CustText.detailValue(value),
+                            ],
+                          ),
+                        );
+                      }
 
+                      return Wrap(
+                        runSpacing: 10,
+                        spacing: 10,
+                        children: [
+                          buildCol("Old Serial Number",
+                              item['oldSerialNumber'] ?? ""),
+                          buildCol("Dismantle Date",
+                              _formatDate(item['oldSerialDismantleDate'])),
+                          buildCol("New Serial Number",
+                              item['newSerialNumber'] ?? ""),
+                          buildCol("Installation Date",
+                              _formatDate(item['newSerialInstallationDate'])),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+            ],
+          ),
+        );
+      }).toList(),
+    ));
+  }
+  
   Widget _buildJointInspectionSection({bool enabled = true}) {
     return Obx(() => Column(
           crossAxisAlignment: CrossAxisAlignment.start,

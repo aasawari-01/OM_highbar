@@ -36,6 +36,7 @@ class FailureDetailOutput {
   final List<LabelValue>? getPriorityType;
   final List<LabelValue>? getCorrNotificationTypeList;
   final List<LabelValue>? getFaultData;
+  final List<LabelValue>? getReasonForDelayList;
   final List<NotificationActionHistory>? getNotificationActionUserHistory;
   final List<NotificationHistory>? getNotificationHistory;
   final List<LabelValue>? getFunctionalLocationList;
@@ -66,6 +67,7 @@ class FailureDetailOutput {
     this.getPriorityType,
     this.getCorrNotificationTypeList,
     this.getFaultData,
+    this.getReasonForDelayList,
     this.getNotificationActionUserHistory,
     this.getNotificationHistory,
     this.getFunctionalLocationList,
@@ -98,6 +100,7 @@ class FailureDetailOutput {
       getPriorityType: _mapList(json['getPriorityType']),
       getCorrNotificationTypeList: _mapList(json['getCorrNotificationTypeList']),
       getFaultData: _mapList(json['getFaultData']),
+      getReasonForDelayList: _mapList(json['getReasonForDelayList']),
       getRootCausetData: _mapList(json['getRootCausetData']),
       getActionData: _mapList(json['getActionData']),
       getFunctionalLocationList: _mapList(json['getFunctionalLocationList'] ?? json['getFunctionLocList'] ?? json['functionalLocation']),

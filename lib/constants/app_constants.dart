@@ -41,13 +41,5 @@ class AppConstants {
   static const Duration apiTimeout = Duration(seconds: 60);
   static const Duration apiMultipartTimeout = Duration(seconds: 120);
 
-  // ── Legacy aliases (kept for backward compatibility) ─────────
-  // ignore: constant_identifier_names
-  static const double HeaderSize = headerSize;
-  // ignore: constant_identifier_names
-  static const double appbarText = appBarTextSize;
-  // ignore: constant_identifier_names
-  static const double subtitles = subtitleSize;
-  // ignore: constant_identifier_names
-  static const double sectionHeadervalue = sectionHeaderValue;
+
 }

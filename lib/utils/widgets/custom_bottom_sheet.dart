@@ -10,7 +10,7 @@ class CustomBottomSheetOption {
   final VoidCallback onTap;
   final double size;
   final FontWeight? fontWeight;
-  final Color? textColor;
+  final Color? textDarkPrimary;
 
   CustomBottomSheetOption({
     required this.title,
@@ -19,7 +19,7 @@ class CustomBottomSheetOption {
     required this.onTap,
     this.size = 1.6,
     this.fontWeight = FontWeight.w500,
-    this.textColor = AppColors.textColor,
+    this.textDarkPrimary = AppColors.textDarkPrimary,
   });
 }
 
@@ -59,7 +59,7 @@ class CustomBottomSheet {
                 name: option.title,
                 size: option.size,
                 fontWeightName: option.fontWeight,
-                color: option.textColor,
+                color: option.textDarkPrimary,
               ),
               dense: true,
               onTap: () {

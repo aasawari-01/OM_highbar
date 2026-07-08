@@ -2,6 +2,7 @@ import 'package:get/get.dart';
 import '../feature/auth_login/model/login_response.dart';
 import '../service/auth_manager.dart';
 import '../service/local_database_service.dart';
+import '../core/models/master_user.dart';
 
 class SessionController extends GetxController {
   final RxList<DeptMaster> departments = <DeptMaster>[].obs;
@@ -9,7 +10,7 @@ class SessionController extends GetxController {
   
   final Rxn<DeptMaster> selectedDepartment = Rxn<DeptMaster>();
   final Rxn<RoleMaster> selectedRole = Rxn<RoleMaster>();
-  final RxList<Map<String, dynamic>> userMappings = <Map<String, dynamic>>[].obs;
+  final RxList<MasterUserModel> userMappings = <MasterUserModel>[].obs;
   final RxString userName = "".obs;
   final selectedStationId = Rxn<String>();
   final selectedStationName = Rxn<String>();
@@ -52,12 +53,12 @@ class SessionController extends GetxController {
     final List<RoleMaster> allRoles = await AuthManager().getRoleMaster();
     
     // Load mappings from DB
-    final List<Map<String, dynamic>> dbUsers = await LocalDatabaseService().getMasterUsers();
+    final List<MasterUserModel> dbUsers = await LocalDatabaseService().getMasterUsers();
     
     // Filter mappings to only allowed roles AND logged-in user's userId
     userMappings.assignAll(dbUsers.where((u) {
-      final roleDesc = u['roleDescr']?.toString() ?? '';
-      final userId = u['userId']?.toString();
+      final roleDesc = u.roleDescr ?? '';
+      final userId = u.userId?.toString();
       return isRoleAllowed(roleDesc) && (currentUserId == null || userId == currentUserId);
     }).toList());
     
@@ -65,10 +66,10 @@ class SessionController extends GetxController {
       final mappedDepts = <DeptMaster>[];
       final mappedRoles = <RoleMaster>[];
       for (var u in userMappings) {
-        final deptId = u['deptId'] as int?;
-        final deptName = u['deptName']?.toString();
-        final roleId = u['roleId'] as int?;
-        final roleDescr = u['roleDescr']?.toString();
+        final deptId = u.deptId;
+        final deptName = u.deptName;
+        final roleId = u.roleId;
+        final roleDescr = u.roleDescr;
         
         if (deptId != null && !mappedDepts.any((d) => d.deptId == deptId)) {
           mappedDepts.add(DeptMaster(deptId: deptId, deptName: deptName));

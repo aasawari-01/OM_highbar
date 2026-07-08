@@ -7,6 +7,7 @@ import 'feature/tabs/view/home_screen.dart';
 
 import 'service/auth_manager.dart';
 import 'service/session_controller.dart';
+import 'service/master_data_sync_service.dart';
 
 void configLoading() {
   EasyLoading.instance
@@ -30,6 +31,9 @@ void main() async {
   final bool isRememberMe = await AuthManager().isRememberMe();
   
   Widget initialRoute = LoginView();
+  
+  // Register MasterDataSyncService as singleton
+  Get.put(MasterDataSyncService(), permanent: true);
   
   if (isLoggedIn && isRememberMe) {
     Get.put(SessionController());

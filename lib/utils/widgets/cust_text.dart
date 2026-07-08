@@ -75,7 +75,7 @@ class CustText extends StatelessWidget {
       name: name,
       size: AppConstants.sectionHeaderSize,
       fontWeightName: FontWeight.w700,
-      color: color ?? AppColors.textColor,
+      color: color ?? AppColors.textDarkPrimary,
       textAlign: textAlign,
     );
   }
@@ -97,7 +97,7 @@ class CustText extends StatelessWidget {
       name: name,
       size: AppConstants.detailLabelSize,
       fontWeightName: FontWeight.w400,
-      color: color ?? AppColors.textColor4,
+      color: color ?? AppColors.textDarkSecondary,
       textAlign: textAlign,
     );
   }
@@ -120,7 +120,7 @@ class CustText extends StatelessWidget {
       name: name,
       size: size ?? AppConstants.bodySize,
       fontWeightName: fontWeightName ?? FontWeight.w400,
-      color: color ?? AppColors.textColor,
+      color: color ?? AppColors.textDarkPrimary,
       textAlign: textAlign,
     );
   }
@@ -137,7 +137,7 @@ class CustText extends StatelessWidget {
         maxLines: maxLines,
         overflow: overflow,
         style: GoogleFonts.lato(
-          color: color ?? AppColors.textColor,
+          color: color ?? AppColors.textDarkPrimary,
           fontWeight: fontWeightName ?? FontWeight.w400,
           fontSize: ResponsiveHelper.fontSize(context, size),
         ),

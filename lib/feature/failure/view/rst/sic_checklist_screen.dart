@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:om_mobile/constants/app_constants.dart';
 import 'package:om_mobile/constants/colors.dart';
-import '../controller/rst_failure_controller.dart';
+import '../../controller/rst_failure_controller.dart';
 import 'package:om_mobile/utils/widgets/custom_app_bar.dart';
+import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
 
 class SicChecklistScreen extends StatelessWidget {
   const SicChecklistScreen({Key? key}) : super(key: key);
@@ -15,8 +16,14 @@ class SicChecklistScreen extends StatelessWidget {
 
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
-      appBar: const CustomAppBar(
+      appBar: CustomAppBar(
         title: 'SIC check list',
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: const SyncIconButton(),
+          ),
+        ],
       ),
       body: Container(
         width: double.infinity,

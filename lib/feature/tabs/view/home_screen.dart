@@ -10,6 +10,7 @@ import '../../../constants/app_constants.dart';
 import '../../../service/session_controller.dart';
 import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/cust_text.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 import '../controller/home_controller.dart';
 
 
@@ -86,30 +87,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         size: ResponsiveHelper.height(context, 30),
                       ),
                       SizedBox(width: ResponsiveHelper.width(context, 15)),
-                      Stack(
-                        children: [
-                           CircleAvatar(
-                            backgroundColor: AppColors.white1,
-                            radius: ResponsiveHelper.height(context, 18),
-                          ),
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              width: ResponsiveHelper.width(context, 12),
-                              height: ResponsiveHelper.height(context, 12),
-                              decoration: BoxDecoration(
-                                color: Colors.red,
-                                shape: BoxShape.circle,
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: 2,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                      const SyncIconButton(),
                     ],
                   ),
                 ),
@@ -281,14 +259,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   CustText(
                     name: title,
                     size: 18,
-                    color: AppColors.textColor,
+                    color: AppColors.textDarkPrimary,
                     fontWeightName: FontWeight.w400,
                     maxLines: 1,
                   ),
                   CustText(
                     name: "$count",
-                    size: AppConstants.sectionHeadervalue,
-                    color: AppColors.textColor,
+                    size: AppConstants.sectionHeaderValue,
+                    color: AppColors.textDarkPrimary,
                     fontWeightName: FontWeight.w600,
                   ),
                 ],
@@ -322,7 +300,7 @@ class _HomeScreenState extends State<HomeScreen> {
         children: [
           CustText(
             name: title,
-            size: AppConstants.HeaderSize,
+            size: AppConstants.headerSize,
             color: AppColors.orangeColor,
             fontWeightName: FontWeight.w600,
           ),
@@ -355,22 +333,22 @@ class _HomeScreenState extends State<HomeScreen> {
                 CustText(
                   name: title,
                   size: AppConstants.bodySize,
-                  color: AppColors.textColor5,
+                  color: AppColors.black,
                   fontWeightName: FontWeight.w600,
                 ),
                 if (subtitle != null) ...[
                   SizedBox(height: ResponsiveHelper.height(context, 4)),
                   CustText(
                     name: subtitle,
-                    size: AppConstants.subtitles,
-                    color: AppColors.textColor,
+                    size: AppConstants.subtitleSize,
+                    color: AppColors.textDarkPrimary,
                   ),
                 ],
                 SizedBox(height: ResponsiveHelper.height(context, 4)),
                 CustText(
                   name: time,
-                  size: AppConstants.subtitles,
-                  color: AppColors.textColor4,
+                  size: AppConstants.subtitleSize,
+                  color: AppColors.textDarkSecondary,
                 ),
               ],
             ),
@@ -415,10 +393,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
-                  color: AppColors.textColor,
+                  color: AppColors.textDarkPrimary,
                 ),
               ),
-              Icon(TablerIcons.calendar, size: 20, color:AppColors.textColor4),
+              Icon(TablerIcons.calendar, size: 20, color:AppColors.textDarkSecondary),
             ],
           ),
 
@@ -491,7 +469,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             textAlign: TextAlign.center,
                             maxLines: 2,
                             size: 12,
-                            color: AppColors.textColor,
+                            color: AppColors.textDarkPrimary,
                           ),
                         );
                       },

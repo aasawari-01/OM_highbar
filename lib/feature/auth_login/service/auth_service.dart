@@ -1,5 +1,5 @@
 import 'dart:convert';
-
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../../service/network_service/api_client.dart';
@@ -16,7 +16,7 @@ class AuthService {
     required String email,
     required String password,
   }) async {
-    print("login");
+    debugPrint("login");
     final http.Response response = await _apiClient.post(
       AppUrls.login,
       body: <String, dynamic>{
@@ -25,7 +25,7 @@ class AuthService {
       },
     );
     Map<String, dynamic> jsonBody = {};
-    print("response==${jsonDecode(response.body)}");
+    debugPrint("response==${jsonDecode(response.body)}");
     try {
       jsonBody = jsonDecode(response.body) as Map<String, dynamic>;
     } catch (e) {
@@ -33,10 +33,10 @@ class AuthService {
     }
 
     if (response.statusCode == 200) {
-      print("login response===${jsonBody}");
+      debugPrint("login response===${jsonBody}");
       return LoginResponse.fromJson(jsonBody);
     }
-     print("error==${response.statusCode}");
+     debugPrint("error==${response.statusCode}");
     // 422 and other errors – server returns a standard error shape.
     final message = jsonBody['message']?.toString() ??
         jsonBody['detail']?.toString() ??

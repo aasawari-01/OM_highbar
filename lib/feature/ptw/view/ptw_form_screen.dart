@@ -13,6 +13,7 @@ import '../../../utils/widgets/cust_radio.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 
 
 class PTWFormScreen extends StatefulWidget {
@@ -117,6 +118,12 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
         title: 'PTW Request Form',
         showDrawer: false,
         onLeadingPressed: () => Navigator.pop(context),
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 12.0),
+            child: const SyncIconButton(),
+          ),
+        ],
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -130,7 +137,7 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
               page: _currentStep,
               division: _steps.length,
               positiveColor: AppColors.gradientStart,
-              negativeColor: AppColors.textColor4,
+              negativeColor: AppColors.textDarkSecondary,
               progressColor: AppColors.gradientStart,
               onChange: (i) {},
             ),
@@ -417,14 +424,14 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
             //           child: Container(
             //             padding: const EdgeInsets.symmetric(vertical: 12),
             //             decoration: BoxDecoration(
-            //               color: isSelected ? AppColors.textColor3 : Colors.transparent,
+            //               color: isSelected ? AppColors.textBlueSecondary : Colors.transparent,
             //               borderRadius: BorderRadius.circular(8),
             //             ),
             //             child: Center(
             //               child: CustText(
             //                 name: type,
             //                 size: 16,
-            //                 color: isSelected ? Colors.white : AppColors.textColor,
+            //                 color: isSelected ? Colors.white : AppColors.textDarkPrimary,
             //                 fontWeightName: FontWeight.w500,
             //               ),
             //             ),
@@ -645,7 +652,7 @@ class _AddStaffDetailsDialogState extends State<AddStaffDetailsDialog> {
             child: CustText(
               name: "Add Staff Details",
               size: 18,
-              color: AppColors.textColor3,
+              color: AppColors.textBlueSecondary,
               fontWeightName: FontWeight.w500,
             ),
           ),
@@ -763,13 +770,13 @@ class _AddStaffDetailsDialogState extends State<AddStaffDetailsDialog> {
                     children: [
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.textColor3),
+                          side: const BorderSide(color: AppColors.textBlueSecondary),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(6),
                           ),
                         ),
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel', style: TextStyle(color: AppColors.textColor3)),
+                        child: const Text('Cancel', style: TextStyle(color: AppColors.textBlueSecondary)),
                       ),
                       const SizedBox(width: 16),
                       CustButton(

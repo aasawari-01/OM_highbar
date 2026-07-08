@@ -74,7 +74,7 @@ class _FileUploadSectionState extends State<FileUploadSection> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
-                        Icon(Icons.cloud_upload_outlined, size: 40, color: AppColors.textColor3),
+                        Icon(Icons.cloud_upload_outlined, size: 40, color: AppColors.textDarkTertiary),
                         const SizedBox(height: 8),
                         CustText(
                           name: 'Choose file to upload',

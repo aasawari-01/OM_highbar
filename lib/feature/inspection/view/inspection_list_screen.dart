@@ -4,6 +4,7 @@ import '../../../constants/app_constants.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 import 'package:get/get.dart';
 import '../../../service/session_controller.dart';
 import 'inspection_detail_screen.dart';
@@ -58,7 +59,7 @@ class InspectionListScreen extends StatelessWidget {
             onPressed: () {},
           ),
           const SizedBox(width: 4),
-          _buildProfileAction(),
+          const SyncIconButton(),
           const SizedBox(width: 16),
         ],
       ),
@@ -227,7 +228,7 @@ class _InspectionCard extends StatelessWidget {
   Widget _badgeRow(String label, String value, Color color) {
     return Row(
       children: [
-        CustText(name: label, size: AppConstants.detailLabelSize, color: AppColors.textColor4),
+        CustText(name: label, size: AppConstants.detailLabelSize, color: AppColors.textDarkSecondary),
         const SizedBox(width: 6),
         Flexible(
           child: Container(
@@ -262,12 +263,12 @@ class _InspectionCard extends StatelessWidget {
 
   Color _actionColor(String? action) {
     if (action?.toLowerCase() == 'active') return AppColors.green1;
-    return AppColors.textColor4;
+    return AppColors.textDarkSecondary;
   }
 
   Color _statusColor(String? status) {
     if (status?.toLowerCase() == 'reassign') return AppColors.red;
     if (status?.toLowerCase() == 'open') return AppColors.orangeColor;
-    return AppColors.textColor4;
+    return AppColors.textDarkSecondary;
   }
 }

@@ -78,7 +78,7 @@ class LoginView extends StatelessWidget {
                       // Title
                       CustText.sectionHeader(AppStrings.signIn, color: AppColors.backgroundColor),
                       const SizedBox(height: 4),
-                      CustText.body(AppStrings.enterCredentials, color: AppColors.textColor9,),
+                      CustText.body(AppStrings.enterCredentials, color: AppColors.textDarkSecondary,),
                       const SizedBox(height: AppConstants.sectionSpacing),
                       CustText(name: AppStrings.emailId,color: AppColors.black, size: AppConstants.formLabelSize,fontWeightName: FontWeight.w700),
                       const SizedBox(height: AppConstants.labelSpacing,),

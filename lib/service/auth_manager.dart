@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
 import '../feature/auth_login/model/login_response.dart';
 import 'network_service/app_urls.dart';
 import 'network_service/api_client.dart';
@@ -27,6 +29,7 @@ class AuthManager {
   static const String _keyBusinessArea = 'business_area';
 
   static const String _keyRememberMe = 'remember_me';
+  static const String _keyFirstTimeLogin = 'first_time_login';
 
   // Roles allowed on mobile
   static const List<String> allowedMobileRoles = [
@@ -146,8 +149,20 @@ class AuthManager {
     return prefs.getInt(_keySelectedRoleId);
   }
 
+  // First-time login tracking
+  Future<bool> isFirstTimeLogin() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyFirstTimeLogin) ?? true; // Default to true (first time)
+  }
+
+  Future<void> setFirstTimeLoginComplete() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyFirstTimeLogin, false);
+  }
+
   // Logout and clear data
   Future<void> logout() async {
+    EasyLoading.show(status: 'Logging out...');
     try {
       final userId = await getUserId();
       final apiClient = ApiClient();
@@ -157,10 +172,23 @@ class AuthManager {
       );
     } catch (e) {
       // Continue with local cleanup even if API call fails
-      print('Logout API call failed: $e');
+      debugPrint('Logout API call failed: $e');
     }
     // Clear local storage regardless of API result
     final SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.clear();
+    // Clear only auth-related keys, preserve first-time login flag
+    await prefs.remove(_keyIsLoggedIn);
+    await prefs.remove(_keyUserId);
+    await prefs.remove(_keyToken);
+    await prefs.remove(_keyUserName);
+    await prefs.remove(_keyFullName);
+    await prefs.remove(_keyDeptMaster);
+    await prefs.remove(_keyRoleMaster);
+    await prefs.remove(_keySelectedDeptId);
+    await prefs.remove(_keySelectedRoleId);
+    await prefs.remove(_keyBusinessArea);
+    await prefs.remove(_keyRememberMe);
+    // Note: _keyFirstTimeLogin is NOT cleared on logout to preserve sync status
+    EasyLoading.dismiss();
   }
 }

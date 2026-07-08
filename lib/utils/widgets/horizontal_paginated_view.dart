@@ -84,7 +84,7 @@ class _HorizontalPaginatedViewState extends State<HorizontalPaginatedView> {
               const SizedBox(width: 12),
               Text(
                 "${_currentIndex + 1} / ${widget.items.length}",
-                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textColor7),
+                style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textMutedLight),
               ),
               const SizedBox(width: 12),
               IconButton(

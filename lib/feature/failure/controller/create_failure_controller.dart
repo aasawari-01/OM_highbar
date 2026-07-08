@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
@@ -24,118 +25,22 @@ import '../model/joint_inspection_history.dart';
 import '../service/failure_service.dart';
 import '../../../service/network_service/api_client.dart';
 import '../../../service/network_service/app_urls.dart';
+import 'failure_form_state.dart';
+import 'failure_rca_logic.dart';
+import 'failure_material_logic.dart';
 
-class CreateFailureController extends GetxController {
+class CreateFailureController extends GetxController with FailureFormState, FailureRcaLogic, FailureMaterialLogic {
   final FailureService _failureService = FailureService();
   final ApiClient _apiClient = ApiClient();
-
-  final isLoading = false.obs;
-  // Add near isLoading declaration
-  int _loadingRefCount = 0;
+  late final MasterDataSyncService _syncService;
 
   void _pushLoading() {
-    _loadingRefCount++;
-    isLoading.value = true;
+    pushLoading();
   }
 
   void _popLoading() {
-    _loadingRefCount = (_loadingRefCount - 1).clamp(0, 1 << 30);
-    if (_loadingRefCount == 0) isLoading.value = false;
+    popLoading();
   }
-  final isFaultLoading = false.obs;
-  final isEquipmentLoading = false.obs;
-  final showMeasurementButton = false.obs;
-  final errorMessage = "".obs;
-  final encryptedId = "".obs;
-  final notificationId = 0.obs;
-  final jointInspectionFailureNo = "".obs;
-  final notificationCode = "".obs;
-
-  final notificationTypeList = <LabelValue>[].obs;
-  final natureOfWorkList = <LabelValue>[].obs;
-  final departmentList = <LabelValue>[].obs;
-  final userList = <LabelValue>[].obs;
-  final functionalLocationList = <LabelValue>[].obs;
-  final equipmentList = <LabelValue>[].obs;
-  final objectDataList = <LabelValue>[].obs;
-  final materialDataList = <LabelValue>[].obs;
-  final userStatusList = <LabelValue>[].obs;
-  final locationTypeList = <LabelValue>[].obs;
-  final storageLocationList = <LabelValue>[].obs;
-  final reasonForDelayList = <LabelValue>[].obs;
-  final priorityTypeList = <LabelValue>[].obs;
-  final faultTypeList = <LabelValue>[].obs;
-  final rootCauseList = <LabelValue>[].obs;
-  final actionTakenList = <LabelValue>[].obs;
-
-  final isBasicInfoVisible = true.obs;
-  final isTripAffected = false.obs;
-  final isServiceAffected = false.obs;
-  final isPassengerDeboarding = false.obs;
-  final isPowerBlockRequired = false.obs;
-  final isSicRequired = false.obs;
-  final isPassengerAffected = false.obs;
-  final corrNotificationTypeList = <LabelValue>[].obs;
-  final isPtwRequired = false.obs;
-  final isRcaRequired = true.obs;
-  final isSparePartReplaced = false.obs;
-  final isMaterialDismantle = false.obs;
-  final isJointInspection = false.obs;
-
-  final beforeFiles = <Map<String, dynamic>>[].obs;
-  final afterFiles = <Map<String, dynamic>>[].obs;
-  final rcaFiles = <Map<String, dynamic>>[].obs; // For new RCA uploads
-
-  final beforeImagesList = <Map<String, dynamic>>[].obs;
-  final afterImagesList = <Map<String, dynamic>>[].obs;
-  final rcaImagesList = <Map<String, dynamic>>[].obs;
-
-  final failureDescriptionController = TextEditingController();
-  final priorityDisplayController = TextEditingController();
-  final departmentDisplayController = TextEditingController();
-  final locationDisplayController = TextEditingController();
-  final functionalLocationDisplayController = TextEditingController();
-  final equipmentDisplayController = TextEditingController();
-  final personResponsibleDisplayController = TextEditingController();
-  final jiDepartmentDisplayController = TextEditingController();
-  final jiAssignToDisplayController = TextEditingController();
-  final jiRemarkDisplayController = TextEditingController();
-  final ptwNumberController = TextEditingController();
-  final systemController = TextEditingController();
-  final trainIdController = TextEditingController();
-  final tripDelayUplineController = TextEditingController();
-  final tripDelayDownlineController = TextEditingController();
-  final passengersAffectedCountController = TextEditingController();
-  final trappedDurationController = TextEditingController();
-  final rescuedDurationController = TextEditingController();
-
-  bool get isJE =>
-      Get.find<SessionController>()
-          .selectedRole
-          .value
-          ?.roleDescr
-          ?.contains("Junior Engineer") ??
-      false;
-  bool get isTechnician =>
-      Get.find<SessionController>()
-          .selectedRole
-          .value
-          ?.roleDescr
-          ?.contains("Technician") ??
-      false;
-
-  bool _isPendingJointInspectionStatus(String? status) {
-    return status?.trim().toLowerCase() == 'joint inspection pending';
-  }
-
-  bool get isJointInspectionPending {
-    if (_isPendingJointInspectionStatus(mainStatusName.value)) return true;
-    return jointInspectionHistoryList.any(
-      (item) => _isPendingJointInspectionStatus(item.statusName),
-    );
-  }
-
-  bool get isCloseUserStatusBlocked => isJE && isJointInspectionPending;
 
   /// Shows a validation error snackbar with the first error.
   void _showErrorDialog(String message) {
@@ -151,6 +56,11 @@ class CreateFailureController extends GetxController {
     );
   }
 
+  @override
+  void showErrorDialog(String message) {
+    _showErrorDialog(message);
+  }
+
   void showPendingJointInspectionPopup() {
     Get.dialog(
       CustPopup(
@@ -160,6 +70,10 @@ class CreateFailureController extends GetxController {
         icon: Icons.error_outline,
         iconColor: AppColors.darkRed,
         confirmText: 'OK',
+        onCancel: () {
+          selectedUserStatus.value="Select User status";
+          Get.back();
+        },
         onConfirm: () {
           selectedUserStatus.value="Select User status";
           Get.back();
@@ -169,94 +83,9 @@ class CreateFailureController extends GetxController {
     );
   }
 
-  bool get isStationController =>
-      Get.find<SessionController>()
-          .selectedRole
-          .value
-          ?.roleDescr
-          ?.contains("Station Controller") ??
-      false;
-  bool get isStation => failureCategory.value.toLowerCase() == 'station';
-  bool get isMaintenance =>
-      failureCategory.value.toLowerCase() == 'maintenance';
-  bool get isOCC => failureCategory.value.toLowerCase() == 'occ';
-  bool get isDepot => failureCategory.value.toLowerCase() == 'depot';
-  final objectPartTextController = TextEditingController();
-  final faultTextController = TextEditingController();
-  final subLocationController = TextEditingController();
-  final natureOfWorkController = TextEditingController();
-  final failureTypeController = TextEditingController();
-  final trainRunningKmController = TextEditingController();
-  final failureRectificationDetailsController = TextEditingController();
-  final failureRectificationFocusNode = FocusNode();
-  final popupRootCauseTextController = TextEditingController();
-  final popupActionTakenTextController = TextEditingController();
-
-  final trainDelayMinController = TextEditingController();
-  final trainDelayNosController = TextEditingController();
-  final trainCancelNosController = TextEditingController();
-  final trainWithdrawalNosController = TextEditingController();
-  final trainReplaceNosController = TextEditingController();
-
-  final trainDeboardedNosController = TextEditingController();
-
-  final selectedMaterialCode = RxnString();
-  final uomController = TextEditingController();
-  final selectedStoreLocation = RxnString();
-  final balanceQtyController = TextEditingController();
-  final requiredQtyController = TextEditingController();
-  final requiredQtyFocusNode = FocusNode();
-  final replacedMaterialsList = <Map<String, dynamic>>[].obs;
-  final usedQtyControllers = <int, TextEditingController>{}.obs;
-  final usedQtyFocusNodes = <int, FocusNode>{}.obs;
-
-  final selectedDismantleMaterialCode = RxnString();
-  final oldSerialNumberController = TextEditingController();
-  final oldSerialDismantleDate = Rxn<DateTime>();
-  final newSerialNumberController = TextEditingController();
-  final newSerialInstallationDate = Rxn<DateTime>();
-  final dismantleMaterialsList = <Map<String, dynamic>>[].obs;
-
-  final selectedPriority = RxnString();
-  final selectedDepartment = RxnString();
-  final selectedLocation = RxnString();
-  final selectedFunctionalLocation = RxnString();
-  final selectedEquipmentNumber = RxnString();
-  final selectedPersonResponsible = RxnString();
-  final selectedNotificationType = RxnString();
-  final selectedObjectPart = RxnString();
-  final selectedFault = RxnString();
-  final mainStatusName = RxnString();
-  final selectedUserStatus = RxnString();
-  final selectedActualFailureRectified = RxnString();
-  final selectedNatureOfWork = RxnString();
-  final selectedFailureCategoryType = RxnString();
-  final selectedFailureReportedBy = RxnString();
-
-  final masterLocations = <Map<String, dynamic>>[].obs;
-  final masterFunctionalLocations = <Map<String, dynamic>>[].obs;
-  final masterEquipments = <Map<String, dynamic>>[].obs;
-  final selectedPopupRootCause = RxnString();
-  final selectedPopupActionTaken = RxnString();
-  final popupRootCauseFiles = <Map<String, dynamic>>[].obs;
-  final popupActionTakenFiles = <Map<String, dynamic>>[].obs;
-  final tempPopupRootCauses = <Map<String, dynamic>>[].obs;
-  final tempPopupActionTakens = <Map<String, dynamic>>[].obs;
-  final isExpandedRca =
-      <int, bool>{}.obs; // Track expansion state per card index
-  final selectedMaterialType = RxnString();
-  final materialTypeList = ["Software", "Hardware", "Communication", "Other"];
-  final _originalLocationId = RxnInt();
-  final _originalDepartmentId = RxnInt();
-  final _originalFailureId = RxnInt();
-
   final selectedJointDept = RxnString();
   final selectedJointAssignTo = RxnString();
   final jointInspectionRemarkController = TextEditingController();
-  final jointInspectionHistoryList = <JointInspectionHistory>[].obs;
-
-  final jointUserList = <LabelValue>[].obs;
-  final isJointUserLoading = false.obs;
 
   final masterJointInspectionDepartments = <LabelValue>[].obs;
 
@@ -273,12 +102,12 @@ class CreateFailureController extends GetxController {
     final List<LabelValue> sourceList = masterJointInspectionDepartments.isNotEmpty
         ? masterJointInspectionDepartments
         : Get.find<SessionController>()
-            .departments
-            .map((e) => LabelValue(
-                  label: e.deptName,
-                  value: e.deptId?.toString(),
-                ))
-            .toList();
+        .departments
+        .map((e) => LabelValue(
+      label: e.deptName,
+      value: e.deptId?.toString(),
+    ))
+        .toList();
 
     final currentDept = Get.find<SessionController>().selectedDepartment.value;
     if (currentDept == null) return sourceList;
@@ -295,14 +124,13 @@ class CreateFailureController extends GetxController {
   final selectedFailureOccurrenceDate = Rxn<DateTime>();
   final selectedFailureAttendedDate = Rxn<DateTime>();
   final selectedActualFailureRectifiedDate = Rxn<DateTime>();
-  
+
   final showReasonForDelayPopup = false.obs;
   final selectedReasonForDelay = RxnString();
   final reasonForDelayId = 0.obs;
 
   void onFailureAttendedDateSelected(DateTime? date) {
     selectedFailureAttendedDate.value = date;
-    // Reset rectified date if it's before the new attended date
     if (selectedActualFailureRectifiedDate.value != null && date != null) {
       if (selectedActualFailureRectifiedDate.value!.isBefore(date)) {
         selectedActualFailureRectifiedDate.value = null;
@@ -343,59 +171,48 @@ class CreateFailureController extends GetxController {
     }
   }
 
-    void showReasonForDelayPopupDialog() {
-      Get.dialog(
-        CustPopup(
-          title: "Reason For Delay",
-          showIcon: true,
-          icon: Icons.warning_amber_rounded,
-          iconColor: AppColors.orangeColor,
-          customContent: Obx(
-                () => CustDropdown(
-              label: "Reason For Delay *",
-              hint: "Select Reason For Delay",
-              items: reasonForDelayList.map((e) => e.label ?? "").toList(),
-              selectedValue: selectedReasonForDelay.value,
-              onChanged: (value) {
-                selectedReasonForDelay.value = value;
+  void showReasonForDelayPopupDialog() {
+    Get.dialog(
+      CustPopup(
+        title: "Reason For Delay",
+        showIcon: true,
+        icon: Icons.warning_amber_rounded,
+        iconColor: AppColors.orangeColor,
+        customContent: Obx(
+              () => CustDropdown(
+            label: "Reason For Delay *",
+            hint: "Select Reason For Delay",
+            items: reasonForDelayList.map((e) => e.label ?? "").toList(),
+            selectedValue: selectedReasonForDelay.value,
+            onChanged: (value) {
+              selectedReasonForDelay.value = value;
 
-                final match = reasonForDelayList.firstWhere(
-                      (e) => e.label == value,
-                  orElse: () => LabelValue(value: "0"),
-                );
+              final match = reasonForDelayList.firstWhere(
+                    (e) => e.label == value,
+                orElse: () => LabelValue(value: "0"),
+              );
 
-                reasonForDelayId.value =
-                    int.tryParse(match.value ?? "0") ?? 0;
-              },
-            ),
+              reasonForDelayId.value =
+                  int.tryParse(match.value ?? "0") ?? 0;
+            },
           ),
-
-          confirmText: "Save",
-          cancelText: "Cancel",
-
-          onConfirm: () {
-            // if (reasonForDelayId.value == 0) {
-            //   Get.snackbar(
-            //     "Required",
-            //     "Please select Reason For Delay",
-            //     snackPosition: SnackPosition.BOTTOM,
-            //     backgroundColor: AppColors.darkRed,
-            //     colorText: Colors.white,
-            //   );
-            //   return;
-            // }
-
-            Get.back();
-          },
-
-          onCancel: () {
-            selectedActualFailureRectifiedDate.value = null;
-            Get.back();
-          },
         ),
-        barrierDismissible: false,
-      );
-    }
+
+        confirmText: "Save",
+        cancelText: "Cancel",
+
+        onConfirm: () {
+          Get.back();
+        },
+
+        onCancel: () {
+          selectedActualFailureRectifiedDate.value = null;
+          Get.back();
+        },
+      ),
+      barrierDismissible: false,
+    );
+  }
 
 
   final selectedFailureCompletedDate = Rxn<DateTime>();
@@ -410,7 +227,6 @@ class CreateFailureController extends GetxController {
   final notificationHistoryList = <NotificationActionHistory>[].obs;
   final notificationDescriptionHistoryList = <NotificationHistory>[].obs;
 
-  // Joint Inspection Specific
   final isFromJointInspection = false.obs;
   final jiUserRemarkController = TextEditingController();
   final jiDepartment = RxnString();
@@ -426,6 +242,7 @@ class CreateFailureController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _syncService = Get.find<MasterDataSyncService>();
     _initializeAllData();
   }
 
@@ -446,39 +263,107 @@ class CreateFailureController extends GetxController {
   }
 
   Future<void> _loadDepartments() async {
-    final depts = await LocalDatabaseService().getDepartments();
+    final depts = (await LocalDatabaseService().getDepartments()).map((e) => e.toJson()).toList();
     masterDepartments.assignAll(depts);
     debugPrint("Loaded ${depts.length} departments to masterDepartments");
+    
+    // If masterDepartments is empty, try to fetch departments from API
+    if (masterDepartments.isEmpty) {
+      debugPrint("masterDepartments empty, fetching from API");
+      try {
+        final apiClient = ApiClient();
+        final userId = int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
+        final response = await apiClient.post(
+          AppUrls.getMasterData,
+          body: {
+            "userId": userId,
+            "action": "GetDeptMasterData"
+          }
+        );
+        if (response.statusCode == 200) {
+          final Map<String, dynamic> jsonBody = jsonDecode(response.body);
+          if (jsonBody['success'] == true && jsonBody['data'] != null) {
+            List<dynamic> apiDepts = jsonBody['data']['departments'] ?? [];
+            if (apiDepts.isNotEmpty) {
+              final mappedDepts = apiDepts.map((e) => {
+                'deptId': e['deptId']?.toString(),
+                'deptName': e['deptName']?.toString(),
+                'workCenter': e['workCenter']?.toString() ?? '',
+              }).toList();
+              masterDepartments.assignAll(mappedDepts);
+              debugPrint("Loaded ${mappedDepts.length} departments from API");
+              // Update depts to use API data for departmentList
+              depts.clear();
+              depts.addAll(mappedDepts);
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint("Error fetching departments from API: $e");
+      }
+    }
 
-    // Unconditionally populate departmentList from local database
     departmentList.assignAll([
       LabelValue(label: 'Select', value: ''),
       ...depts.map((e) => LabelValue(
-            label: e['deptName']?.toString() ?? '',
-            value: e['deptId']?.toString() ?? '',
-          )),
+        label: e['deptName']?.toString() ?? '',
+        value: e['deptId']?.toString() ?? '',
+      )),
     ]);
   }
 
-  String? _getWorkCenterForDept(String? deptId) {
-    if (deptId == null || deptId.isEmpty) return null;
-    debugPrint("Searching deptId = $deptId");
+  String? _getWorkCenterForDept(String? deptId, {String? deptLabel}) {
+    debugPrint("_getWorkCenterForDept: deptId=$deptId, deptLabel=$deptLabel");
+    debugPrint("_getWorkCenterForDept: masterDepartments count=${masterDepartments.length}");
+    
+    // First try to get workCenter from departmentList (from API) using uniqueId
+    if (deptLabel != null && deptLabel.trim().isNotEmpty) {
+      final deptFromList = departmentList.firstWhere(
+            (e) => e.label == deptLabel,
+        orElse: () => LabelValue(),
+      );
+      if (deptFromList.uniqueId != null && deptFromList.uniqueId.toString().trim().isNotEmpty) {
+        debugPrint("_getWorkCenterForDept: Using workCenter from departmentList uniqueId: ${deptFromList.uniqueId}");
+        return deptFromList.uniqueId.toString();
+      }
+    }
+    
+    // Fallback to masterDepartments lookup
+    if (masterDepartments.isNotEmpty) {
+      debugPrint("_getWorkCenterForDept: sample masterDepartments=${masterDepartments.take(5).map((e) => '${e['deptId']}:${e['deptName']}:${e['workCenter']}').toList()}");
+    }
 
-    // Use cached departments
-    final dept = masterDepartments.firstWhere(
-          (e) => e['deptId'].toString() == deptId,
-      orElse: () => <String, dynamic>{},
-    );
+    Map<String, dynamic> dept = <String, dynamic>{};
 
-    debugPrint("Matched Department = $dept");
-    debugPrint("WorkCenter = ${dept['workCenter']}");
+    // 1) Try matching by ID
+    if (deptId != null && deptId.isNotEmpty) {
+      dept = masterDepartments.firstWhere(
+            (e) => e['deptId']?.toString() == deptId,
+        orElse: () => <String, dynamic>{},
+      );
+    }
+
+    // 2) Fall back to matching by name (handles ID-scheme mismatch between
+    // the failure-details API's departmentList and the locally-synced masterDepartments)
+    if (dept.isEmpty && deptLabel != null && deptLabel.trim().isNotEmpty) {
+      dept = masterDepartments.firstWhere(
+            (e) => (e['deptName']?.toString().trim().toLowerCase() ?? '') ==
+            deptLabel.trim().toLowerCase(),
+        orElse: () => <String, dynamic>{},
+      );
+      if (dept.isNotEmpty) {
+        debugPrint("_getWorkCenterForDept: matched by NAME fallback -> $dept");
+      }
+    }
+
+    debugPrint("_getWorkCenterForDept: Matched Department = $dept");
+    debugPrint("_getWorkCenterForDept: WorkCenter = ${dept['workCenter']}");
 
     return dept['workCenter']?.toString();
   }
 
   @override
   void onClose() {
-    // Text controllers
     failureDescriptionController.dispose();
     priorityDisplayController.dispose();
     departmentDisplayController.dispose();
@@ -523,412 +408,6 @@ class CreateFailureController extends GetxController {
     super.onClose();
   }
 
-  void addRcaDetail() {
-    final objectPartId = objectDataList
-        .firstWhere((e) => e.label == selectedObjectPart.value,
-            orElse: () => LabelValue(value: "0"))
-        .value;
-    final faultId = faultTypeList
-        .firstWhere((e) => e.label == selectedFault.value,
-            orElse: () => LabelValue(value: "0"))
-        .value;
-
-    rcaDetailsList.add({
-      'ObjectPartId': objectPartId,
-      'objectPart': selectedObjectPart.value ?? "",
-      'objectPartText': objectPartTextController.text,
-      'FaultId': faultId,
-      'fault': selectedFault.value ?? "",
-      'faultText': faultTextController.text,
-      'rootCauses': <Map<String, dynamic>>[],
-      'actionTakens': <Map<String, dynamic>>[],
-    });
-    // Clear temp inputs
-    selectedObjectPart.value = null;
-    objectPartTextController.clear();
-    selectedFault.value = null;
-    faultTextController.clear();
-  }
-
-  void removeRcaDetail(Map<String, dynamic> item) {
-    rcaDetailsList.remove(item);
-  }
-
-  void addRootCauseToRca(int index) {
-    if (selectedPopupRootCause.value == null &&
-        popupRootCauseTextController.text.trim().isEmpty) {
-      _showErrorDialog('Please select or enter a Root Cause before adding.');
-      return;
-    }
-
-    final List<Map<String, dynamic>> rootCauses =
-        List.from(rcaDetailsList[index]['rootCauses']);
-    rootCauses.add({
-      'rootCause': selectedPopupRootCause.value ?? "N/A",
-      'rootCauseText': popupRootCauseTextController.text,
-      'imagePath': popupRootCauseFiles.isNotEmpty
-          ? popupRootCauseFiles.first['path']
-          : null,
-    });
-
-    rcaDetailsList[index]['rootCauses'] = rootCauses;
-    rcaDetailsList.refresh();
-
-    // Clear popup state
-    selectedPopupRootCause.value = null;
-    popupRootCauseTextController.clear();
-    popupRootCauseFiles.clear();
-  }
-
-  void removeRootCauseFromRca(int rcaIndex, int itemIndex) {
-    final List<Map<String, dynamic>> rootCauses =
-        List.from(rcaDetailsList[rcaIndex]['rootCauses']);
-    rootCauses.removeAt(itemIndex);
-    rcaDetailsList[rcaIndex]['rootCauses'] = rootCauses;
-    rcaDetailsList.refresh();
-  }
-
-  void addActionTakenToRca(int index) {
-    if (selectedPopupActionTaken.value == null &&
-        popupActionTakenTextController.text.trim().isEmpty) {
-      _showErrorDialog('Please select or enter an Action Taken before adding.');
-      return;
-    }
-
-    final List<Map<String, dynamic>> actionTakens =
-        List.from(rcaDetailsList[index]['actionTakens']);
-    actionTakens.add({
-      'actionTaken': selectedPopupActionTaken.value ?? "N/A",
-      'actionTakenText': popupActionTakenTextController.text,
-      'imagePath': popupActionTakenFiles.isNotEmpty
-          ? popupActionTakenFiles.first['path']
-          : null,
-    });
-
-    rcaDetailsList[index]['actionTakens'] = actionTakens;
-    rcaDetailsList.refresh();
-
-    // Clear popup state
-    selectedPopupActionTaken.value = null;
-    popupActionTakenTextController.clear();
-    popupActionTakenFiles.clear();
-  }
-
-  void removeActionTakenFromRca(int rcaIndex, int itemIndex) {
-    final List<Map<String, dynamic>> actionTakens =
-        List.from(rcaDetailsList[rcaIndex]['actionTakens']);
-    actionTakens.removeAt(itemIndex);
-    rcaDetailsList[rcaIndex]['actionTakens'] = actionTakens;
-    rcaDetailsList.refresh();
-  }
-
-  void addToTempRootCauses() {
-    final rootCauseId = rootCauseList
-            .firstWhere((e) => e.label == selectedPopupRootCause.value,
-                orElse: () => LabelValue(value: "0"))
-            .value ??
-        "0";
-    tempPopupRootCauses.add({
-      'rootCauseId': rootCauseId,
-      'rootCause': selectedPopupRootCause.value ?? "N/A",
-      'rootCauseText': popupRootCauseTextController.text,
-      'imagePath': popupRootCauseFiles.isNotEmpty
-          ? popupRootCauseFiles.first['path']
-          : null,
-    });
-    // Clear current inputs
-    selectedPopupRootCause.value = null;
-    popupRootCauseTextController.clear();
-    popupRootCauseFiles.clear();
-  }
-
-  void addToTempActionTakens() {
-    final actionTakenId = actionTakenList
-            .firstWhere((e) => e.label == selectedPopupActionTaken.value,
-                orElse: () => LabelValue(value: "0"))
-            .value ??
-        "0";
-    tempPopupActionTakens.add({
-      'actionTakenId': actionTakenId,
-      'actionTaken': selectedPopupActionTaken.value ?? "N/A",
-      'actionTakenText': popupActionTakenTextController.text,
-      'imagePath': popupActionTakenFiles.isNotEmpty
-          ? popupActionTakenFiles.first['path']
-          : null,
-    });
-    // Clear current inputs
-    selectedPopupActionTaken.value = null;
-    popupActionTakenTextController.clear();
-    popupActionTakenFiles.clear();
-  }
-
-  void savePopupDataToRca(int index) {
-    final List<Map<String, dynamic>> rootCauses =
-        List.from(rcaDetailsList[index]['rootCauses']);
-    final List<Map<String, dynamic>> actionTakens =
-        List.from(rcaDetailsList[index]['actionTakens']);
-
-    rootCauses.addAll(tempPopupRootCauses);
-    actionTakens.addAll(tempPopupActionTakens);
-
-    rcaDetailsList[index]['rootCauses'] = rootCauses;
-    rcaDetailsList[index]['actionTakens'] = actionTakens;
-    rcaDetailsList.refresh();
-
-    clearPopupState();
-  }
-
-  void clearPopupState() {
-    tempPopupRootCauses.clear();
-    tempPopupActionTakens.clear();
-    selectedPopupRootCause.value = null;
-    selectedPopupActionTaken.value = null;
-    popupRootCauseTextController.clear();
-    popupActionTakenTextController.clear();
-    popupRootCauseFiles.clear();
-    popupActionTakenFiles.clear();
-  }
-
-  void toggleRcaExpansion(int index) {
-    isExpandedRca[index] = !(isExpandedRca[index] ?? false);
-  }
-
-  final isExpandedReplaced = <int, bool>{}.obs;
-  final isExpandedDismantle = <int, bool>{}.obs;
-
-  void toggleReplacedExpansion(int index) {
-    isExpandedReplaced[index] = !(isExpandedReplaced[index] ?? false);
-  }
-
-  void toggleDismantleExpansion(int index) {
-    isExpandedDismantle[index] = !(isExpandedDismantle[index] ?? false);
-  }
-
-  int _materialRecordId(Map<String, dynamic> item) {
-    final raw = item['id'] ??
-        item['Id'] ??
-        item['materialReqId'] ??
-        item['MaterialReqId'];
-    if (raw is int) return raw;
-    return int.tryParse(raw?.toString() ?? '') ?? 0;
-  }
-
-  int _resolveMaterialId(Map<String, dynamic> item) {
-    final fromItem =
-        item['Materialid'] ?? item['MaterialId'] ?? item['materialid'];
-    if (fromItem != null) {
-      if (fromItem is int) return fromItem;
-      final parsed = int.tryParse(fromItem.toString());
-      if (parsed != null && parsed > 0) return parsed;
-    }
-    final code =
-        (item['MaterialName'] ?? item['materialCode'])?.toString().trim() ?? '';
-    if (code.isEmpty) return 0;
-    final match = materialDataList.firstWhere(
-      (m) => m.label?.trim() == code,
-      orElse: () => LabelValue(value: "0"),
-    );
-    return int.tryParse(match.value ?? '0') ?? 0;
-  }
-
-  int _resolveStorageLocationId(Map<String, dynamic> item) {
-    final fromItem = item['StorageLocation'] ?? item['storageLocation'];
-    if (fromItem is int && fromItem > 0) return fromItem;
-    final parsed = int.tryParse(fromItem?.toString() ?? '');
-    if (parsed != null && parsed > 0) return parsed;
-    final label = (item['storeLocation'] ?? item['storageLocationValue'])
-            ?.toString()
-            .trim() ??
-        '';
-    if (label.isEmpty) return 0;
-    final match = storageLocationList.firstWhere(
-      (s) => s.label?.trim() == label,
-      orElse: () => LabelValue(value: "0"),
-    );
-    return int.tryParse(match.value ?? '0') ?? 0;
-  }
-
-  List<Map<String, dynamic>> _materialsForSubmit() {
-    final seenIds = <int>{};
-    final result = <Map<String, dynamic>>[];
-    for (final item in replacedMaterialsList) {
-      final code = item['materialCode']?.toString().trim() ?? '';
-      if (code.isEmpty) continue;
-      final recordId = _materialRecordId(item);
-      if (recordId > 0) {
-        if (seenIds.contains(recordId)) continue;
-        seenIds.add(recordId);
-      }
-      result.add(item);
-    }
-    return result;
-  }
-
-  Map<String, dynamic> _buildMaterialPayload(Map<String, dynamic> e) {
-    final recordId = _materialRecordId(e);
-    final isExisting = recordId > 0;
-    final statusId = isExisting ? 2 : 1;
-    return {
-      "Materialid": _resolveMaterialId(e),
-      "MaterialValue": e['MaterialName'] ?? e['materialCode'] ?? "",
-      "Quantity": int.tryParse(e['requiredQty']?.toString() ??
-              e['Quantity']?.toString() ??
-              "0") ??
-          0,
-      "UnitMeasurement": e['uom'] ?? e['UnitMeasurement'] ?? "",
-      "IssuedQty": int.tryParse(e['issuedQty']?.toString() ?? "0") ?? 0,
-      "UsedQty": int.tryParse(
-              e['usedQty']?.toString() ?? e['UsedQty']?.toString() ?? "0") ??
-          0,
-      "BalanceQty": int.tryParse(e['balanceQty']?.toString() ??
-              e['BalanceQty']?.toString() ??
-              "0") ??
-          0,
-      "RemainingBalanceQTY": e['RemainingBalanceQTY'] ?? 0,
-      "StorageLocation": _resolveStorageLocationId(e),
-      "InsertUpdateStatusId": statusId,
-      "CurrentInsertUpdateStatusId": statusId,
-      "Id": recordId,
-    };
-  }
-
-  void addReplacedMaterial() {
-    if (selectedMaterialCode.value != null) {
-      if (editingReplacedMaterialIndex.value >= 0) {
-        final existing =
-            replacedMaterialsList[editingReplacedMaterialIndex.value];
-        existing['materialCode'] = selectedMaterialCode.value;
-        existing['uom'] = uomController.text;
-        existing['storeLocation'] = selectedStoreLocation.value;
-        existing['balanceQty'] = balanceQtyController.text;
-        existing['requiredQty'] = requiredQtyController.text;
-        replacedMaterialsList.refresh();
-        editingReplacedMaterialIndex.value = -1;
-      } else {
-        final newIndex = replacedMaterialsList.length;
-        replacedMaterialsList.add({
-          'materialCode': selectedMaterialCode.value,
-          'uom': uomController.text,
-          'storeLocation': selectedStoreLocation.value,
-          'balanceQty': balanceQtyController.text,
-          'requiredQty': requiredQtyController.text,
-          'issuedQty': "0",
-          'usedQty': "",
-        });
-        // Auto-expand the newly added item
-        isExpandedReplaced[newIndex] = true;
-      }
-
-      // Clear inputs
-      selectedMaterialCode.value = null;
-      uomController.clear();
-      selectedStoreLocation.value = null;
-      balanceQtyController.clear();
-      requiredQtyController.clear();
-    }
-  }
-
-  void editReplacedMaterial(int index) {
-    final item = replacedMaterialsList[index];
-    selectedMaterialCode.value = item['materialCode'];
-    uomController.text = item['uom'] ?? "";
-    selectedStoreLocation.value = item['storeLocation'];
-    balanceQtyController.text = item['balanceQty']?.toString() ?? "";
-    requiredQtyController.text = item['requiredQty']?.toString() ?? "";
-    editingReplacedMaterialIndex.value = index;
-  }
-
-  void removeReplacedMaterial(int index) {
-    replacedMaterialsList.removeAt(index);
-    isExpandedReplaced.remove(index);
-    // Dispose and remove the controller and focus node for this index
-    usedQtyControllers[index]?.dispose();
-    usedQtyControllers.remove(index);
-    usedQtyFocusNodes[index]?.dispose();
-    usedQtyFocusNodes.remove(index);
-    // Rebuild controllers for remaining items
-    _rebuildUsedQtyControllers();
-    if (editingReplacedMaterialIndex.value == index) {
-      editingReplacedMaterialIndex.value = -1;
-      selectedMaterialCode.value = null;
-      uomController.clear();
-      selectedStoreLocation.value = null;
-      balanceQtyController.clear();
-      requiredQtyController.clear();
-    }
-  }
-
-  void _rebuildUsedQtyControllers() {
-    // Clear existing controllers and focus nodes
-    for (final controller in usedQtyControllers.values) {
-      controller.dispose();
-    }
-    for (final focusNode in usedQtyFocusNodes.values) {
-      focusNode.dispose();
-    }
-    usedQtyControllers.clear();
-    usedQtyFocusNodes.clear();
-    // Rebuild controllers for current list
-    for (int i = 0; i < replacedMaterialsList.length; i++) {
-      usedQtyControllers[i] = TextEditingController(text: replacedMaterialsList[i]['usedQty']?.toString() ?? '');
-      usedQtyFocusNodes[i] = FocusNode();
-    }
-  }
-
-  void addDismantleMaterial() {
-    if (selectedDismantleMaterialCode.value != null) {
-      if (editingDismantleMaterialIndex.value >= 0) {
-        final existing =
-            dismantleMaterialsList[editingDismantleMaterialIndex.value];
-        existing['materialCode'] = selectedDismantleMaterialCode.value;
-        existing['oldSerialNo'] = oldSerialNumberController.text;
-        existing['dismantleDate'] = oldSerialDismantleDate.value;
-        existing['newSerialNo'] = newSerialNumberController.text;
-        existing['installationDate'] = newSerialInstallationDate.value;
-        dismantleMaterialsList.refresh();
-        editingDismantleMaterialIndex.value = -1;
-      } else {
-        dismantleMaterialsList.add({
-          'materialCode': selectedDismantleMaterialCode.value,
-          'oldSerialNo': oldSerialNumberController.text,
-          'dismantleDate': oldSerialDismantleDate.value,
-          'newSerialNo': newSerialNumberController.text,
-          'installationDate': newSerialInstallationDate.value,
-        });
-      }
-
-      // Clear inputs
-      selectedDismantleMaterialCode.value = null;
-      oldSerialNumberController.clear();
-      oldSerialDismantleDate.value = null;
-      newSerialNumberController.clear();
-      newSerialInstallationDate.value = null;
-    }
-  }
-
-  void editDismantleMaterial(int index) {
-    final item = dismantleMaterialsList[index];
-    selectedDismantleMaterialCode.value = item['materialCode'];
-    oldSerialNumberController.text = item['oldSerialNo'] ?? "";
-    oldSerialDismantleDate.value = item[
-        'dismantleDate']; // Note: if coming from API, it might be in dismantleDateRaw. We should parse it if needed, or leave it for the user to reselect.
-    newSerialNumberController.text = item['newSerialNo'] ?? "";
-    newSerialInstallationDate.value = item['installationDate'];
-    editingDismantleMaterialIndex.value = index;
-  }
-
-  void removeDismantleMaterial(int index) {
-    dismantleMaterialsList.removeAt(index);
-    if (editingDismantleMaterialIndex.value == index) {
-      editingDismantleMaterialIndex.value = -1;
-      selectedDismantleMaterialCode.value = null;
-      oldSerialNumberController.clear();
-      oldSerialDismantleDate.value = null;
-      newSerialNumberController.clear();
-      newSerialInstallationDate.value = null;
-    }
-  }
-
   final editingJointInspectionIndex = (-1).obs;
 
   int _resolveNotificationId() {
@@ -946,15 +425,15 @@ class CreateFailureController extends GetxController {
     final notifId = _resolveNotificationId();
     return jointInspectionHistoryList
         .map((item) => {
-              "JIId": item.jiId ?? 0,
-              "Remark": item.remark ?? "",
-              "AssignedTo": item.assignedTo?.toString() ?? "0",
-              "DeptId": item.deptId?.toString() ?? "0",
-              "NotificationId": notifId,
-              "CreatedBy": item.createdBy ?? 0,
-              "Type": item.type ?? "AddNewJointInspection",
-              "CreatedByName": item.createdByName ?? "",
-            })
+      "JIId": item.jiId ?? 0,
+      "Remark": item.remark ?? "",
+      "AssignedTo": item.assignedTo?.toString() ?? "0",
+      "DeptId": item.deptId?.toString() ?? "0",
+      "NotificationId": notifId,
+      "CreatedBy": item.createdBy ?? 0,
+      "Type": item.type ?? "AddNewJointInspection",
+      "CreatedByName": item.createdByName ?? "",
+    })
         .toList();
   }
 
@@ -976,10 +455,9 @@ class CreateFailureController extends GetxController {
     final deptId = item.deptId;
     if (deptId != null && deptId.toString().isNotEmpty) {
       fetchJointInspectionUsers(deptId.toString()).then((_) {
-        // Try to match exact label
         final matched = jointUserList.firstWhere(
-            (e) =>
-                e.label == item.assignedUserName ||
+                (e) =>
+            e.label == item.assignedUserName ||
                 e.value == item.assignedTo?.toString(),
             orElse: () => LabelValue(label: null));
         selectedJointAssignTo.value = matched.label;
@@ -991,13 +469,12 @@ class CreateFailureController extends GetxController {
   }
 
   Future<void> addJointInspectionHistory() async {
-    // Validation
     final dept = jointInspectionDepartments.firstWhere(
-      (e) => e.label == selectedJointDept.value,
+          (e) => e.label == selectedJointDept.value,
       orElse: () => LabelValue(value: '0'),
     );
     final alreadyExists = jointInspectionHistoryList.any((item) =>
-        item.deptName == selectedJointDept.value ||
+    item.deptName == selectedJointDept.value ||
         item.deptId?.toString() == dept.value);
     if (alreadyExists) {
       _showErrorDialog(
@@ -1009,6 +486,10 @@ class CreateFailureController extends GetxController {
       _showErrorDialog(AppStrings.notificationIdUnresolvable);
       return;
     }
+    if (_syncService.isSyncing.value) {
+      Get.snackbar('Sync in Progress', 'Please wait for data sync to complete');
+      return;
+    }
     try {
       EasyLoading.show(status: AppStrings.adding);
       final userIdStr = await AuthManager().getUserId();
@@ -1017,7 +498,7 @@ class CreateFailureController extends GetxController {
           ? Get.find<SessionController>().userName.value
           : 'User';
       final assignTo = jointUserList.firstWhere(
-        (e) => e.label == selectedJointAssignTo.value,
+            (e) => e.label == selectedJointAssignTo.value,
         orElse: () => LabelValue(value: '0'),
       );
       final body = {
@@ -1044,6 +525,10 @@ class CreateFailureController extends GetxController {
 
   Future<void> updateJointInspectionHistory() async {
     if (editingJointInspectionIndex.value < 0) return;
+    if (_syncService.isSyncing.value) {
+      Get.snackbar('Sync in Progress', 'Please wait for data sync to complete');
+      return;
+    }
     try {
       EasyLoading.show(status: AppStrings.updating);
       final userIdStr = await AuthManager().getUserId();
@@ -1052,11 +537,11 @@ class CreateFailureController extends GetxController {
           ? Get.find<SessionController>().userName.value
           : 'User';
       final dept = jointInspectionDepartments.firstWhere(
-        (e) => e.label == selectedJointDept.value,
+            (e) => e.label == selectedJointDept.value,
         orElse: () => LabelValue(value: '0'),
       );
       final assignTo = jointUserList.firstWhere(
-        (e) => e.label == selectedJointAssignTo.value,
+            (e) => e.label == selectedJointAssignTo.value,
         orElse: () => LabelValue(value: '0'),
       );
       final notifId = _resolveNotificationId();
@@ -1094,7 +579,7 @@ class CreateFailureController extends GetxController {
 
   void _updateJointInspectionList(List<dynamic> output) {
     jointInspectionHistoryList.assignAll(
-      output.map((e) => JointInspectionHistory.fromJson(e as Map<String, dynamic>)).toList()
+        output.map((e) => JointInspectionHistory.fromJson(e as Map<String, dynamic>)).toList()
     );
   }
 
@@ -1104,7 +589,7 @@ class CreateFailureController extends GetxController {
       return null;
     }
     final matched = list.firstWhere(
-      (e) => e.value?.toString().trim() == valueText,
+          (e) => e.value?.toString().trim() == valueText,
       orElse: () => LabelValue(label: null),
     );
     return matched.label?.toString().trim().isNotEmpty == true
@@ -1118,8 +603,6 @@ class CreateFailureController extends GetxController {
   }
 
   String _mapFailureTypeIdToMaterialType(int? failureTypeId) {
-    // Map failureTypeId to material type string
-    // Adjust these mappings based on your actual API values
     switch (failureTypeId) {
       case 1:
         return "Software";
@@ -1130,7 +613,7 @@ class CreateFailureController extends GetxController {
       case 4:
         return "Other";
       default:
-        return "Other"; // Default fallback
+        return "";
     }
   }
 
@@ -1178,7 +661,7 @@ class CreateFailureController extends GetxController {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.textColor4,
+                  color: AppColors.textDarkSecondary,
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -1192,7 +675,7 @@ class CreateFailureController extends GetxController {
                   children: [
                     const CustLoader(),
                     const SizedBox(height: 16),
-                    const Text("Fetching stations...", style: TextStyle(color: AppColors.textColor3)),
+                    const Text("Fetching stations...", style: TextStyle(color: AppColors.textDarkSecondary)),
                   ],
                 );
               }
@@ -1208,10 +691,10 @@ class CreateFailureController extends GetxController {
                         Get.back();
                         Get.back();
                       },
-                      child: const Icon(TablerIcons.x, color: AppColors.textColor, size: 24),
+                      child: const Icon(TablerIcons.x, color: AppColors.textDarkPrimary, size: 24),
                     ),
                   ),
-                  CustText(name: "Select Station", size: AppConstants.HeaderSize, color: AppColors.textColor7, fontWeightName: FontWeight.w600),
+                  CustText(name: "Select Station", size: AppConstants.headerSize, color: AppColors.black, fontWeightName: FontWeight.w600),
                   const SizedBox(height: 16),
                   CustDropdown(
                     label: "Station",
@@ -1224,7 +707,7 @@ class CreateFailureController extends GetxController {
                       session.selectedStationName.value = val;
                       session.selectedStationId.value = popupStationList
                           .firstWhere((e) => e.label == val,
-                              orElse: () => LabelValue(value: "0"))
+                          orElse: () => LabelValue(value: "0"))
                           .value;
                     },
                   ),
@@ -1306,9 +789,8 @@ class CreateFailureController extends GetxController {
         debugPrint("GetJointInspectionJEScreenDetails responseOutput keys: ${responseOutput?.keys.toList()}");
 
         if (jsonBody['responseCode'] == 200 && responseOutput != null) {
-          // Populate dropdown lists from top-level arrays
           final List<dynamic>? deptListJson =
-              responseOutput['department'] as List?;
+          responseOutput['department'] as List?;
           if (deptListJson != null) {
             departmentList.assignAll(deptListJson
                 .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
@@ -1317,7 +799,7 @@ class CreateFailureController extends GetxController {
             debugPrint("JI departmentList first 3: ${departmentList.take(3).toList()}");
           }
           final List<dynamic>? userListJson =
-              responseOutput['personResponsible'] as List?;
+          responseOutput['personResponsible'] as List?;
           if (userListJson != null) {
             userList.assignAll(userListJson
                 .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
@@ -1326,7 +808,7 @@ class CreateFailureController extends GetxController {
             debugPrint("JI userList first 3: ${userList.take(3).toList()}");
           }
           final List<dynamic>? funcLocJson =
-              responseOutput['functionalLocation'] as List?;
+          responseOutput['functionalLocation'] as List?;
           if (funcLocJson != null) {
             final filtered = funcLocJson
                 .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
@@ -1347,14 +829,14 @@ class CreateFailureController extends GetxController {
             debugPrint("JI equipmentList populated with ${equipmentList.length} items");
           }
           final List<dynamic>? objPartJson =
-              responseOutput['objectPart'] as List?;
+          responseOutput['objectPart'] as List?;
           if (objPartJson != null) {
             objectDataList.assignAll(objPartJson
                 .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
                 .toList());
           }
           final List<dynamic>? matCodeJson =
-              responseOutput['materialCode'] as List?;
+          responseOutput['materialCode'] as List?;
           if (matCodeJson != null) {
             materialDataList.assignAll(matCodeJson
                 .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
@@ -1363,32 +845,30 @@ class CreateFailureController extends GetxController {
           final List<dynamic>? statusJson = responseOutput['status'] as List?;
           if (statusJson != null) {
             userStatusList.assignAll((statusJson
-                    .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                    .toList())
+                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
+                .toList())
                 .where((status) {
               final val = int.tryParse(status.value ?? "999") ?? 999;
               return val == 0 || val <= 29;
             }).toList());
           }
 
-          // Parse notification history
           final List<dynamic>? historyJson =
-              responseOutput['notificationHistory'] as List?;
+          responseOutput['notificationHistory'] as List?;
           if (historyJson != null) {
             notificationDescriptionHistoryList.assignAll(historyJson
                 .map((e) => NotificationHistory.fromJson(
-                    e as Map<String, dynamic>))
+                e as Map<String, dynamic>))
                 .toList());
           }
 
-          // Parse notification action history (for Action By dialog)
           final List<dynamic>? actionHistoryJson =
               responseOutput['notificationActionHistory'] as List? ??
-              responseOutput['getNotificationActionUserHistory'] as List?;
+                  responseOutput['getNotificationActionUserHistory'] as List?;
           if (actionHistoryJson != null) {
             notificationHistoryList.assignAll(actionHistoryJson
                 .map((e) => NotificationActionHistory.fromJson(
-                    e as Map<String, dynamic>))
+                e as Map<String, dynamic>))
                 .toList());
             debugPrint("JI notificationHistoryList populated with ${notificationHistoryList.length} items");
           }
@@ -1408,17 +888,17 @@ class CreateFailureController extends GetxController {
           if (je != null) {
             final detailFailureNo = je['Id']?.toString().trim();
             final detailNotificationId =
-                je['notificationId']?.toString().trim();
+            je['notificationId']?.toString().trim();
             notificationId.value =
                 int.tryParse(detailNotificationId ?? "") ?? 0;
             jointInspectionFailureNo.value =
-                je['failureNo']?.toString().trim().isNotEmpty == true
-                    ? je['failureNo'].toString().trim()
-                    : detailFailureNo?.isNotEmpty == true
-                        ? detailFailureNo!
-                        : detailNotificationId?.isNotEmpty == true
-                            ? detailNotificationId!
-                            : "";
+            je['failureNo']?.toString().trim().isNotEmpty == true
+                ? je['failureNo'].toString().trim()
+                : detailFailureNo?.isNotEmpty == true
+                ? detailFailureNo!
+                : detailNotificationId?.isNotEmpty == true
+                ? detailNotificationId!
+                : "";
             notificationCode.value = je['notificationCode'] ?? "";
             mainStatusName.value = je['status'];
             selectedPriority.value = je['priorityType'];
@@ -1427,19 +907,23 @@ class CreateFailureController extends GetxController {
 
             selectedDepartment.value = departmentList
                 .firstWhere((e) => e.value == je['deptId']?.toString(),
-                    orElse: () => LabelValue(label: ""))
+                orElse: () => LabelValue(label: ""))
                 .label;
             departmentDisplayController.text =
                 selectedDepartment.value ?? je['deptId']?.toString() ?? "";
 
+            debugPrint("JE: selectedDepartment.value=${selectedDepartment.value}");
+            debugPrint("JE: departmentList sample: ${departmentList.take(3).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
+            
+            // Filter functional locations based on department's workCenter
+            _updateFunctionalLocationAndEquipmentOptions();
+
             selectedLocation.value = je['locationTypeName']?.toString();
-            // Use functionalLocationName (full display name) from API response
             final funcLocName = (_textOrNull(je['functionalLocationName']) ??
-                    _labelForValue(functionalLocationList, je['functionLocationId']));
+                _labelForValue(functionalLocationList, je['functionLocationId']));
             selectedFunctionalLocation.value = funcLocName;
-            // Use equipmentName from API response
             final equipName = (_textOrNull(je['equipmentName']) ??
-                    _labelForValue(equipmentList, je['equipmentId']));
+                _labelForValue(equipmentList, je['equipmentId']));
             selectedEquipmentNumber.value = equipName;
             locationDisplayController.text = selectedLocation.value ?? "";
             functionalLocationDisplayController.text =
@@ -1448,18 +932,17 @@ class CreateFailureController extends GetxController {
 
             debugPrint('Joint Inspection: actualFailureOccuranceOn from API = ${je['actualFailureOccuranceOn']}');
             selectedFailureOccurrenceDate.value =
-                je['actualFailureOccuranceOn'] != null
-                    ? _parseDate(je['actualFailureOccuranceOn']!)
-                    : null;
+            je['actualFailureOccuranceOn'] != null
+                ? _parseDate(je['actualFailureOccuranceOn']!)
+                : null;
             debugPrint('Joint Inspection: selectedFailureOccurrenceDate = ${selectedFailureOccurrenceDate.value}');
 
             selectedPersonResponsible.value =
                 _labelForValue(userList, je['personResponsible']);
-            // Fallback: if not found in userList, show raw ID value
             personResponsibleDisplayController.text =
                 selectedPersonResponsible.value ??
-                je['personResponsible']?.toString() ??
-                "";
+                    je['personResponsible']?.toString() ??
+                    "";
 
             isPtwRequired.value = je['isPTWReq'] ?? false;
             if (isPtwRequired.value) {
@@ -1470,9 +953,9 @@ class CreateFailureController extends GetxController {
                 ? _parseDate(je['failureAttendedOn']!)
                 : null;
             selectedActualFailureRectifiedDate.value =
-                je['actualFailureRectifiedOn'] != null
-                    ? _parseDate(je['actualFailureRectifiedOn']!)
-                    : null;
+            je['actualFailureRectifiedOn'] != null
+                ? _parseDate(je['actualFailureRectifiedOn']!)
+                : null;
 
             isServiceAffected.value = je['isServiceAffected'] ?? false;
             if (isServiceAffected.value) {
@@ -1498,7 +981,6 @@ class CreateFailureController extends GetxController {
             isSparePartReplaced.value = je['isHardwareReplaced'] ?? false;
             isSicRequired.value = je['isSICReq'] ?? false;
 
-            // Passenger Affected
             isPassengerAffected.value = je['isPassengerAffected'] ?? false;
             if (isPassengerAffected.value) {
               passengersAffectedCountController.text =
@@ -1509,14 +991,12 @@ class CreateFailureController extends GetxController {
                   je['rescuedDuration']?.toString() ?? "";
             }
 
-            // JI-specific fields from jeScreenDetails
             debugPrint("JI deptId_JI: ${je['deptId_JI']}, assignedUserId_JI: ${je['assignedUserId_JI']}");
             debugPrint("JI departmentList length: ${departmentList.length}, userList length: ${userList.length}");
             jiDepartment.value = _labelForValue(departmentList, je['deptId_JI']);
             jiAssignTo.value =
                 _labelForValue(userList, je['assignedUserId_JI']);
             debugPrint("JI jiDepartment.value: ${jiDepartment.value}, jiAssignTo.value: ${jiAssignTo.value}");
-            // Fallback: if lookup fails, try to display raw ID or alternative field names
             if (jiDepartment.value == null || jiDepartment.value!.isEmpty) {
               jiDepartment.value = je['deptId_JI']?.toString() ?? je['DeptId_JI']?.toString() ?? je['departmentName_JI']?.toString();
               debugPrint("JI jiDepartment fallback: ${jiDepartment.value}");
@@ -1527,6 +1007,10 @@ class CreateFailureController extends GetxController {
             }
             jiDepartmentDisplayController.text = jiDepartment.value ?? "";
             jiAssignToDisplayController.text = jiAssignTo.value ?? "";
+            
+            // Filter functional locations based on JI department's workCenter
+            _filterJiFunctionalLocations();
+            
             jiFunctionalLocation.value =
                 _textOrNull(je['functionalLocationName_JI']) ??
                     _labelForValue(
@@ -1544,9 +1028,8 @@ class CreateFailureController extends GetxController {
             selectedJiEquipmentNumber.value = jiEquipmentNumber.value;
           }
 
-          // Parse RCA from failureRectificationDetails (JI uses different keys)
           final List<dynamic>? rcaJson =
-              responseOutput['failureRectificationDetails'] as List?;
+          responseOutput['failureRectificationDetails'] as List?;
           if (rcaJson != null && rcaJson.isNotEmpty) {
             rcaDetailsList.clear();
             for (var fault in rcaJson) {
@@ -1554,10 +1037,10 @@ class CreateFailureController extends GetxController {
 
               final List<Map<String, dynamic>> matchedRootCauses = [];
               final List<dynamic>? rootCauseJson =
-                  responseOutput['failureRootCauseDetails'] as List?;
+              responseOutput['failureRootCauseDetails'] as List?;
               if (rootCauseJson != null) {
                 for (var rc
-                    in rootCauseJson.where((r) => r['RectId'] == rectId)) {
+                in rootCauseJson.where((r) => r['RectId'] == rectId)) {
                   matchedRootCauses.add({
                     'rootCauseId': rc['RectId']?.toString() ?? "0",
                     'rootCause': rc['RCADescs'] ?? "N/A",
@@ -1569,7 +1052,7 @@ class CreateFailureController extends GetxController {
 
               final List<Map<String, dynamic>> matchedActions = [];
               final List<dynamic>? actionJson =
-                  responseOutput['failureActionDetails'] as List?;
+              responseOutput['failureActionDetails'] as List?;
               if (actionJson != null) {
                 for (var ac in actionJson.where((a) => a['RectId'] == rectId)) {
                   matchedActions.add({
@@ -1594,12 +1077,11 @@ class CreateFailureController extends GetxController {
             }
           }
 
-          // Parse images
           beforeImagesList.clear();
           afterImagesList.clear();
           rcaImagesList.clear();
           final List<dynamic>? beforeImgs =
-              responseOutput['beforeImageDetails'] as List?;
+          responseOutput['beforeImageDetails'] as List?;
           if (beforeImgs != null) {
             for (var img in beforeImgs) {
               final fileName = img['FileName']?.toString() ?? '';
@@ -1613,7 +1095,7 @@ class CreateFailureController extends GetxController {
             }
           }
           final List<dynamic>? afterImgs =
-              responseOutput['afterImageDetails'] as List?;
+          responseOutput['afterImageDetails'] as List?;
           if (afterImgs != null) {
             for (var img in afterImgs) {
               final fileName = img['FileName']?.toString() ?? '';
@@ -1627,7 +1109,7 @@ class CreateFailureController extends GetxController {
             }
           }
           final List<dynamic>? rcaImgs =
-              responseOutput['rcaImageDetails'] as List?;
+          responseOutput['rcaImageDetails'] as List?;
           if (rcaImgs != null) {
             for (var img in rcaImgs) {
               final fileName = img['FileName']?.toString() ?? '';
@@ -1646,7 +1128,7 @@ class CreateFailureController extends GetxController {
         }
       } else {
         errorMessage.value =
-            "Failed to load data. Status code: ${response.statusCode}";
+        "Failed to load data. Status code: ${response.statusCode}";
       }
     } catch (e) {
       errorMessage.value = "An error occurred: $e";
@@ -1706,16 +1188,21 @@ class CreateFailureController extends GetxController {
       };
 
       final message = await _failureService.submitJIScreenData(payload);
+      Get.back(result: true);
       Get.snackbar(AppStrings.success, message,
           backgroundColor: Colors.green,
           colorText: Colors.white,
           snackPosition: SnackPosition.BOTTOM);
-      Get.back(result: true);
     } catch (e) {
       Get.snackbar(AppStrings.error, e.toString());
     } finally {
       EasyLoading.dismiss();
     }
+  }
+  List<JointInspectionHistory> _newestFirst(List<JointInspectionHistory> list) {
+    final sorted = List<JointInspectionHistory>.from(list);
+    sorted.sort((a, b) => (b.jiId ?? 0).compareTo(a.jiId ?? 0));
+    return sorted;
   }
 
   Future<void> loadFailureDetails(String failureNo) async {
@@ -1731,344 +1218,368 @@ class CreateFailureController extends GetxController {
       equipmentList.clear();
       await _loadMasterDataFromDb();
 
-      // Delegate HTTP call to service
       final result = await _failureService.getFailureDetails(failureNo);
 
       if (result.responseCode == 200 && result.responseOutput != null) {
-          final output = result.responseOutput!;
+        final output = result.responseOutput!;
 
-          notificationTypeList
-              .assignAll(output.getCorrNotificationTypeList ?? []);
-          natureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
-          departmentList.assignAll(output.getDepartmentList ?? []);
-          userList.assignAll(output.getUserList ?? []);
-          objectDataList.assignAll(output.getObjectData ?? []);
-          materialDataList.assignAll(output.getMaterialData ?? []);
-          final statuses = output.getUserStatus ?? [];
-          userStatusList.assignAll(statuses.where((status) {
-            final val = int.tryParse(status.value ?? "999") ?? 999;
-            return val == 0 || val <= 29;
-          }).toList());
-          storageLocationList.assignAll(output.getStorageLocation ?? []);
-          faultTypeList.assignAll(output.getFaultData ?? []);
-          _mergeLocationDropdownsFromOutput(output);
+        notificationTypeList
+            .assignAll(output.getCorrNotificationTypeList ?? []);
+        natureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
+        departmentList.assignAll(output.getDepartmentList ?? []);
+        userList.assignAll(output.getUserList ?? []);
+        objectDataList.assignAll(output.getObjectData ?? []);
+        materialDataList.assignAll(output.getMaterialData ?? []);
+        reasonForDelayList.assignAll(output.getReasonForDelayList ?? []);
+        final statuses = output.getUserStatus ?? [];
+        userStatusList.assignAll(statuses.where((status) {
+          final val = int.tryParse(status.value ?? "999") ?? 999;
+          return val == 0 || val <= 29;
+        }).toList());
+        storageLocationList.assignAll(output.getStorageLocation ?? []);
+        faultTypeList.assignAll(output.getFaultData ?? []);
+        _mergeLocationDropdownsFromOutput(output);
 
-          notificationHistoryList.assignAll(
-              output.getNotificationActionUserHistory ?? []);
+        notificationHistoryList.assignAll(
+            output.getNotificationActionUserHistory ?? []);
 
-          notificationDescriptionHistoryList.assignAll(
-              output.getNotificationHistory ?? []);
+        notificationDescriptionHistoryList.assignAll(
+            output.getNotificationHistory ?? []);
 
-          // Load joint inspection history from initial response
-          if (output.getJoinInspectionHistory != null) {
-            jointInspectionHistoryList.assignAll(
+        if (output.getJoinInspectionHistory != null) {
+          jointInspectionHistoryList.assignAll(
               output.getJoinInspectionHistory!
                   .map((item) => JointInspectionHistory.fromJson(item))
                   .toList()
+          );
+        }
+
+        if (output.getCreateVMModel != null) {
+          final model = output.getCreateVMModel!;
+          encryptedId.value = (model.id != null && model.id!.isNotEmpty)
+              ? model.id!
+              : failureNo;
+          notificationId.value = model.notificationId ?? 0;
+          notificationCode.value = model.notificationCode ?? "";
+          if (model.category != null && model.category!.trim().isNotEmpty) {
+            failureCategory.value = model.category!.trim();
+          }
+
+          _applyLocationSelectionsFromModel(model, output: output);
+          selectedDepartment.value = departmentList
+              .firstWhere(
+                  (e) =>
+              e.value == model.deptId?.toString() ||
+                  e.label == model.deptCode,
+              orElse: () => LabelValue(label: model.deptCode))
+              .label;
+
+          debugPrint("Main Failure: selectedDepartment.value=${selectedDepartment.value}");
+          debugPrint("Main Failure: departmentList sample: ${departmentList.take(3).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
+
+          _refilterFunctionalLocationForCurrentSelections();
+          _refilterEquipmentForCurrentSelections();
+          final funcLocEntry = masterFunctionalLocations.firstWhere(
+                (e) =>
+            e['funcLocId']?.toString() == model.functionLocationId?.toString() ||
+                e['funcLocation']?.toString() == model.funcLocation?.toString(),
+            orElse: () => <String, dynamic>{},
+          );
+          if (funcLocEntry.isNotEmpty) {
+            await _checkMeasurementPoints(funcLocEntry['objectNumber']?.toString());
+          } else {
+            debugPrint(
+              "Measurement check: no masterFunctionalLocations entry found for "
+                  "functionLocationId=${model.functionLocationId}, funcLocation=${model.funcLocation}",
             );
           }
+          subLocationController.text = model.locationFailure ?? "";
 
-          if (output.getCreateVMModel != null) {
-            final model = output.getCreateVMModel!;
-            encryptedId.value = (model.id != null && model.id!.isNotEmpty)
-                ? model.id!
-                : failureNo;
-            notificationId.value = model.notificationId ?? 0;
-            notificationCode.value = model.notificationCode ?? "";
-            if (model.category != null && model.category!.trim().isNotEmpty) {
-              failureCategory.value = model.category!.trim();
-            }
-
-            _applyLocationSelectionsFromModel(model, output: output);
-
-            subLocationController.text = model.locationFailure ?? "";
-
-            selectedPriority.value = model.priorityType;
-            selectedDepartment.value = departmentList
-                .firstWhere(
-                    (e) =>
-                        e.value == model.deptId?.toString() ||
-                        e.label == model.deptCode,
-                    orElse: () => LabelValue(label: model.deptCode))
-                .label;
-
-            selectedNotificationType.value = notificationTypeList
-                .firstWhere(
-                    (e) => e.value == model.corr_NotificationTypeId.toString(),
-                    orElse: () => LabelValue(label: null))
-                .label;
-
-            mainStatusName.value = model.mainStatusName;
-            final matchedUserStatus = output.getUserStatus?.firstWhere(
-                (e) => e.value == model.userStatus.toString(),
-                orElse: () => LabelValue(label: null));
-            selectedUserStatus.value = matchedUserStatus?.label;
-
-            if (model.assignedUserId != null) {
-              final matchedUser = userList.firstWhere(
+          selectedPriority.value = model.priorityType;
+          selectedDepartment.value = departmentList
+              .firstWhere(
                   (e) =>
-                      e.value?.toString().trim() ==
-                      model.assignedUserId.toString().trim(),
-                  orElse: () => LabelValue(label: null));
-              selectedPersonResponsible.value = matchedUser.label;
-              print(
-                  "personnnn matched====${selectedPersonResponsible.value} for ID: ${model.assignedUserId}");
-            } else {
-              selectedPersonResponsible.value = null;
-            }
-            if (output.getObjectANDFaultList != null) {
-              rcaDetailsList.clear();
-              for (var fault in output.getObjectANDFaultList!) {
-                final rectId = fault['rectId'];
+              e.value == model.deptId?.toString() ||
+                  e.label == model.deptCode,
+              orElse: () => LabelValue(label: model.deptCode))
+              .label;
 
-                final List<Map<String, dynamic>> matchedRootCauses = [];
-                if (output.getObjectANDFaultRootCauseList != null) {
-                  for (var rc in output.getObjectANDFaultRootCauseList!
-                      .where((r) => r['rectId'] == rectId)) {
-                    matchedRootCauses.add({
-                      'rootCauseId': rc['rcaId'].toString(),
-                      'rootCause': rc['rootCasueName'] ?? "N/A",
-                      'rootCauseText': rc['rcaText'] ?? "",
-                      'imagePath': null
-                    });
-                  }
-                }
+          selectedNotificationType.value = notificationTypeList
+              .firstWhere(
+                  (e) => e.value == model.corr_NotificationTypeId.toString(),
+              orElse: () => LabelValue(label: null))
+              .label;
 
-                final List<Map<String, dynamic>> matchedActions = [];
-                if (output.getObjectANDFaultActionList != null) {
-                  for (var ac in output.getObjectANDFaultActionList!
-                      .where((a) => a['rectId'] == rectId)) {
-                    matchedActions.add({
-                      'actionTakenId': ac['actionId'].toString(),
-                      'actionTaken': ac['actionName'] ?? "N/A",
-                      'actionTakenText': ac['actionText'] ?? "",
-                      'imagePath': null
-                    });
-                  }
-                }
+          mainStatusName.value = model.mainStatusName;
+          final matchedUserStatus = output.getUserStatus?.firstWhere(
+                  (e) => e.value == model.userStatus.toString(),
+              orElse: () => LabelValue(label: null));
+          selectedUserStatus.value = matchedUserStatus?.label;
 
-                rcaDetailsList.add({
-                  'ObjectPartId': fault['objectPartId']?.toString() ?? "0",
-                  'objectPart': fault['objectName'] ?? "",
-                  'objectPartText': fault['objectPartText'] ?? "",
-                  'FaultId': fault['faultId']?.toString() ?? "0",
-                  'fault': fault['faultName'] ?? "",
-                  'faultText': fault['faultText'] ?? "",
-                  'rootCauses': matchedRootCauses,
-                  'actionTakens': matchedActions,
-                });
-              }
-            }
+          if (model.assignedUserId != null) {
+            final matchedUser = userList.firstWhere(
+                    (e) =>
+                e.value?.toString().trim() ==
+                    model.assignedUserId.toString().trim(),
+                orElse: () => LabelValue(label: null));
+            selectedPersonResponsible.value = matchedUser.label;
+            debugPrint(
+                "personnnn matched====${selectedPersonResponsible.value} for ID: ${model.assignedUserId}");
+          } else {
+            selectedPersonResponsible.value = null;
+          }
+          if (output.getObjectANDFaultList != null) {
+            rcaDetailsList.clear();
+            for (var fault in output.getObjectANDFaultList!) {
+              final rectId = fault['rectId'];
 
-            if (output.getMaterialReqDetails != null) {
-              replacedMaterialsList.clear();
-              for (var mat in output.getMaterialReqDetails!) {
-                replacedMaterialsList.add({
-                  'id': mat['id'] ??
-                      mat['Id'] ??
-                      mat['materialReqId'] ??
-                      mat['MaterialReqId'] ??
-                      0,
-                  'Materialid': mat['materialid'] ??
-                      mat['materialId'] ??
-                      mat['Materialid'],
-                  'materialCode': mat['materialValue'] ?? "",
-                  'requiredQty': mat['quantity']?.toString() ?? "0",
-                  'uom': mat['unitOfMeasurement'] ?? "",
-                  'issuedQty': mat['issuedQty']?.toString() ?? "0",
-                  'usedQty': mat['usedQty']?.toString() ?? "0",
-                  'balanceQty': mat['balanceQty']?.toString() ?? "0",
-                  'RemainingBalanceQTY': mat['remainingBalanceQTY'] ?? 0,
-                  'StorageLocation': mat['storageLocation'],
-                  'storeLocation': mat['storageLocationValue'] ?? "",
-                });
-              }
-            }
-
-            if (output.getMaterialDismantleDetails != null) {
-              dismantleMaterialsList.clear();
-              for (var dis in output.getMaterialDismantleDetails!) {
-                dismantleMaterialsList.add({
-                  'id': dis['id'],
-                  'materialId': dis['materialId'],
-                  'materialCode': dis['materialValue'] ?? "",
-                  'oldSerialNo': dis['oldSerialNumber'] ?? "",
-                  'newSerialNo': dis['newSerialNumber'] ?? "",
-                  'dismantleDateRaw': dis['oldSerialNoDismantleDate'],
-                  'installationDateRaw': dis['newSerialNoInstallationDate'],
-                });
-              }
-            }
-
-            if (replacedMaterialsList.isNotEmpty) {
-              isSparePartReplaced.value = true;
-            }
-            if (dismantleMaterialsList.isNotEmpty) {
-              isMaterialDismantle.value = true;
-            }
-
-            if (output.getImageBefor != null) {
-              beforeImagesList.clear();
-              afterImagesList.clear();
-              rcaImagesList.clear();
-              for (var img in output.getImageBefor!) {
-                final fileName = img['fileName']?.toString() ?? '';
-                final docType = img['documentType']?.toString() ?? '';
-                if (fileName.isNotEmpty) {
-                  final imgMap = {
-                    'name': fileName.split('/').last,
-                    'path': fileName,
-                    'isNetwork': true
-                  };
-                  if (docType == 'BEFORE_NOT') {
-                    beforeImagesList.add(imgMap);
-                  } else if (docType == 'AFTER_NOT') {
-                    afterImagesList.add(imgMap);
-                  } else if (docType == 'RCA_NOT') {
-                    rcaImagesList.add(imgMap);
-                  } else {
-                    beforeImagesList.add(imgMap);
-                  }
+              final List<Map<String, dynamic>> matchedRootCauses = [];
+              if (output.getObjectANDFaultRootCauseList != null) {
+                for (var rc in output.getObjectANDFaultRootCauseList!
+                    .where((r) => r['rectId'] == rectId)) {
+                  matchedRootCauses.add({
+                    'rootCauseId': rc['rcaId'].toString(),
+                    'rootCause': rc['rootCasueName'] ?? "N/A",
+                    'rootCauseText': rc['rcaText'] ?? "",
+                    'imagePath': null
+                  });
                 }
               }
-            }
-            selectedMaterialType.value = _mapFailureTypeIdToMaterialType(model.failureTypeId);
-            isServiceAffected.value = model.isServiceAffected ?? false;
-            isJointInspection.value = model.isJointInspectionReq ?? false;
-            isSparePartReplaced.value = model.isHardwareReplaced ?? false;
-            isPtwRequired.value = model.isPTWReq ?? false;
-            ptwNumberController.text = model.ptwNo ?? "";
 
-            trainDelayMinController.text =
-                model.trainDelayInMin?.toString() ?? "";
-            trainDelayNosController.text =
-                model.trainDelayInNo?.toString() ?? "";
-            trainCancelNosController.text =
-                model.noOfTranCancel?.toString() ?? "";
-            trainWithdrawalNosController.text =
-                model.noOfTranWithdrawal?.toString() ?? "";
-            trainReplaceNosController.text =
-                model.noOfTrainReplace?.toString() ?? "";
-            isPassengerDeboarding.value = model.isPassengerDeboarding ?? false;
-            trainDeboardedNosController.text =
-                model.noofTrainDeboarded?.toString() ?? "";
-            _applyPassengerAffectedFromModel(model);
-
-            // Dates
-            selectedFailureOccurrenceDate.value =
-                model.actualFailureOccuranceOn != null
-                    ? _parseDate(model.actualFailureOccuranceOn!)
-                    : null;
-            selectedActualFailureRectifiedDate.value =
-                model.actualFailureRectifiedDate != null
-                    ? _parseDate(model.actualFailureRectifiedDate!)
-                    : null;
-            selectedFailureAttendedDate.value =
-                model.failureAttendedDate != null
-                    ? _parseDate(model.failureAttendedDate!)
-                    : null;
-            selectedUnderObservationDate.value =
-                (model.underObservationDate != null &&
-                        model.underObservationDate!.isNotEmpty)
-                    ? _parseDate(model.underObservationDate!)
-                    : null;
-
-            // Pre-populate RCA Details from model (if present)
-            if (model.getObjectANDFaultList != null &&
-                model.getObjectANDFaultList!.isNotEmpty) {
-              rcaDetailsList.clear();
-              for (var objFault in model.getObjectANDFaultList!) {
-                final rcaId = objFault['rectId'];
-                final objectPartId = objFault['objectPartId']?.toString();
-                final faultId = objFault['faultId']?.toString();
-
-                final rootCauses = (model.getObjectANDFaultRootCauseList ?? [])
-                    .where((rc) =>
-                        rc['rectId'] == rcaId &&
-                        rc['objectPartId'] == objFault['objectPartId'] &&
-                        rc['faultId'] == objFault['faultId'])
-                    .map((rc) => {
-                          'rootCauseId': rc['rcaId']?.toString() ?? "0",
-                          'rootCause': rc['rootCasueName'] ?? "N/A",
-                          'rootCauseText': rc['rcaText'] ?? "",
-                          'imagePath': null,
-                        })
-                    .toList();
-
-                final actions = (model.getObjectANDFaultActionList ?? [])
-                    .where((act) =>
-                        act['rectId'] == rcaId &&
-                        act['objectPartId'] == objFault['objectPartId'] &&
-                        act['faultId'] == objFault['faultId'])
-                    .map((act) => {
-                          'actionTakenId': act['actionId']?.toString() ?? "0",
-                          'actionTaken': act['actionName'] ?? "N/A",
-                          'actionTakenText': act['actionText'] ?? "",
-                          'imagePath': null,
-                        })
-                    .toList();
-
-                rcaDetailsList.add({
-                  'ObjectPartId': objFault['objectPartId']?.toString() ?? "0",
-                  'objectPart': objFault['objectName'] ?? "",
-                  'objectPartText': objFault['objectPartText'] ?? "",
-                  'FaultId': objFault['faultId']?.toString() ?? "0",
-                  'fault': objFault['faultName'] ?? "",
-                  'faultText': objFault['faultText'] ?? "",
-                  'rootCauses': rootCauses,
-                  'actionTakens': actions,
-                });
+              final List<Map<String, dynamic>> matchedActions = [];
+              if (output.getObjectANDFaultActionList != null) {
+                for (var ac in output.getObjectANDFaultActionList!
+                    .where((a) => a['rectId'] == rectId)) {
+                  matchedActions.add({
+                    'actionTakenId': ac['actionId'].toString(),
+                    'actionTaken': ac['actionName'] ?? "N/A",
+                    'actionTakenText': ac['actionText'] ?? "",
+                    'imagePath': null
+                  });
+                }
               }
-            }
 
-            print("RCA DETAILS LIST LENGTH: ${rcaDetailsList.length}");
-            if (rcaDetailsList.isNotEmpty) {
-              print("FIRST RCA ITEM: ${rcaDetailsList.first}");
-            }
-
-            selectedActualFailureRectified.value = model.failureType;
-            failureRectificationDetailsController.text =
-                model.failureRectificationDetails ?? "";
-
-            beforeFiles.clear();
-            afterFiles.clear();
-            if (model.imagesPaths != null && model.imagesPaths!.isNotEmpty) {
-              final images = model.imagesPaths!.split(',');
-              for (var img in images) {
-                beforeFiles.add({
-                  'name': img.split('/').last,
-                  'size': 'N/A',
-                  'path': img,
-                });
-              }
-            }
-            if (model.imagesPathsAfter != null &&
-                model.imagesPathsAfter!.isNotEmpty) {
-              final images = model.imagesPathsAfter!.split(',');
-              for (var img in images) {
-                afterFiles.add({
-                  'name': img.split('/').last,
-                  'size': 'N/A',
-                  'path': img,
-                });
-              }
-            }
-            if (model.imagesPathsRCA != null &&
-                model.imagesPathsRCA!.isNotEmpty) {
-              final images = model.imagesPathsRCA!.split(',');
-              for (var img in images) {
-                afterFiles.add({
-                  'name': 'RCA_${img.split('/').last}',
-                  'size': 'N/A',
-                  'path': img,
-                });
-              }
+              rcaDetailsList.add({
+                'ObjectPartId': fault['objectPartId']?.toString() ?? "0",
+                'objectPart': fault['objectName'] ?? "",
+                'objectPartText': fault['objectPartText'] ?? "",
+                'FaultId': fault['faultId']?.toString() ?? "0",
+                'fault': fault['faultName'] ?? "",
+                'faultText': fault['faultText'] ?? "",
+                'rootCauses': matchedRootCauses,
+                'actionTakens': matchedActions,
+              });
             }
           }
 
-        } else {
-          errorMessage.value = result.responseMessage ?? 'Failed to load details';
+          if (output.getMaterialReqDetails != null) {
+            replacedMaterialsList.clear();
+            for (var mat in output.getMaterialReqDetails!) {
+              replacedMaterialsList.add({
+                'id': mat['id'] ??
+                    mat['Id'] ??
+                    mat['materialReqId'] ??
+                    mat['MaterialReqId'] ??
+                    0,
+                'Materialid': mat['materialid'] ??
+                    mat['materialId'] ??
+                    mat['Materialid'],
+                'materialCode': mat['materialValue'] ?? "",
+                'requiredQty': mat['quantity']?.toString() ?? "0",
+                'uom': mat['unitOfMeasurement'] ?? "",
+                'issuedQty': mat['issuedQty']?.toString() ?? "0",
+                'usedQty': mat['usedQty']?.toString() ?? "0",
+                'balanceQty': mat['balanceQty']?.toString() ?? "0",
+                'RemainingBalanceQTY': mat['remainingBalanceQTY'] ?? 0,
+                'StorageLocation': mat['storageLocation'],
+                'storeLocation': mat['storageLocationValue'] ?? "",
+              });
+            }
+          }
+
+          if (output.getMaterialDismantleDetails != null) {
+            dismantleMaterialsList.clear();
+            deletedDismantleMaterialsList.clear();
+            for (var dis in output.getMaterialDismantleDetails!) {
+              dismantleMaterialsList.add({
+                'id': dis['id'],
+                'materialId': dis['materialId'],
+                'materialCode': dis['materialValue'] ?? "",
+                'oldSerialNumber': dis['oldSerialNumber'] ?? "",
+                'newSerialNumber': dis['newSerialNumber'] ?? "",
+                'oldSerialDismantleDate': dis['oldSerialNoDismantleDate'],
+                'newSerialInstallationDate': dis['newSerialNoInstallationDate'],
+              });
+            }
+          }
+
+          if (replacedMaterialsList.isNotEmpty) {
+            isSparePartReplaced.value = true;
+          }
+          if (dismantleMaterialsList.isNotEmpty) {
+            isMaterialDismantle.value = true;
+          }
+
+          if (output.getImageBefor != null) {
+            beforeImagesList.clear();
+            afterImagesList.clear();
+            rcaImagesList.clear();
+            for (var img in output.getImageBefor!) {
+              final fileName = img['fileName']?.toString() ?? '';
+              final docType = img['documentType']?.toString() ?? '';
+              if (fileName.isNotEmpty) {
+                final imgMap = {
+                  'name': fileName.split('/').last,
+                  'path': fileName,
+                  'isNetwork': true
+                };
+                if (docType == 'BEFORE_NOT') {
+                  beforeImagesList.add(imgMap);
+                } else if (docType == 'AFTER_NOT') {
+                  afterImagesList.add(imgMap);
+                } else if (docType == 'RCA_NOT') {
+                  rcaImagesList.add(imgMap);
+                } else {
+                  beforeImagesList.add(imgMap);
+                }
+              }
+            }
+          }
+          selectedMaterialType.value = _mapFailureTypeIdToMaterialType(model.failureTypeId);
+          isServiceAffected.value = model.isServiceAffected ?? false;
+          isJointInspection.value = model.isJointInspectionReq ?? false;
+          isSparePartReplaced.value = model.isHardwareReplaced ?? false;
+          isPtwRequired.value = model.isPTWReq ?? false;
+          ptwNumberController.text = model.ptwNo ?? "";
+
+          trainDelayMinController.text =
+              model.trainDelayInMin?.toString() ?? "";
+          trainDelayNosController.text =
+              model.trainDelayInNo?.toString() ?? "";
+          trainCancelNosController.text =
+              model.noOfTranCancel?.toString() ?? "";
+          trainWithdrawalNosController.text =
+              model.noOfTranWithdrawal?.toString() ?? "";
+          trainReplaceNosController.text =
+              model.noOfTrainReplace?.toString() ?? "";
+          isPassengerDeboarding.value = model.isPassengerDeboarding ?? false;
+          trainDeboardedNosController.text =
+              model.noofTrainDeboarded?.toString() ?? "";
+          _applyPassengerAffectedFromModel(model);
+
+          selectedFailureOccurrenceDate.value =
+          model.actualFailureOccuranceOn != null
+              ? _parseDate(model.actualFailureOccuranceOn!)
+              : null;
+          selectedActualFailureRectifiedDate.value =
+          model.actualFailureRectifiedDate != null
+              ? _parseDate(model.actualFailureRectifiedDate!)
+              : null;
+          selectedFailureAttendedDate.value =
+          model.failureAttendedDate != null
+              ? _parseDate(model.failureAttendedDate!)
+              : null;
+          selectedUnderObservationDate.value =
+          (model.underObservationDate != null &&
+              model.underObservationDate!.isNotEmpty)
+              ? _parseDate(model.underObservationDate!)
+              : null;
+
+          if (model.getObjectANDFaultList != null &&
+              model.getObjectANDFaultList!.isNotEmpty) {
+            rcaDetailsList.clear();
+            for (var objFault in model.getObjectANDFaultList!) {
+              final rcaId = objFault['rectId'];
+              final objectPartId = objFault['objectPartId']?.toString();
+              final faultId = objFault['faultId']?.toString();
+
+              final rootCauses = (model.getObjectANDFaultRootCauseList ?? [])
+                  .where((rc) =>
+              rc['rectId'] == rcaId &&
+                  rc['objectPartId'] == objFault['objectPartId'] &&
+                  rc['faultId'] == objFault['faultId'])
+                  .map((rc) => {
+                'rootCauseId': rc['rcaId']?.toString() ?? "0",
+                'rootCause': rc['rootCasueName'] ?? "N/A",
+                'rootCauseText': rc['rcaText'] ?? "",
+                'imagePath': null,
+              })
+                  .toList();
+
+              final actions = (model.getObjectANDFaultActionList ?? [])
+                  .where((act) =>
+              act['rectId'] == rcaId &&
+                  act['objectPartId'] == objFault['objectPartId'] &&
+                  act['faultId'] == objFault['faultId'])
+                  .map((act) => {
+                'actionTakenId': act['actionId']?.toString() ?? "0",
+                'actionTaken': act['actionName'] ?? "N/A",
+                'actionTakenText': act['actionText'] ?? "",
+                'imagePath': null,
+              })
+                  .toList();
+
+              rcaDetailsList.add({
+                'ObjectPartId': objFault['objectPartId']?.toString() ?? "0",
+                'objectPart': objFault['objectName'] ?? "",
+                'objectPartText': objFault['objectPartText'] ?? "",
+                'FaultId': objFault['faultId']?.toString() ?? "0",
+                'fault': objFault['faultName'] ?? "",
+                'faultText': objFault['faultText'] ?? "",
+                'rootCauses': rootCauses,
+                'actionTakens': actions,
+              });
+            }
+          }
+
+          debugPrint("RCA DETAILS LIST LENGTH: ${rcaDetailsList.length}");
+          if (rcaDetailsList.isNotEmpty) {
+            debugPrint("FIRST RCA ITEM: ${rcaDetailsList.first}");
+          }
+
+          selectedActualFailureRectified.value = model.failureType;
+          failureRectificationDetailsController.text =
+              model.failureRectificationDetails ?? "";
+
+          beforeFiles.clear();
+          afterFiles.clear();
+          if (model.imagesPaths != null && model.imagesPaths!.isNotEmpty) {
+            final images = model.imagesPaths!.split(',');
+            for (var img in images) {
+              beforeFiles.add({
+                'name': img.split('/').last,
+                'size': 'N/A',
+                'path': img,
+              });
+            }
+          }
+          if (model.imagesPathsAfter != null &&
+              model.imagesPathsAfter!.isNotEmpty) {
+            final images = model.imagesPathsAfter!.split(',');
+            for (var img in images) {
+              afterFiles.add({
+                'name': img.split('/').last,
+                'size': 'N/A',
+                'path': img,
+              });
+            }
+          }
+          if (model.imagesPathsRCA != null &&
+              model.imagesPathsRCA!.isNotEmpty) {
+            final images = model.imagesPathsRCA!.split(',');
+            for (var img in images) {
+              afterFiles.add({
+                'name': 'RCA_${img.split('/').last}',
+                'size': 'N/A',
+                'path': img,
+              });
+            }
+          }
         }
+
+      } else {
+        errorMessage.value = result.responseMessage ?? 'Failed to load details';
+      }
     } catch (e) {
       errorMessage.value = 'Error: $e';
     } finally {
@@ -2082,21 +1593,20 @@ class CreateFailureController extends GetxController {
       isLoading.value = true;
       errorMessage.value = '';
 
-      // Delegate HTTP call to service — returns the responseOutput map or throws
       final output = await _failureService.getStationFailureDetails(id);
 
       if (output['getFailureCreationDetails'] != null) {
         final details = output['getFailureCreationDetails'];
-        _originalFailureId.value = details['id'];
+        originalFailureId.value = details['id'];
         notificationCode.value = details['failureId'] ?? '';
         selectedPriority.value = details['priority'];
         mainStatusName.value = details['statusName'];
         failureDescriptionController.text = details['failureDescription'] ?? '';
         selectedDepartment.value = details['departmentName'];
-        _originalDepartmentId.value =
+        originalDepartmentId.value =
             details['departmentId_1'] ?? details['departmentId'];
         selectedLocation.value = details['location'];
-        _originalLocationId.value = details['locationId'];
+        originalLocationId.value = details['locationId'];
         selectedFunctionalLocation.value = details['funcationLocation'];
         subLocationController.text = details['subLocation'] ?? '';
         systemController.text = details['system'] ?? '';
@@ -2159,14 +1669,14 @@ class CreateFailureController extends GetxController {
       }
 
       final historyListJson =
-          output['getNotificationActionUserHistory'] as List?;
+      output['getNotificationActionUserHistory'] as List?;
       if (historyListJson != null) {
         notificationHistoryList.assignAll(historyListJson
             .map((e) =>
-                NotificationActionHistory.fromJson(e as Map<String, dynamic>))
+            NotificationActionHistory.fromJson(e as Map<String, dynamic>))
             .toList());
       }
-      
+
       final descHistoryJson = output['getNotificationHistory'] as List?;
       if (descHistoryJson != null) {
         notificationDescriptionHistoryList.assignAll(descHistoryJson
@@ -2253,15 +1763,15 @@ class CreateFailureController extends GetxController {
 
       final int finalLocationId =
           int.tryParse(_locationCodeForLabel(selectedLocation.value) ?? "0") ??
-              _originalLocationId.value ??
+              originalLocationId.value ??
               0;
       final int finalDeptId = int.tryParse(
-              _departmentCodeForLabel(selectedDepartment.value) ?? "0") ??
-          _originalDepartmentId.value ??
+          _departmentCodeForLabel(selectedDepartment.value) ?? "0") ??
+          originalDepartmentId.value ??
           0;
 
       final Map<String, dynamic> payload = {
-        "Id": _originalFailureId.value ?? 0,
+        "Id": originalFailureId.value ?? 0,
         "PriorityId": 1, // Defaulting as it's not strictly mapped
         "DepartmentIds": finalDeptId.toString(),
         "DepartmentId_1": finalDeptId,
@@ -2277,16 +1787,16 @@ class CreateFailureController extends GetxController {
         "FuncationLocationId_3": 0,
         "TrainId": trainIdController.text,
         "ActualFailureOccuranceDate":
-            selectedFailureOccurrenceDate.value != null
-                ? DateFormat("dd-MM-yyyy HH:mm")
-                    .format(selectedFailureOccurrenceDate.value!)
-                : "",
+        selectedFailureOccurrenceDate.value != null
+            ? DateFormat("dd-MM-yyyy HH:mm")
+            .format(selectedFailureOccurrenceDate.value!)
+            : "",
         "FailureReportedbyId": 0,
         "ActualFailureCompletedDateTime":
-            selectedFailureCompletedDate.value != null
-                ? DateFormat("dd-MM-yyyy HH:mm")
-                    .format(selectedFailureCompletedDate.value!)
-                : null,
+        selectedFailureCompletedDate.value != null
+            ? DateFormat("dd-MM-yyyy HH:mm")
+            .format(selectedFailureCompletedDate.value!)
+            : null,
         "IsTripAffected": isTripAffected.value,
         "TripDelayUpline": tripDelayUplineController.text.isNotEmpty
             ? int.tryParse(tripDelayUplineController.text)
@@ -2315,9 +1825,9 @@ class CreateFailureController extends GetxController {
             : null,
         "IsPassengerAffected": isPassengerAffected.value,
         "NumberOfPassengerAffected":
-            passengersAffectedCountController.text.isNotEmpty
-                ? int.tryParse(passengersAffectedCountController.text)
-                : null,
+        passengersAffectedCountController.text.isNotEmpty
+            ? int.tryParse(passengersAffectedCountController.text)
+            : null,
         "TrappedDuration": trappedDurationController.text.isNotEmpty
             ? int.tryParse(trappedDurationController.text)
             : null,
@@ -2329,14 +1839,14 @@ class CreateFailureController extends GetxController {
 
       try {
         await _failureService.updateStationFailure(payload);
-        print("steppppp");
+        debugPrint("steppppp");
         Get.back(result: true);
         Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
             backgroundColor: Colors.green, colorText: Colors.white);
 
       } catch (e, s) {
-        print("UPDATE ERROR: $e");
-        print(s);
+        debugPrint("UPDATE ERROR: $e");
+        debugPrint(s.toString());
         errorMessage.value = e.toString();
         Get.snackbar(AppStrings.error, errorMessage.value,
             backgroundColor: Colors.red, colorText: Colors.white);
@@ -2344,8 +1854,8 @@ class CreateFailureController extends GetxController {
         isLoading.value = false;
       }
     } catch (e, s) {
-      print("UPDATE ERROR: $e");
-      print(s);
+      debugPrint("UPDATE ERROR: $e");
+      debugPrint(s.toString());
       errorMessage.value = 'Error: $e';
       Get.snackbar(AppStrings.error, errorMessage.value,
           backgroundColor: Colors.red, colorText: Colors.white);
@@ -2390,26 +1900,23 @@ class CreateFailureController extends GetxController {
 
     final funcs = output.getFunctionalLocationList;
     if (funcs != null && funcs.isNotEmpty) {
-      // Only use API response if it contains actual data (not just "Select Functional Location")
       final filtered = funcs.where((e) => e.value?.trim().isNotEmpty == true && e.value?.toLowerCase() != 'select' && e.label?.toLowerCase() != 'select functional location').toList();
       if (filtered.isNotEmpty) {
         for (var item in filtered) {
-          // Display the funcLocationName as the label for selection
           final labelValue = LabelValue(
-            label: item.label ?? '',   // show funcLocationName e.g. "N01-206-DNL-SIG-ALD-APN-A1202 - CBTC  ACCESS POINT AT DN LINE, 206"
+            label: item.label ?? '',
             value: item.value ?? '',
           );
           if (!functionalLocationList.any((e) => e.label == labelValue.label)) {
             functionalLocationList.add(labelValue);
           }
-          // Also add to masterFunctionalLocations for filtering
           if (!masterFunctionalLocations.any((e) => e['funcLocId']?.toString() == item.value)) {
             masterFunctionalLocations.add({
               'funcLocId': item.value,
               'funcLocationName': item.label,
-              'location': null,  // API doesn't provide location, should not be filtered
-              'workCenter': null,  // API doesn't provide workCenter, should not be filtered
-              'fromApi': true,  // Mark as from API to always include
+              'location': null,
+              'workCenter': null,
+              'fromApi': true,
             });
           }
         }
@@ -2441,8 +1948,16 @@ class CreateFailureController extends GetxController {
 
   String? _masterLocationName(int? locationTypeId) {
     if (locationTypeId == null) return null;
+    final idText = locationTypeId.toString();
+
+    for (final item in locationTypeList) {
+      if (item.value == idText) {
+        return item.label;
+      }
+    }
+
     for (final item in masterLocations) {
-      if (item['locationTypeId']?.toString() == locationTypeId.toString()) {
+      if (item['locationTypeId']?.toString() == idText) {
         return item['locationName']?.toString();
       }
     }
@@ -2454,7 +1969,7 @@ class CreateFailureController extends GetxController {
     debugPrint('_masterFunctionalLocationName: Looking for functionLocationId=$functionLocationId');
     debugPrint('_masterFunctionalLocationName: masterFunctionalLocations count=${masterFunctionalLocations.length}');
     debugPrint('_masterFunctionalLocationName: functionalLocationList count=${functionalLocationList.length}');
-    
+
     // First try to find in functionalLocationList (from JE change notification API)
     for (final item in functionalLocationList) {
       if (item.value == functionLocationId.toString()) {
@@ -2462,7 +1977,7 @@ class CreateFailureController extends GetxController {
         return item.label;
       }
     }
-    
+
     // Then try masterFunctionalLocations (from DB)
     if (masterFunctionalLocations.isNotEmpty) {
       debugPrint('_masterFunctionalLocationName: First item funcLocId=${masterFunctionalLocations.first['funcLocId']}, funcLocationName=${masterFunctionalLocations.first['funcLocationName']}');
@@ -2482,8 +1997,17 @@ class CreateFailureController extends GetxController {
 
   String? _masterEquipmentName(int? equipmentId) {
     if (equipmentId == null) return null;
+    final idText = equipmentId.toString();
+
+    // First try equipmentList (merged from API response)
+    for (final item in equipmentList) {
+      if (item.value == idText) {
+        return item.label;
+      }
+    }
+
+    // Then try masterEquipments (from local DB)
     for (final item in masterEquipments) {
-      final idText = equipmentId.toString();
       if (item['equipId']?.toString() == idText ||
           item['equipmentId']?.toString() == idText) {
         return item['equipmentName']?.toString();
@@ -2493,15 +2017,17 @@ class CreateFailureController extends GetxController {
   }
 
   void _applyLocationSelectionsFromModel(
-    CreateVMModel model, {
-    FailureDetailOutput? output,
-  }) {
+      CreateVMModel model, {
+        FailureDetailOutput? output,
+      }) {
     String? locationName = model.locationName?.trim();
+    locationName ??= _masterLocationName(model.locationTypeId);   // ADD THIS LINE
+
     String? funcLocation = model.funcLocation?.trim();
     funcLocation ??= _masterFunctionalLocationName(model.functionLocationId);
     String? equipmentName = model.equipmentName?.trim();
 
-    locationName ??= _masterLocationName(model.locationTypeId);
+    equipmentName ??= _labelFromValueList(equipmentList, model.equipmentId);
     equipmentName ??= _masterEquipmentName(model.equipmentId);
 
     if (locationName != null && locationName.isNotEmpty) {
@@ -2538,9 +2064,9 @@ class CreateFailureController extends GetxController {
   Future<void> _loadMasterDataFromDb() async {
     final dbService = LocalDatabaseService();
 
-    final locs = await dbService.getLocations();
-    final funcs = await dbService.getFunctionalLocations();
-    final equips = await dbService.getEquipments();
+    final locs = (await dbService.getLocations()).map((e) => e.toJson()).toList();
+    final funcs = (await dbService.getFunctionalLocations()).map((e) => e.toJson()).toList();
+    final equips = (await dbService.getEquipments()).map((e) => e.toJson()).toList();
 
     // Don't filter by plant IDs - the data doesn't match the valid plant IDs
     // Filtering should be done at API sync level if needed
@@ -2559,10 +2085,10 @@ class CreateFailureController extends GetxController {
       for (var e in filteredFuncs) e['funcLocationName']?.toString() ?? '': e
     }
         .values
-        .where((e) => 
-          (e['funcLocationName']?.toString() ?? '').isNotEmpty && 
-          (e['funcLocationName']?.toString().toLowerCase() != 'select')
-        )
+        .where((e) =>
+    (e['funcLocationName']?.toString() ?? '').isNotEmpty &&
+        (e['funcLocationName']?.toString().toLowerCase() != 'select')
+    )
         .toList();
 
     final uniqueEquips = {
@@ -2582,9 +2108,9 @@ class CreateFailureController extends GetxController {
     }
     for (var item in masterLocations.where((e) => (e['locationName']?.toString() ?? '').toLowerCase() != 'select')) {
       final labelValue = LabelValue(
-            label: item['locationName']?.toString() ?? '',
-            value: item['locationTypeId']?.toString() ?? '',
-          );
+        label: item['locationName']?.toString() ?? '',
+        value: item['locationTypeId']?.toString() ?? '',
+      );
       if (!locationTypeList.any((e) => e.label == labelValue.label)) {
         locationTypeList.add(labelValue);
       }
@@ -2595,22 +2121,19 @@ class CreateFailureController extends GetxController {
     }
     for (var item in masterFunctionalLocations.where((e) => (e['funcLocationName']?.toString() ?? '').toLowerCase() != 'select')) {
       final labelValue = LabelValue(
-            label: item['funcLocationName']?.toString() ?? '',
-            value: item['funcLocId']?.toString() ?? '',
-          );
+        label: item['funcLocationName']?.toString() ?? '',
+        value: item['funcLocId']?.toString() ?? '',
+      );
       if (!functionalLocationList.any((e) => e.label == labelValue.label)) {
         functionalLocationList.add(labelValue);
       }
     }
 
-    if (equipmentList.isEmpty) {
-      equipmentList.add(LabelValue(label: 'Select', value: ''));
-    }
     for (var item in masterEquipments.where((e) => (e['equipmentName']?.toString() ?? '').toLowerCase() != 'select')) {
       final labelValue = LabelValue(
-            label: item['equipmentName']?.toString() ?? '',
-            value: item['equipId']?.toString() ?? '',
-          );
+        label: item['equipmentName']?.toString() ?? '',
+        value: item['equipId']?.toString() ?? '',
+      );
       if (!equipmentList.any((e) => e.label == labelValue.label)) {
         equipmentList.add(labelValue);
       }
@@ -2620,7 +2143,7 @@ class CreateFailureController extends GetxController {
   Map<String, dynamic> _locationByName(String? locationLabel) {
     if (locationLabel == null || locationLabel == 'Select') return {};
     return masterLocations.firstWhere(
-      (e) => e['locationName']?.toString() == locationLabel,
+          (e) => e['locationName']?.toString() == locationLabel,
       orElse: () => <String, dynamic>{},
     );
   }
@@ -2630,6 +2153,7 @@ class CreateFailureController extends GetxController {
     final code = loc['locationTypeCode']?.toString();
     debugPrint("_locationCodeForLabel: locationLabel=$locationLabel, locationTypeCode=$code");
     debugPrint("_locationCodeForLabel: full location data=$loc");
+    debugPrint("_locationCodeForLabel: All location fields - locationTypeCode=${loc['locationTypeCode']}, locationTypeId=${loc['locationTypeId']}, locationTypeName=${loc['locationTypeName']}, plantId=${loc['plantId']}");
     return (code != null && code.isNotEmpty) ? code : null;
   }
 
@@ -2653,9 +2177,9 @@ class CreateFailureController extends GetxController {
       locs
           .where((e) => (e['locationName']?.toString() ?? '').isNotEmpty && (e['locationName']?.toString() ?? '').toLowerCase() != 'select')
           .map((e) => LabelValue(
-                label: e['locationName']?.toString() ?? '',
-                value: e['locationTypeId']?.toString() ?? '',
-              ))
+        label: e['locationName']?.toString() ?? '',
+        value: e['locationTypeId']?.toString() ?? '',
+      ))
           .toList(),
     );
   }
@@ -2667,32 +2191,110 @@ class CreateFailureController extends GetxController {
       funcs
           .where((e) => (e['funcLocationName']?.toString() ?? '').isNotEmpty && (e['funcLocationName']?.toString() ?? '').toLowerCase() != 'select')
           .map((e) => LabelValue(
-                // Display funcLocation code (e.g. "M2-L1-ST01") as the label
-                label: e['funcLocationName']?.toString() ?? '',
-                value: e['funcLocId']?.toString() ?? '',
-              ))
+        // Display funcLocation code (e.g. "M2-L1-ST01") as the label
+        label: e['funcLocationName']?.toString() ?? '',
+        value: e['funcLocId']?.toString() ?? '',
+      ))
           .toList(),
     );
   }
 
   void _setEquipmentOptions(List<Map<String, dynamic>> equips) {
+    // If the currently selected equipment would disappear because it's not in
+    // the newly filtered set (e.g. it came from an API response not yet synced
+    // to local DB), keep that ONE entry so the field doesn't go blank.
+    // Everything else from the previous list is dropped — that's the whole point of filtering.
+    final currentSelectionLabel = selectedEquipmentNumber.value;
+    LabelValue? preserved;
+    if (currentSelectionLabel != null &&
+        currentSelectionLabel.trim().isNotEmpty &&
+        currentSelectionLabel != 'Select') {
+      final alreadyInFiltered =
+      equips.any((e) => e['equipmentName']?.toString() == currentSelectionLabel);
+      if (!alreadyInFiltered) {
+        final fromPrevious = equipmentList.firstWhere(
+              (e) => e.label == currentSelectionLabel,
+          orElse: () => LabelValue(label: null),
+        );
+        if (fromPrevious.label != null) {
+          preserved = fromPrevious;
+        }
+      }
+    }
+
     equipmentList.clear();
     equipmentList.add(LabelValue(label: 'Select', value: ''));
-    equipmentList.addAll(
-      equips.where((e) => (e['equipmentName']?.toString() ?? '').toLowerCase() != 'select').map((e) => LabelValue(
-            label: e['equipmentName']?.toString() ?? '',
-            value: e['equipId']?.toString() ?? '',
-          )).toList()
-    );
-  }
 
-  List<Map<String, dynamic>> _equipmentsForLocationCode(String? locCode) {
-    if (locCode == null || locCode.isEmpty) return masterEquipments;
-    return masterEquipments
-        .where((eq) => eq['location']?.toString() == locCode)
+    final localEquipments = equips
+        .where((e) => (e['equipmentName']?.toString() ?? '').trim().toLowerCase() != 'select')
+        .map((e) => LabelValue(
+      label: e['equipmentName']?.toString() ?? '',
+      value: e['equipId']?.toString() ?? '',
+    ))
         .toList();
+
+    equipmentList.addAll(localEquipments);
+
+    if (preserved != null && !equipmentList.any((e) => e.label == preserved!.label)) {
+      equipmentList.add(preserved);
+    }
+
+    debugPrint("_setEquipmentOptions: showing ${equipmentList.length} entries (filtered=${equips.length}, preserved=${preserved != null})");
   }
 
+  Future<void> _reloadEquipmentsFromDb() async {
+    final dbService = LocalDatabaseService();
+    final equips = (await dbService.getEquipments()).map((e) => e.toJson()).toList();
+    
+    final uniqueEquips = {
+      for (var e in equips) e['equipmentName']?.toString() ?? '': e
+    }
+        .values
+        .where((e) => (e['equipmentName']?.toString() ?? '').isNotEmpty && (e['equipmentName']?.toString().toLowerCase() != 'select'))
+        .toList();
+    
+    masterEquipments.assignAll(uniqueEquips);
+    debugPrint("_reloadEquipmentsFromDb: Reloaded ${masterEquipments.length} equipment from DB");
+  }
+
+  /// Returns the raw `funcLocation` code (not funcLocId) for a given funcLocationName label.
+  /// Needed because equipment.functionalLocation stores the funcLocation CODE, not the id or display name.
+  String? _funcLocationCodeForLabel(String? funcLocationLabel) {
+    if (funcLocationLabel == null || funcLocationLabel.isEmpty || funcLocationLabel == 'Select') {
+      return null;
+    }
+    final func = masterFunctionalLocations.firstWhere(
+          (e) => e['funcLocationName']?.toString() == funcLocationLabel,
+      orElse: () => <String, dynamic>{},
+    );
+    final code = func['funcLocation']?.toString();
+    debugPrint("_funcLocationCodeForLabel: label=$funcLocationLabel, code=$code");
+    return (code != null && code.isNotEmpty) ? code : null;
+  }
+
+  /// Direct filter: equipment.location == Location.locationTypeCode (if provided)
+  /// AND equipment.functionalLocation == FunctionalLocation.funcLocation (if provided).
+  List<Map<String, dynamic>> _filterEquipments({String? locCode, String? funcLocCode}) {
+    debugPrint("_filterEquipments: locCode=$locCode, funcLocCode=$funcLocCode, total=${masterEquipments.length}");
+
+    Iterable<Map<String, dynamic>> filtered = masterEquipments;
+
+    if (locCode != null && locCode.isNotEmpty) {
+      filtered = filtered.where((eq) =>
+      (eq['location']?.toString().trim().toUpperCase() ?? '') ==
+          locCode.trim().toUpperCase());
+    }
+
+    if (funcLocCode != null && funcLocCode.isNotEmpty) {
+      filtered = filtered.where((eq) =>
+      (eq['functionalLocation']?.toString().trim().toUpperCase() ?? '') ==
+          funcLocCode.trim().toUpperCase());
+    }
+
+    final result = filtered.toList();
+    debugPrint("_filterEquipments: Filtered to ${result.length} equipment");
+    return result;
+  }
   void onDepartmentChanged(String? departmentLabel) {
     selectedDepartment.value = (departmentLabel == null || departmentLabel == 'Select') ? null : departmentLabel;
     _resetFunctionalAndEquipmentSelections();
@@ -2700,12 +2302,23 @@ class CreateFailureController extends GetxController {
   }
 
   void onLocationChanged(String? locationLabel) {
+    debugPrint("onLocationChanged: locationLabel=$locationLabel");
     selectedLocation.value = (locationLabel == null || locationLabel == 'Select') ? null : locationLabel;
     _resetFunctionalAndEquipmentSelections();
     _updateFunctionalLocationAndEquipmentOptions();
   }
 
-  void _updateFunctionalLocationAndEquipmentOptions() {
+  void _updateFunctionalLocationAndEquipmentOptions() async {
+    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Called, masterEquipments.length=${masterEquipments.length}");
+    
+    // Reload equipment from DB if empty (sync may have completed after controller init)
+    if (masterEquipments.isEmpty) {
+      debugPrint("_updateFunctionalLocationAndEquipmentOptions: masterEquipments empty, reloading from DB");
+      await _reloadEquipmentsFromDb();
+    } else {
+      debugPrint("_updateFunctionalLocationAndEquipmentOptions: masterEquipments not empty, skipping reload");
+    }
+
     final hasLocation = selectedLocation.value != null && selectedLocation.value != 'Select';
     final hasDept = selectedDepartment.value != null && selectedDepartment.value != 'Select';
 
@@ -2720,7 +2333,28 @@ class CreateFailureController extends GetxController {
             (e) => e.label == selectedDepartment.value,
         orElse: () => LabelValue(),
       );
-      workCenter = _getWorkCenterForDept(dept.value);
+      debugPrint("_updateFunctionalLocationAndEquipmentOptions: Selected department label=${selectedDepartment.value}, deptId=${dept.value}");
+      debugPrint("_updateFunctionalLocationAndEquipmentOptions: departmentList sample: ${departmentList.take(3).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
+      
+      // Use workCenter from departmentList uniqueId if available (from API)
+      // Otherwise fall back to looking up in masterDepartments
+      if (dept.uniqueId != null && dept.uniqueId.toString().trim().isNotEmpty) {
+        workCenter = dept.uniqueId.toString();
+        debugPrint("_updateFunctionalLocationAndEquipmentOptions: Using workCenter from departmentList uniqueId: $workCenter");
+      } else {
+        workCenter = _getWorkCenterForDept(dept.value, deptLabel: selectedDepartment.value);
+        debugPrint("_updateFunctionalLocationAndEquipmentOptions: Using workCenter from masterDepartments lookup: $workCenter");
+      }
+    }
+    
+    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Filtering params - hasLocation=$hasLocation, locCode=$locCode, hasDept=$hasDept, workCenter=$workCenter");
+    
+    // Check if functional locations have workCenter populated
+    final funcLocsWithWorkCenter = masterFunctionalLocations.where((e) => e['workCenter']?.toString().trim().isNotEmpty == true).toList();
+    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Functional locations with workCenter populated: ${funcLocsWithWorkCenter.length}/${masterFunctionalLocations.length}");
+    if (funcLocsWithWorkCenter.isNotEmpty) {
+      final uniqueWorkCenters = funcLocsWithWorkCenter.map((e) => e['workCenter']?.toString().trim()).toSet().toList();
+      debugPrint("_updateFunctionalLocationAndEquipmentOptions: Unique workCenter values in functional locations: $uniqueWorkCenters");
     }
 
     final filteredFuncs = masterFunctionalLocations.where((e) {
@@ -2729,39 +2363,101 @@ class CreateFailureController extends GetxController {
       if (hasLocation && locCode != null && locCode.isNotEmpty) {
         match = match && (e['location']?.toString().trim().toUpperCase() == locCode.trim().toUpperCase());
       }
-      
+
       if (hasDept && workCenter != null && workCenter.isNotEmpty) {
-        match = match && (e['workCenter']?.toString().trim().toUpperCase() == workCenter.trim().toUpperCase());
+        final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
+        match = match && (funcWorkCenter == workCenter.trim().toUpperCase());
+        debugPrint("Filtering funcLoc: workCenter filter - funcWorkCenter=$funcWorkCenter, filterWorkCenter=$workCenter, match=$match");
       }
 
       return match;
     }).toList();
+    
+    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Filtered ${masterFunctionalLocations.length} funcLocs to ${filteredFuncs.length} (hasLocation=$hasLocation, locCode=$locCode, hasDept=$hasDept, workCenter=$workCenter)");
 
     _setFunctionalLocationOptions(filteredFuncs);
 
-    if (hasLocation && locCode != null && locCode.isNotEmpty) {
-      _setEquipmentOptions(_equipmentsForLocationCode(locCode));
+    // Equipment is only populated once a Functional Location is selected.
+    // Location alone should narrow Functional Location choices, not Equipment.
+    final hasFuncLoc = selectedFunctionalLocation.value != null &&
+        selectedFunctionalLocation.value != 'Select';
+    if (hasFuncLoc) {
+      final funcLocCode = _funcLocationCodeForLabel(selectedFunctionalLocation.value);
+      final filteredEquipments = _filterEquipments(locCode: locCode, funcLocCode: funcLocCode);
+      _setEquipmentOptions(filteredEquipments);
     } else {
-      _setEquipmentOptions(masterEquipments);
+      // No functional location selected — clear equipment list entirely.
+      _setEquipmentOptions([]);
     }
   }
 
   void onJiFunctionalLocationChanged(String? label) {
+    debugPrint("onJiFunctionalLocationChanged: label=$label");
     selectedJiFunctionalLocation.value = label;
-    selectedJiEquipmentNumber.value = null;
-    jiEquipmentId.value = null;
-    jiEquipmentNumber.value = null;
     if (label == null || label.isEmpty) {
       jiFunctionalLocationId.value = null;
       jiFunctionalLocation.value = null;
       return;
     }
     final matched = functionalLocationList.firstWhere(
-      (e) => e.label == label,
+          (e) => e.label == label,
       orElse: () => LabelValue(value: "0"),
     );
     jiFunctionalLocationId.value = matched.value;
     jiFunctionalLocation.value = label;
+  }
+
+  /// Filter functional locations for Joint Inspection based on JI department's workCenter
+  void _filterJiFunctionalLocations() {
+    debugPrint("=== _filterJiFunctionalLocations START ===");
+    debugPrint("jiDepartment.value: ${jiDepartment.value}");
+    
+    if (jiDepartment.value == null || jiDepartment.value == 'Select') {
+      // No department selected, show all functional locations
+      debugPrint("No department selected, showing all functional locations");
+      _setFunctionalLocationOptions(masterFunctionalLocations);
+      return;
+    }
+
+    debugPrint("departmentList: ${departmentList.map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
+    
+    final dept = departmentList.firstWhere(
+          (e) => e.label == jiDepartment.value,
+        orElse: () => LabelValue(),
+    );
+    
+    debugPrint("Matched dept: label=${dept.label}, value=${dept.value}, uniqueId=${dept.uniqueId}");
+
+    String? workCenter;
+    if (dept.uniqueId != null && dept.uniqueId.toString().trim().isNotEmpty) {
+      workCenter = dept.uniqueId.toString();
+      debugPrint("_filterJiFunctionalLocations: Using workCenter from departmentList uniqueId: $workCenter");
+    } else {
+      workCenter = _getWorkCenterForDept(dept.value, deptLabel: jiDepartment.value);
+      debugPrint("_filterJiFunctionalLocations: Using workCenter from masterDepartments lookup: $workCenter");
+    }
+
+    if (workCenter == null || workCenter.isEmpty) {
+      debugPrint("_filterJiFunctionalLocations: No workCenter found for department ${jiDepartment.value}, showing all functional locations");
+      _setFunctionalLocationOptions(masterFunctionalLocations);
+      return;
+    }
+
+    debugPrint("Filtering functional locations by workCenter: $workCenter");
+    debugPrint("Sample functional locations (first 5): ${masterFunctionalLocations.take(5).map((e) => {'funcLocation': e['funcLocation'], 'workCenter': e['workCenter']}).toList()}");
+    
+    final filteredFuncs = masterFunctionalLocations.where((e) {
+      final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
+      final match = funcWorkCenter == workCenter?.trim().toUpperCase();
+      if (match) {
+        debugPrint("MATCH: funcLocation=${e['funcLocation']}, funcWorkCenter=$funcWorkCenter");
+      }
+      return match;
+    }).toList();
+
+    debugPrint("_filterJiFunctionalLocations: Filtered ${masterFunctionalLocations.length} funcLocs to ${filteredFuncs.length} for workCenter=$workCenter");
+    _setFunctionalLocationOptions(filteredFuncs);
+    debugPrint("=== _filterJiFunctionalLocations END ===");
   }
 
   void onJiEquipmentChanged(String? label) {
@@ -2772,57 +2468,129 @@ class CreateFailureController extends GetxController {
       return;
     }
     final matched = equipmentList.firstWhere(
-      (e) => e.label == label,
+          (e) => e.label == label,
       orElse: () => LabelValue(value: "0"),
     );
     jiEquipmentId.value = int.tryParse(matched.value ?? "0");
     jiEquipmentNumber.value = label;
   }
 
-  void onFunctionalLocationChanged(String? funcLabel) {
+  void onFunctionalLocationChanged(String? funcLabel) async {
+    debugPrint("=== onFunctionalLocationChanged START ===");
+    debugPrint("funcLabel: $funcLabel");
+    if (masterEquipments.isEmpty) {
+      debugPrint("onFunctionalLocationChanged: masterEquipments empty, reloading from DB");
+      await _reloadEquipmentsFromDb();
+    }
+
     if (funcLabel == null || funcLabel == 'Select') {
-      selectedFunctionalLocation.value =
-          funcLabel == 'Select' ? 'Select' : null;
+      selectedFunctionalLocation.value = funcLabel == 'Select' ? 'Select' : null;
       selectedEquipmentNumber.value = 'Select';
       showMeasurementButton.value = false;
-      _setEquipmentOptions(_equipmentsForLocationCode(
-          _locationCodeForLabel(selectedLocation.value)));
+
+      // Functional Location cleared — equipment must be empty until it's picked again.
+      _setEquipmentOptions([]);
       return;
     }
 
     selectedFunctionalLocation.value = funcLabel;
     selectedEquipmentNumber.value = 'Select';
 
-    // funcLabel is now the funcLocationName (full display name), need to find the funcLocation code
     final func = masterFunctionalLocations.firstWhere(
-      (e) => e['funcLocationName']?.toString() == funcLabel,
+          (e) => e['funcLocationName']?.toString() == funcLabel,
       orElse: () => <String, dynamic>{},
     );
+    debugPrint("Found functional location: ${func['funcLocationName']}, objectNumber: ${func['objectNumber']}");
 
-    // Auto-select location based on functional location
-    final locCode = func['location']?.toString();
-    if (locCode != null && locCode.isNotEmpty) {
-      final loc = masterLocations.firstWhere(
-        (e) => e['locationTypeCode']?.toString() == locCode ||
-               e['locationTypeId']?.toString() == locCode,
-        orElse: () => <String, dynamic>{},
-      );
-      if (loc.isNotEmpty) {
-        final locName = loc['locationName']?.toString();
-        if (locName != null && locName.isNotEmpty) {
-          selectedLocation.value = locName;
-          locationDisplayController.text = locName;
-        }
-      }
-    }
+    // REMOVED: no longer auto-selecting Location based on the functional location.
+    // Location stays whatever the user has (or hasn't) picked themselves.
+
+    final locCode = (selectedLocation.value != null && selectedLocation.value != 'Select')
+        ? _locationCodeForLabel(selectedLocation.value)
+        : null;
 
     final funcCode = func['funcLocation']?.toString();
+    debugPrint("onLocationChanged: funcCode=$funcCode, objectNumber=${func['objectNumber']}");
     if (funcCode != null && funcCode.isNotEmpty) {
-      final filteredEquips = masterEquipments
-          .where((eq) => eq['functionalLocation']?.toString() == funcCode)
-          .toList();
-      _setEquipmentOptions(filteredEquips);
+      // locCode is null unless the user separately picked a Location — correctly
+      // combines both filters only when both are actually selected.
+      final filteredEquipments = _filterEquipments(locCode: locCode, funcLocCode: funcCode);
+      _setEquipmentOptions(filteredEquipments);
       _checkMeasurementPoints(func['objectNumber']?.toString());
+    }
+  }
+
+  /// Re-filters equipmentList to match the currently selected Location/Functional Location.
+  /// Call this after loading an existing failure's details, since those flows set the
+  /// selections directly without going through the normal filter path.
+  void _refilterEquipmentForCurrentSelections() {
+    final hasLocation = selectedLocation.value != null && selectedLocation.value != 'Select';
+    final hasFuncLoc = selectedFunctionalLocation.value != null && selectedFunctionalLocation.value != 'Select';
+
+    if (!hasFuncLoc) {
+      // No functional location resolved — nothing to filter equipment by; leave as-is
+      // (or clear, matching the "equipment only shows once func loc chosen" rule).
+      return;
+    }
+
+    final locCode = hasLocation ? _locationCodeForLabel(selectedLocation.value) : null;
+    final funcLocCode = _funcLocationCodeForLabel(selectedFunctionalLocation.value);
+
+    final filtered = _filterEquipments(locCode: locCode, funcLocCode: funcLocCode);
+    _setEquipmentOptions(filtered);
+  }
+
+  /// Re-filters functionalLocationList to match the currently selected Department
+  /// (via workCenter) and Location. Preserves the currently selected functional
+  /// location even if it falls outside the filter, so server-loaded data doesn't disappear.
+  void _refilterFunctionalLocationForCurrentSelections() {
+    final hasLocation = selectedLocation.value != null && selectedLocation.value != 'Select';
+    final hasDept = selectedDepartment.value != null && selectedDepartment.value != 'Select';
+
+    String? locCode;
+    if (hasLocation) {
+      locCode = _locationCodeForLabel(selectedLocation.value);
+    }
+
+    String? workCenter;
+    if (hasDept) {
+      final dept = departmentList.firstWhere(
+            (e) => e.label == selectedDepartment.value,
+        orElse: () => LabelValue(),
+      );
+      // Use workCenter from departmentList uniqueId if available (from API)
+      // Otherwise fall back to looking up in masterDepartments
+      if (dept.uniqueId != null && dept.uniqueId.toString().trim().isNotEmpty) {
+        workCenter = dept.uniqueId.toString();
+        debugPrint("_refilterFunctionalLocationForCurrentSelections: Using workCenter from departmentList uniqueId: $workCenter");
+      } else {
+        workCenter = _getWorkCenterForDept(dept.value, deptLabel: selectedDepartment.value);
+        debugPrint("_refilterFunctionalLocationForCurrentSelections: Using workCenter from masterDepartments lookup: $workCenter");
+      }
+      debugPrint("_refilterFunctionalLocationForCurrentSelections: dept=${selectedDepartment.value}, deptId=${dept.value}, workCenter=$workCenter");
+    }
+
+    final filteredFuncs = masterFunctionalLocations.where((e) {
+      bool match = true;
+      if (hasLocation && locCode != null && locCode.isNotEmpty) {
+        match = match && (e['location']?.toString().trim().toUpperCase() == locCode.trim().toUpperCase());
+      }
+      if (hasDept && workCenter != null && workCenter.isNotEmpty) {
+        final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
+        match = match && (funcWorkCenter == workCenter.trim().toUpperCase());
+        debugPrint("_refilterFunctionalLocationForCurrentSelections: workCenter filter - funcWorkCenter=$funcWorkCenter, filterWorkCenter=$workCenter, match=$match");
+      }
+      return match;
+    }).toList();
+    
+    debugPrint("_refilterFunctionalLocationForCurrentSelections: Filtered ${masterFunctionalLocations.length} funcLocs to ${filteredFuncs.length}");
+
+    _setFunctionalLocationOptions(filteredFuncs);
+
+    // Preserve currently selected value if it fell outside the filtered set.
+    final currentFuncLoc = selectedFunctionalLocation.value;
+    if (currentFuncLoc != null && currentFuncLoc.isNotEmpty && currentFuncLoc != 'Select') {
+      _ensureDropdownOption(functionalLocationList, currentFuncLoc, '');
     }
   }
 
@@ -2835,15 +2603,15 @@ class CreateFailureController extends GetxController {
     selectedEquipmentNumber.value = equipLabel;
 
     final eq = masterEquipments.firstWhere(
-        (e) => e['equipmentName'] == equipLabel,
+            (e) => e['equipmentName'] == equipLabel,
         orElse: () => <String, dynamic>{});
 
     // Auto-select location based on equipment
     final locCode = eq['location']?.toString();
     if (locCode != null && locCode.isNotEmpty) {
       final loc = masterLocations.firstWhere(
-        (e) => e['locationTypeCode']?.toString() == locCode ||
-               e['locationTypeId']?.toString() == locCode,
+            (e) => e['locationTypeCode']?.toString() == locCode ||
+            e['locationTypeId']?.toString() == locCode,
         orElse: () => <String, dynamic>{},
       );
       if (loc.isNotEmpty) {
@@ -2858,7 +2626,7 @@ class CreateFailureController extends GetxController {
     final funcCode = eq['functionalLocation']?.toString();
     if (funcCode != null && funcCode.isNotEmpty) {
       final func = masterFunctionalLocations.firstWhere(
-          (e) => e['funcLocation'] == funcCode,
+              (e) => e['funcLocation'] == funcCode,
           orElse: () => <String, dynamic>{});
 
       if (func.isNotEmpty) {
@@ -2877,56 +2645,69 @@ class CreateFailureController extends GetxController {
   }
 
   Future<void> _checkMeasurementPoints(String? objectNumber) async {
+    debugPrint("=== _checkMeasurementPoints START ===");
     debugPrint("Checking Measurement Points for objectNumber: $objectNumber");
     if (objectNumber == null || objectNumber.isEmpty) {
+      debugPrint("objectNumber is null or empty, hiding button");
       showMeasurementButton.value = false;
       measurementPointsList.clear();
       return;
     }
 
-    final dbService = LocalDatabaseService();
-    List<Map<String, dynamic>> allMeasurements =
-        await dbService.getMeasurementPoints();
-    debugPrint("Total Measurement Points in DB: ${allMeasurements.length}");
+    try {
+      final dbService = LocalDatabaseService();
+      debugPrint("Calling getMeasurementPoints...");
+      List<Map<String, dynamic>> allMeasurements =
+      (await dbService.getMeasurementPoints()).map((e) => e.toJson()).toList();
+      debugPrint("Total Measurement Points in DB: ${allMeasurements.length}");
 
-    // Only sync if it has NEVER been synced before (meta date is still the default)
-    final meta = await dbService.getSyncMeta('GetMeasurementPtMasterData');
-    final neverSynced = meta['createdOn'] == '2024-01-01';
-    if (allMeasurements.isEmpty && neverSynced) {
-      debugPrint("Measurement Points never synced – fetching from API...");
-      await MasterDataSyncService().syncMeasurementPoints();
-      allMeasurements = await dbService.getMeasurementPoints();
-      debugPrint(
-          "After sync – Total Measurement Points in DB: ${allMeasurements.length}");
-    } else if (allMeasurements.isEmpty) {
-      debugPrint(
-          "Sync already ran (meta: ${meta['createdOn']}) but no matching data in DB.");
-    }
+      if (allMeasurements.isEmpty) {
+        debugPrint("Measurement Points empty in local DB - sync should have happened at login");
+        measurementPointsList.clear();
+        showMeasurementButton.value = false;
+        return;
+      }
 
-    final matchingMeasurements = allMeasurements
-        .where((m) =>
-            m['objectNo']?.toString().trim() == objectNumber.toString().trim())
-        .toList();
-    debugPrint(
-        "Matching Measurement Points found: ${matchingMeasurements.length}");
+      debugPrint("First 3 measurement points for debugging:");
+      for (int i = 0; i < (allMeasurements.length > 3 ? 3 : allMeasurements.length); i++) {
+        debugPrint("  [$i] objectNo: '${allMeasurements[i]['objectNo']}', measPoint: '${allMeasurements[i]['measPoint']}'");
+      }
+
+      final matchingMeasurements = allMeasurements
+          .where((m) =>
+      m['objectNo']?.toString().trim() == objectNumber.toString().trim())
+          .toList();
+      debugPrint(
+          "Matching Measurement Points found: ${matchingMeasurements.length}");
+      debugPrint("Looking for objectNo: '${objectNumber.toString().trim()}'");
+      if (allMeasurements.isNotEmpty) {
+        debugPrint("Sample measurement objectNo: '${allMeasurements.first['objectNo']}'");
+      }
 
     if (matchingMeasurements.isNotEmpty) {
       measurementPointsList.assignAll(matchingMeasurements
           .map((m) => {
-                "measPoint": m['measPoint'],
-                "measPointDesc": m['measPointDesc'],
-                "measRangeUnit": m['measRangeUnit'],
-                "internalCharNo": m['internalCharNo'],
-                "targetValue": m['targetValue'],
-                "measId": m['measId'],
-                "reading": "",
-                "readingDescr": "",
-                "uom": m['measRangeUnit'],
-                "UnitMeasurement": m['measRangeUnit']
-              })
+        "measPoint": m['measPoint'],
+        "measPointDesc": m['measPointDesc'],
+        "measRangeUnit": m['measRangeUnit'],
+        "internalCharNo": m['internalCharNo'],
+        "targetValue": m['targetValue'],
+        "measId": m['measId'],
+        "reading": "",
+        "readingDescr": "",
+        "uom": m['measRangeUnit'],
+        "UnitMeasurement": m['measRangeUnit']
+      })
           .toList());
+      debugPrint("Setting showMeasurementButton to true");
       showMeasurementButton.value = true;
     } else {
+      debugPrint("No matching measurements, hiding button");
+      measurementPointsList.clear();
+      showMeasurementButton.value = false;
+    }
+    } catch (e) {
+      debugPrint("Error in _checkMeasurementPoints: $e");
       measurementPointsList.clear();
       showMeasurementButton.value = false;
     }
@@ -2950,7 +2731,7 @@ class CreateFailureController extends GetxController {
     try {
       EasyLoading.show(status: 'Loading RCA options...');
       final data =
-          await _failureService.getRootCauseAndAction(objectCodeId, faultCodeId);
+      await _failureService.getRootCauseAndAction(objectCodeId, faultCodeId);
       EasyLoading.dismiss();
       rootCauseList.assignAll(data.rootCauses);
       actionTakenList.assignAll(data.actionTaken);
@@ -2965,9 +2746,9 @@ class CreateFailureController extends GetxController {
 
     if (refreshIfEmpty) {
       try {
-        final priorities = await dbService.getPriorities();
-        final categories = await dbService.getFailureCategories();
-        final users = await dbService.getMasterUsers();
+        final priorities = (await dbService.getPriorities()).map((e) => e.toJson()).toList();
+        final categories = (await dbService.getFailureCategories()).map((e) => e.toJson()).toList();
+        final users = (await dbService.getMasterUsers()).map((e) => e.toJson()).toList();
         if (priorities.isEmpty || categories.isEmpty || users.isEmpty) {
           await MasterDataSyncService().syncStationFailureDropdownMasterData();
         }
@@ -2977,29 +2758,29 @@ class CreateFailureController extends GetxController {
       }
     }
 
-    final priorities = await dbService.getPriorities();
+    final priorities = (await dbService.getPriorities()).map((e) => e.toJson()).toList();
     priorityTypeList.assignAll([
       LabelValue(label: 'Select', value: ''),
       ...priorities
           .where((e) => (e['priorityDesc']?.toString() ?? '').isNotEmpty && (e['priorityDesc']?.toString().toLowerCase() != 'select'))
           .map((e) => LabelValue(
-                label: e['priorityDesc']?.toString() ?? '',
-                value: e['priorityId']?.toString() ?? '',
-              )),
+        label: e['priorityDesc']?.toString() ?? '',
+        value: e['priorityId']?.toString() ?? '',
+      )),
     ]);
 
-    final categories = await dbService.getFailureCategories();
+    final categories = (await dbService.getFailureCategories()).map((e) => e.toJson()).toList();
     corrNotificationTypeList.assignAll([
       LabelValue(label: 'Select', value: ''),
       ...categories
           .where((e) => (e['failureCategoryType']?.toString() ?? '').isNotEmpty && (e['failureCategoryType']?.toString().toLowerCase() != 'select'))
           .map((e) => LabelValue(
-                label: e['failureCategoryType']?.toString() ?? '',
-                value: e['id']?.toString() ?? '',
-              )),
+        label: e['failureCategoryType']?.toString() ?? '',
+        value: e['id']?.toString() ?? '',
+      )),
     ]);
 
-    final users = await dbService.getMasterUsers();
+    final users = (await dbService.getMasterUsers()).map((e) => e.toJson()).toList();
     debugPrint('loadMasterDataFromDb: Total users from DB = ${users.length}');
     // Deduplicate users by userId to avoid repeating names
     final uniqueUsers = <String, Map<String, dynamic>>{};
@@ -3014,9 +2795,9 @@ class CreateFailureController extends GetxController {
       ...uniqueUsers.values
           .where((e) => (e['userName']?.toString() ?? '').isNotEmpty && (e['userName']?.toString().toLowerCase() != 'select'))
           .map((e) => LabelValue(
-                label: e['userName']?.toString() ?? '',
-                value: e['userId']?.toString() ?? '',
-              )),
+        label: e['userName']?.toString() ?? '',
+        value: e['userId']?.toString() ?? '',
+      )),
     ]);
     debugPrint('loadMasterDataFromDb: userList count after deduplication = ${userList.length}');
 
@@ -3037,7 +2818,7 @@ class CreateFailureController extends GetxController {
 
       debugPrint("loadStationCreateDropdowns: isStationController = $isStationController");
       debugPrint("loadStationCreateDropdowns: masterFunctionalLocations count = ${masterFunctionalLocations.length}");
-      
+
       // Always reload departments from local storage after sync
       await _loadDepartments();
     } catch (e) {
@@ -3067,9 +2848,9 @@ class CreateFailureController extends GetxController {
       {String fallback = "0"}) {
     if (label == null || label.isEmpty || label == 'Select') return fallback;
     return list
-            .firstWhere((e) => e.label == label,
-                orElse: () => LabelValue(value: fallback))
-            .value ??
+        .firstWhere((e) => e.label == label,
+        orElse: () => LabelValue(value: fallback))
+        .value ??
         fallback;
   }
 
@@ -3150,24 +2931,24 @@ class CreateFailureController extends GetxController {
         departmentList,
         selectedDepartment.value,
         fallback: Get.find<SessionController>()
-                .selectedDepartment
-                .value
-                ?.deptId
-                ?.toString() ??
+            .selectedDepartment
+            .value
+            ?.deptId
+            ?.toString() ??
             "0",
       );
       final priorityId = _lookupValue(priorityTypeList, selectedPriority.value);
       final locationId = _lookupValue(locationTypeList, selectedLocation.value);
-      print("locationId===$locationId");
+      debugPrint("locationId===$locationId");
       final funcLocId = _lookupValue(
           functionalLocationList, selectedFunctionalLocation.value);
       final stationCategoryId = corrNotificationTypeList
-              .firstWhere((e) => e.label?.toLowerCase() == 'station',
-                  orElse: () => LabelValue(value: "4"))
-              .value ??
+          .firstWhere((e) => e.label?.toLowerCase() == 'station',
+          orElse: () => LabelValue(value: "4"))
+          .value ??
           "4";
       final failureReportedById = int.tryParse(
-              _lookupValue(userList, selectedFailureReportedBy.value)) ??
+          _lookupValue(userList, selectedFailureReportedBy.value)) ??
           0;
       final trainReplace = int.tryParse(trainReplaceNosController.text) ?? 0;
 
@@ -3193,10 +2974,10 @@ class CreateFailureController extends GetxController {
         "FailureCategoryTypeId": stationCategoryId,
         "FailureCategoryTypeText": "",
         "ActualFailureCompletedDateTime":
-            selectedFailureCompletedDate.value != null
-                ? DateFormat("dd/MM/yyyy HH:mm")
-                    .format(selectedFailureCompletedDate.value!)
-                : "",
+        selectedFailureCompletedDate.value != null
+            ? DateFormat("dd/MM/yyyy HH:mm")
+            .format(selectedFailureCompletedDate.value!)
+            : "",
       };
 
       if (funcLocId != "0") {
@@ -3374,33 +3155,33 @@ class CreateFailureController extends GetxController {
         "Category": failureCategory.value,
         "Remark_JE": newJeRemark,
         "NatureOfWorkId": int.tryParse(natureOfWorkList
-                    .firstWhere((e) => e.label == selectedNatureOfWork.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere((e) => e.label == selectedNatureOfWork.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "TrainRunningKM": trainRunningKmController.text.isEmpty
             ? null
             : trainRunningKmController.text,
         "NotificationTypeId": int.tryParse(notificationTypeList
-                    .firstWhere(
-                        (e) => e.label == selectedNotificationType.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere(
+                (e) => e.label == selectedNotificationType.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "FunctionLocationId": int.tryParse(functionalLocationList
-                    .firstWhere(
-                        (e) => e.label == selectedFunctionalLocation.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere(
+                (e) => e.label == selectedFunctionalLocation.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "EquipmentId": int.tryParse(equipmentList
-                    .firstWhere((e) => e.label == selectedEquipmentNumber.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere((e) => e.label == selectedEquipmentNumber.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "PowerBlockRequired": isPowerBlockRequired.value,
         "SICRequired": isSicRequired.value,
@@ -3412,54 +3193,54 @@ class CreateFailureController extends GetxController {
         "TrainDelayInMin": int.tryParse(trainDelayMinController.text) ?? 0,
         "TrainDelayInNo": int.tryParse(trainDelayNosController.text) ?? 0,
         "NoOfTranWithdrawal":
-            int.tryParse(trainWithdrawalNosController.text) ?? 0,
+        int.tryParse(trainWithdrawalNosController.text) ?? 0,
         "NoOfTranCancel": int.tryParse(trainCancelNosController.text) ?? 0,
         "NoOfTrainReplace": int.tryParse(trainReplaceNosController.text) ?? 0,
         "IsPassengerDeboarding": isPassengerDeboarding.value,
         "NoofTrainDeboarded":
-            int.tryParse(trainDeboardedNosController.text) ?? 0,
+        int.tryParse(trainDeboardedNosController.text) ?? 0,
         "FailureAttendedDate": selectedFailureAttendedDate.value != null
             ? DateFormat("dd/MM/yyyy HH:mm")
-                .format(selectedFailureAttendedDate.value!)
+            .format(selectedFailureAttendedDate.value!)
             : null,
         "ActualFailureRectifiedDate":
-            selectedActualFailureRectifiedDate.value != null
-                ? DateFormat("dd/MM/yyyy HH:mm")
-                    .format(selectedActualFailureRectifiedDate.value!)
-                : null,
+        selectedActualFailureRectifiedDate.value != null
+            ? DateFormat("dd/MM/yyyy HH:mm")
+            .format(selectedActualFailureRectifiedDate.value!)
+            : null,
         "IsFailureRectifiDetails": isRcaRequired.value,
         "FailureType": selectedActualFailureRectified.value,
         "FailureTypeId": int.tryParse(
-                selectedActualFailureRectified.value == "Yes" ? "1" : "2") ??
+            selectedActualFailureRectified.value == "Yes" ? "1" : "2") ??
             2,
         "IsHardwareReplaced": isSparePartReplaced.value,
         "IsJointInspectionReq": isJointInspection.value,
         "FunctionLocation_JI": 0, // Map from joint inspection selections
         "EquipmentId_JI": 0,
         "UserStatus": int.tryParse(userStatusList
-                    .firstWhere((e) => e.label == selectedUserStatus.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere((e) => e.label == selectedUserStatus.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "AssignedUserId": int.tryParse(userList
-                    .firstWhere(
-                        (e) => e.label == selectedPersonResponsible.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere(
+                (e) => e.label == selectedPersonResponsible.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "AssignedUserId_JI": int.tryParse(jointUserList
-                    .firstWhere((e) => e.label == selectedJointAssignTo.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere((e) => e.label == selectedJointAssignTo.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "DeptId_JI": int.tryParse(departmentList
-                    .firstWhere((e) => e.label == selectedJointDept.value,
-                        orElse: () => LabelValue(value: "0"))
-                    .value ??
-                "0") ??
+            .firstWhere((e) => e.label == selectedJointDept.value,
+            orElse: () => LabelValue(value: "0"))
+            .value ??
+            "0") ??
             0,
         "CreatedBy": int.tryParse(await AuthManager().getUserId() ?? "0") ?? 0,
         "IsPassengerAffected": isPassengerAffected.value,
@@ -3467,37 +3248,37 @@ class CreateFailureController extends GetxController {
             ? int.tryParse(passengersAffectedCountController.text)
             : null,
         "TrappedDuration": isPassengerAffected.value &&
-                trappedDurationController.text.trim().isNotEmpty
+            trappedDurationController.text.trim().isNotEmpty
             ? trappedDurationController.text.trim()
             : null,
         "RescuedDuration": isPassengerAffected.value &&
-                rescuedDurationController.text.trim().isNotEmpty
+            rescuedDurationController.text.trim().isNotEmpty
             ? rescuedDurationController.text.trim()
             : null,
         "LocationTypeId": int.tryParse(
-              locationTypeList
-                      .firstWhere((e) => e.label == selectedLocation.value,
-                          orElse: () => LabelValue(value: "0"))
-                      .value ??
-                  "0",
-            ) ??
+          locationTypeList
+              .firstWhere((e) => e.label == selectedLocation.value,
+              orElse: () => LabelValue(value: "0"))
+              .value ??
+              "0",
+        ) ??
             0,
         "NotificationCode": notificationCode.value,
         "UnderObservationDate": selectedUnderObservationDate.value != null
             ? DateFormat("dd/MM/yyyy HH:mm")
-                .format(selectedUnderObservationDate.value!)
+            .format(selectedUnderObservationDate.value!)
             : null,
         "FailureRectificationDetails":
-            failureRectificationDetailsController.text.isEmpty
-                ? "N/A"
-                : failureRectificationDetailsController.text,
+        failureRectificationDetailsController.text.isEmpty
+            ? "N/A"
+            : failureRectificationDetailsController.text,
         "LocationFailure": subLocationController.text,
-        "Corr_NotificationTypeId": int.tryParse(corrNotificationTypeList
-                    .firstWhere(
-                        (e) => e.label == selectedNotificationType.value,
-                        orElse: () => LabelValue(value: "1"))
-                    .value ??
-                "1") ??
+        "Corr_NotificationTypeId": int.tryParse(notificationTypeList
+            .firstWhere(
+                (e) => e.label == selectedNotificationType.value,
+            orElse: () => LabelValue(value: "1"))
+            .value ??
+            "1") ??
             1,
         "ReasonForDelayId": reasonForDelayId.value,
       };
@@ -3506,68 +3287,104 @@ class CreateFailureController extends GetxController {
         "Action": "UPDATE_JE_NOTIFICATIONMob",
         "changeNotifictionJE": changeNotifictionJE,
         "materialRequiredDetails": isSparePartReplaced.value
-            ? _materialsForSubmit().map(_buildMaterialPayload).toList()
+            ? materialsForSubmit().map(buildMaterialPayload).toList()
             : <Map<String, dynamic>>[],
         "failureRectification": rcaDetailsList
             .map((e) => {
-                  "ObjectPartId":
-                      int.tryParse(e['ObjectPartId'].toString()) ?? 0,
-                  "ObjectPartText": e['objectPartText'] ?? "",
-                  "FaultId": int.tryParse(e['FaultId'].toString()) ?? 0,
-                  "FaultText": e['faultText'] ?? "",
-                  "RootCauseText": (e['rootCauses'] as List).isNotEmpty
-                      ? "${e['rootCauses'][0]['rootCauseId']}:${e['rootCauses'][0]['rootCauseText']}"
-                      : "",
-                  "ActionText": (e['actionTakens'] as List).isNotEmpty
-                      ? "${e['actionTakens'][0]['actionTakenId']}:${e['actionTakens'][0]['actionTakenText']}"
-                      : ""
-                })
+          "ObjectPartId":
+          int.tryParse(e['ObjectPartId'].toString()) ?? 0,
+          "ObjectPartText": e['objectPartText'] ?? "",
+          "FaultId": int.tryParse(e['FaultId'].toString()) ?? 0,
+          "FaultText": e['faultText'] ?? "",
+          "RootCauseText": (e['rootCauses'] as List).isNotEmpty
+              ? "${e['rootCauses'][0]['rootCauseId']}:${e['rootCauses'][0]['rootCauseText']}"
+              : "",
+          "ActionText": (e['actionTakens'] as List).isNotEmpty
+              ? "${e['actionTakens'][0]['actionTakenId']}:${e['actionTakens'][0]['actionTakenText']}"
+              : ""
+        })
             .toList(),
         "getMeasurementPoints": measurementPointsList
             .map((e) => {
-                  "measId": e['measId'],
-                  "measPoint": e['measPoint'],
-                  "measPointDesc": e['measPointDesc'],
-                  "unitOfMeasurement": e['unitOfMeasurement'],
-                  "isRequired": e['isRequired'],
-                  "beforeReading":
-                      num.tryParse(e['beforeReading']?.toString() ?? "") ?? 0,
-                  "finalConfirmation": true,
-                  "afterReading":
-                      num.tryParse(e['afterReading']?.toString() ?? "") ?? 0
-                })
+          "measId": e['measId'],
+          "measPoint": e['measPoint'],
+          "measPointDesc": e['measPointDesc'],
+          "unitOfMeasurement": e['unitOfMeasurement'],
+          "isRequired": false,
+          "beforeReading":
+          num.tryParse(e['beforeReading']?.toString() ?? "") ?? 0,
+          "finalConfirmation": true,
+          "afterReading":
+          num.tryParse(e['afterReading']?.toString() ?? "") ?? 0
+        })
             .toList(),
         "joinInspectionHistory": isJointInspection.value
             ? _jointInspectionHistoryForSubmit()
             : <Map<String, dynamic>>[],
         "materialDismantleDetails": isMaterialDismantle.value
-            ? dismantleMaterialsList.map((e) {
-                final recordId = _materialRecordId(e);
-                final statusId = recordId > 0 ? 2 : 1;
-                return {
-                  "MaterialId": e['materialId'] ??
-                      e['MaterialId'] ??
-                      _resolveMaterialId(e),
-                  "MaterialValue": e['materialCode'] ?? "",
-                  "MaterialReqId": recordId,
-                  "OldSerialNumber": e['oldSerialNo'] ?? "",
-                  "NewSerialNumber": e['newSerialNo'] ?? "",
-                  "OldSerialNoDismantleDate": e['dismantleDateRaw'] ??
-                      (e['dismantleDate'] != null
-                          ? "${e['dismantleDate'].day}/${e['dismantleDate'].month}/${e['dismantleDate'].year}"
-                          : ""),
-                  "NewSerialNoInstallationDate": e['installationDateRaw'] ??
-                      (e['installationDate'] != null
-                          ? "${e['installationDate'].day}/${e['installationDate'].month}/${e['installationDate'].year}"
-                          : ""),
-                  "InsertUpdateStatusId": statusId,
-                  "CurrentInsertUpdateStatusId": statusId,
-                  "Id": recordId,
-                };
-              }).toList()
+            ? [
+                ...dismantleMaterialsList.map((e) {
+                  final recordId = materialRecordId(e);
+                  final statusId = recordId > 0 ? 2 : 1;
+                  
+                  // Format dates to dd/MM/yyyy HH:mm format for API
+                  String formatDismantleDate(dynamic date) {
+                    if (date == null) return "";
+                    if (date is DateTime) return DateFormat('dd/MM/yyyy HH:mm').format(date);
+                    if (date is String) {
+                      // Try to parse and reformat to dd/MM/yyyy HH:mm
+                      try {
+                        final dt = DateTime.parse(date); // ISO8601
+                        return DateFormat('dd/MM/yyyy HH:mm').format(dt);
+                      } catch (e) {
+                        try {
+                          final dt = DateFormat('dd/MM/yyyy HH:mm').parse(date);
+                          return date; // Already in correct format
+                        } catch (e2) {
+                          try {
+                            final dt = DateFormat('dd-MM-yyyy HH:mm').parse(date);
+                            return DateFormat('dd/MM/yyyy HH:mm').format(dt);
+                          } catch (e3) {
+                            return date.toString();
+                          }
+                        }
+                      }
+                    }
+                    return "";
+                  }
+                  
+                  return {
+                    "MaterialId": e['materialId'] ?? resolveMaterialId(e),
+                    "MaterialValue": e['materialCode'] ?? "",
+                    "MaterialReqId": recordId,
+                    "OldSerialNumber": e['oldSerialNumber'] ?? "",
+                    "NewSerialNumber": e['newSerialNumber'] ?? "",
+                    "OldSerialNoDismantleDate": formatDismantleDate(e['oldSerialDismantleDate']),
+                    "NewSerialNoInstallationDate": formatDismantleDate(e['newSerialInstallationDate']),
+                    "InsertUpdateStatusId": statusId,
+                    "CurrentInsertUpdateStatusId": statusId,
+                    "Id": recordId,
+                  };
+                }).toList(),
+                // Add deleted items with delete status
+                ...deletedDismantleMaterialsList.map((e) {
+                  return {
+                    "MaterialId": e['materialId'] ?? resolveMaterialId(e),
+                    "MaterialValue": e['materialCode'] ?? "",
+                    "MaterialReqId": e['id'],
+                    "OldSerialNumber": e['oldSerialNumber'] ?? "",
+                    "NewSerialNumber": e['newSerialNumber'] ?? "",
+                    "OldSerialNoDismantleDate": e['oldSerialDismantleDate'] ?? "",
+                    "NewSerialNoInstallationDate": e['newSerialInstallationDate'] ?? "",
+                    "InsertUpdateStatusId": 3, // 3 = Delete
+                    "CurrentInsertUpdateStatusId": 3,
+                    "Id": e['id'],
+                  };
+                }).toList(),
+              ]
             : <Map<String, dynamic>>[]
       };
-
+    print("payload===${payload["materialDismantleDetails"]}");
       // Build files list from local (non-network) selections
       final List<http.MultipartFile> files = [];
       if (beforeFiles.isNotEmpty &&
@@ -3588,7 +3405,11 @@ class CreateFailureController extends GetxController {
         files.add(await http.MultipartFile.fromPath(
             'rcaImage', rcaFiles.first['path']));
       }
-
+      const encoder = JsonEncoder.withIndent('  ');
+      debugPrint(
+        encoder.convert(payload),
+        wrapWidth: 1024,
+      );
       await _failureService.updateJEFailure(payload, files: files);
       EasyLoading.dismiss();
       Get.back();
@@ -3609,11 +3430,9 @@ class CreateFailureController extends GetxController {
 
   DateTime? _parseDate(String dateStr) {
     try {
-      // Try MM/dd/yyyy HH:mm:ss format first (US format from API)
       try {
         return DateFormat('MM/dd/yyyy HH:mm:ss').parse(dateStr);
       } catch (e) {
-        // Fallback to dd/MM/yyyy HH:mm format
         return DateFormat('dd/MM/yyyy HH:mm').parse(dateStr);
       }
     } catch (e) {

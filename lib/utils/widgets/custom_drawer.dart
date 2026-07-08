@@ -7,10 +7,11 @@ import 'package:om_mobile/constants/strings.dart';
 import 'package:om_mobile/service/session_controller.dart';
 import '../../feature/auth_login/view/login_view.dart';
 import '../../feature/failure/view/failure_list_screen.dart';
+import '../../feature/failure/view/rst/rst_list_screen.dart';
 import '../../feature/inspection/view/inspection_list_screen.dart';
 import '../../feature/inspection/view/top_management/inspection_dashboard_screen.dart';
 import '../../feature/inspection/view/top_management/top_management_create_inspection_screen.dart';
-import '../../feature/failure/view/rst_failure_screen.dart';
+import '../../feature/failure/view/rst/rst_failure_screen.dart';
 import '../../feature/ibl/view/ibl_screen.dart';
 import '../../service/auth_manager.dart';
 import 'cust_dropdown.dart';
@@ -113,7 +114,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     width: 54,
                     height: 54,
                     decoration: const BoxDecoration(
-                      color: AppColors.textColor6,
+                      color: AppColors.textDarkTertiary,
                       shape: BoxShape.circle,
                     ),
                     alignment: Alignment.center,
@@ -132,21 +133,21 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         CustText(
                           name: sessionController.userName.value,
                           size: 16,
-                          color: AppColors.orangeColor,
+                          color: AppColors.textDarkPrimary,
                           fontWeightName: FontWeight.w600,
                         ),
                         const SizedBox(height: 2),
                         CustText(
                           name: sessionController.selectedRole.value?.roleDescr ?? 'No Role Selected',
                           size: 12,
-                          color: AppColors.textColor8,
+                          color: AppColors.textDarkSecondary,
                           fontWeightName: FontWeight.w400,
                         ),
                         const SizedBox(height: 2),
                         CustText(
                           name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
                           size: 12,
-                          color: AppColors.textColor8,
+                          color: AppColors.textDarkSecondary,
                           fontWeightName: FontWeight.w400,
                         ),
                       ],
@@ -214,7 +215,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (isStationController) {
                         return const SizedBox.shrink();
                       }
-                      return _drawerItem('RST JE Inbox', 'rst_failure', const RstFailureScreen());
+                      return _drawerItem('RST JE Inbox', 'rst_failure', const RstListScreen());
                     }),
                   ],
                 ),
@@ -278,7 +279,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
             child: CustText(
               name: 'Version 1.0.0',
               size: 12,
-              color: AppColors.textColor9,
+              color: AppColors.textDarkSecondary,
               fontWeightName: FontWeight.w400,
             ),
           ),
@@ -302,7 +303,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
             tilePadding: EdgeInsets.only(left: isSubSection ? 32 : 12, right: 16,),
-            leading: isSubSection ? null : Icon(icon ?? Icons.folder_outlined, color: isExpanded?AppColors.orangeColor:AppColors.textColor4, size: 22),
+            leading: isSubSection ? null : Icon(icon ?? Icons.folder_outlined, color: isExpanded?AppColors.orangeColor:AppColors.textDarkSecondary, size: 22),
             title: CustText(
               name: title,
               size: isSubSection ? 14 : 16,
@@ -355,7 +356,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
     return Container(
       child: ListTile(
         contentPadding: EdgeInsets.only(left: leadingIcon != null ? 12 : 54, right: 16),
-        leading: leadingIcon != null ? Icon(leadingIcon, color: AppColors.textColor4, size: 22) : null,
+        leading: leadingIcon != null ? Icon(leadingIcon, color: AppColors.textDarkSecondary, size: 22) : null,
         title: CustText(
           name: name,
           size: 16,
@@ -413,7 +414,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   name: AppStrings.editRoleSubtitle,
                   size: AppConstants.bodySize,
                   fontWeightName: FontWeight.w400,
-                  color: AppColors.textColor8,
+                  color: AppColors.textDarkSecondary,
                 ),
                 const SizedBox(height: AppConstants.headerSpacing),
                 CustDropdown(
@@ -454,7 +455,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         name: AppStrings.cancel,
                         size: 150,
                         borderColor: Colors.black26,
-                        textColor: Colors.black87,
+                        textDarkPrimary: Colors.black87,
                         onSelected: (_) => Navigator.pop(context),
                       ),
                     ),
@@ -465,7 +466,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         size: 150,
                         color1: AppColors.orangeColor,
                         color2: AppColors.orangeColor,
-                        textColor: Colors.white,
+                        textDarkPrimary: Colors.white,
                         onSelected: (_) {
                           Navigator.pop(context);
                         },

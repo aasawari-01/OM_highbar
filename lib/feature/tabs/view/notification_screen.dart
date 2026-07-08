@@ -21,7 +21,7 @@ class NotificationScreen extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: AppConstants.screenPadding, vertical: AppConstants.elementSpacing),
-          child: CustText.sectionHeader("Recent Notifications", color: AppColors.textColor3),
+          child: CustText.sectionHeader("Recent Notifications", color: AppColors.textDarkPrimary),
         ),
         const SizedBox(height: AppConstants.elementSpacing),
         Expanded(
@@ -66,7 +66,7 @@ class NotificationScreen extends StatelessWidget {
           title: CustText(
             name: title,
             size: AppConstants.bodySize,
-            color: AppColors.textColor5,
+            color: AppColors.textMuted,
             fontWeightName: FontWeight.bold,
           ),
           subtitle: Column(
@@ -75,7 +75,7 @@ class NotificationScreen extends StatelessWidget {
               CustText(
                 name: message,
                 size: 15,
-                color: AppColors.textColor,
+                color: AppColors.textDarkPrimary,
               ),
               const SizedBox(height: 4),
               CustText(

@@ -88,7 +88,7 @@ class CustDropdown extends StatelessWidget {
                       name: item,
                       color: isSelected 
                           ? AppColors.appBarColor
-                          : (isDisabled ? Colors.grey.shade400 : AppColors.textColor4),
+                          : (isDisabled ? Colors.grey.shade400 : AppColors.textDarkSecondary),
                       size: AppConstants.bodySize,
                       fontWeightName: isSelected ? FontWeight.bold : FontWeight.normal,
                     ),
@@ -114,7 +114,7 @@ class CustDropdown extends StatelessWidget {
                   ),
                   style: GoogleFonts.lato(
                     fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
-                    color: AppColors.textColor,
+                    color: AppColors.textDarkPrimary,
                   ),
                 ),
               ),

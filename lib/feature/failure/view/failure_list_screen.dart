@@ -7,6 +7,7 @@ import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/cust_popup.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 import '../../../constants/app_constants.dart';
 import 'create_failure_screen.dart';
 
@@ -14,6 +15,7 @@ import 'package:get/get.dart';
 import '../controller/failure_list_controller.dart';
 import '../model/failure_list_response.dart';
 import '../../../service/session_controller.dart';
+import '../../../service/master_data_sync_service.dart';
 import '../../../utils/widgets/cust_loader.dart';
 
 class FailureListScreen extends StatefulWidget {
@@ -116,27 +118,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
             onPressed: () {},
           ),
           const SizedBox(width: 4),
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              const CircleAvatar(
-                radius: 16,
-                backgroundColor: Colors.white,
-              ),
-              Positioned(
-                bottom: 2,
-                right: 2,
-                child: Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: Colors.green,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          const SyncIconButton(),
           const SizedBox(width: 16),
         ],
       ),
@@ -152,7 +134,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
               TabBar(
                 controller: _tabController,
                 labelColor: AppColors.orangeColor,
-                unselectedLabelColor: AppColors.textColor4,
+                unselectedLabelColor: AppColors.textDarkSecondary,
                 indicatorColor: AppColors.orangeColor,
                 indicatorWeight: 3,
                 labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
@@ -176,14 +158,14 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   controller: _searchController,
                   hintText: "Search by failure no, location, status...",
                   onChanged: (val) => controller.searchQuery.value = val,
-                  prefixIcon: const Icon(Icons.search, color: AppColors.textColor4, size: 20),
+                  prefixIcon: const Icon(Icons.search, color: AppColors.textDarkSecondary, size: 20),
                   suffixIcon: GestureDetector(
                     onTap: () {
                       _searchController.clear();
                       controller.searchQuery.value = '';
                       setState(() => _isSearching = false);
                     },
-                    child: const Icon(Icons.close, color: AppColors.textColor4, size: 20),
+                    child: const Icon(Icons.close, color: AppColors.textDarkSecondary, size: 20),
                   ),
                   autofocus: true,
                 ),
@@ -228,30 +210,50 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   }
 
   Widget _buildFailureListContent() {
-    return Obx(() => controller.isLoading.value
-        ? const CustLoader()
-        : controller.errorMessage.isNotEmpty
-            ? Center(child: CustText(name: controller.errorMessage.value, size: 14))
-            : controller.filteredFailures.isEmpty
-                ? Center(
-                    child: Text(
-                      _showStationTabs && controller.selectedStationTab.value == StationFailureListTab.closed
-                          ? 'No closed failures found'
-                          : 'No failures found',
-                      style: const TextStyle(fontSize: 16, color: Colors.grey),
-                    ),
-                  )
-                : RefreshIndicator(
-                    onRefresh: () => controller.fetchFailures(),
-                    child: ListView.builder(
-                      padding: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
-                      itemCount: controller.filteredFailures.length,
-                      itemBuilder: (context, index) {
-                        final failure = controller.filteredFailures[index];
-                        return _buildFailureCard(failure);
-                      },
-                    ),
-                  ));
+    return Obx(() {
+      final syncService = Get.find<MasterDataSyncService>();
+      if (syncService.isSyncing.value) {
+        return Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const CustLoader(),
+            const SizedBox(height: 16),
+            CustText(
+              name: syncService.syncStatus.value,
+              size: 14,
+              color: AppColors.orangeColor,
+            ),
+          ],
+        );
+      }
+      if (controller.isLoading.value) {
+        return const CustLoader();
+      }
+      if (controller.errorMessage.isNotEmpty) {
+        return Center(child: CustText(name: controller.errorMessage.value, size: 14));
+      }
+      if (controller.filteredFailures.isEmpty) {
+        return Center(
+          child: Text(
+            _showStationTabs && controller.selectedStationTab.value == StationFailureListTab.closed
+                ? 'No closed failures found'
+                : 'No failures found',
+            style: const TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+        );
+      }
+      return RefreshIndicator(
+        onRefresh: () => controller.fetchFailures(),
+        child: ListView.builder(
+          padding: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
+          itemCount: controller.filteredFailures.length,
+          itemBuilder: (context, index) {
+            final failure = controller.filteredFailures[index];
+            return _buildFailureCard(failure);
+          },
+        ),
+      );
+    });
   }
 
   Widget _buildFailureCard(FailureItem failure) {
@@ -288,30 +290,14 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Row(
-                    children: [
-                      CustText(
-                        name: 'Priority:',
-                        size: 13,
-                        color: AppColors.textColor4,
-                      ),
-                      const SizedBox(width: 6),
-                      _priorityChip(failure.priority?.trim().isNotEmpty == true ? failure.priority! : 'N/A'),
-                    ],
+                  CustText(
+                    name: 'Status:',
+                    size: 13,
+                    color: AppColors.textDarkSecondary,
                   ),
-                  Row(
-                    children: [
-                      CustText(
-                        name: 'Status:',
-                        size: 13,
-                        color: AppColors.textColor4,
-                      ),
-                      const SizedBox(width: 6),
-                      _statusChip(failure.statusName ?? ''),
-                    ],
-                  ),
+                  const SizedBox(width: 6),
+                  _statusChip(failure.statusName ?? ''),
                 ],
               ),
               const SizedBox(height: 8),
@@ -426,12 +412,12 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   }
 
   Color _getStatusColor(String? status) {
-    if (status == null) return AppColors.textColor4;
+    if (status == null) return AppColors.textDarkSecondary;
     if (status.contains('Reject')) return AppColors.red;
     if (status.contains('Pending')) return AppColors.red;
     if (status.contains('Complete')) return AppColors.green;
     if (status == 'Assigned' || status == 'Reassigned') return AppColors.orangeColor;
-    return AppColors.textColor4;
+    return AppColors.textDarkSecondary;
   }
 
   Widget _priorityChip(String priority) {
@@ -447,7 +433,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         text = AppColors.orangeColor;
         break;
       case 'N/A':
-        text = AppColors.textColor4;
+        text = AppColors.textDarkSecondary;
         break;
       default:
         text = AppColors.red;
@@ -490,7 +476,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       case 'offline':
         return AppColors.orangeColor;
       default:
-        return AppColors.textColor4;
+        return AppColors.textDarkSecondary;
     }
   }
 
@@ -503,6 +489,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         iconColor: AppColors.red,
         confirmText: "Close",
         cancelText: "Cancel",
+        onCancel: () => Get.back(),
         onConfirm: () {
           controller.closeFailure(failureId);
         },
@@ -523,7 +510,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         customContent: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            CustText(name: "Re-open Failure", size: AppConstants.HeaderSize, color: AppColors.textColor7, fontWeightName: FontWeight.w600),
+            CustText(name: "Re-open Failure", size: AppConstants.headerSize, color: AppColors.textMutedLight, fontWeightName: FontWeight.w600),
             const SizedBox(height: 12),
             CustText(name: "Please provide a reason for re-opening:", size: AppConstants.formLabelSize),
             const SizedBox(height: 12),

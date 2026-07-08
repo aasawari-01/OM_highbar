@@ -1,13 +1,9 @@
 class AppUrls {
   /// Base URL for all API .
-  // static const String baseUrl = 'http://192.168.1.50:7878/api/';
-  //  static const String baseUrl = "http://192.168.1.35:8080/api/";
-  //   static const String baseUrl = "http://192.168.1.35:8080/api/";
    static const String baseUrl = "http://192.168.24.158:5000/api/";
+   static const String imageUrl = "http://192.168.24.158:5000/";
 
-
-
-  /// Auth endpoints
+   /// Auth endpoints
   static const String login = 'UserLogin/userLoginValidate';
   static const String logout = 'UserLogin/userLogout';
 
@@ -32,4 +28,12 @@ class AppUrls {
   static const String updateStationAcknowledgeStatus = 'OCCMaintainance/updateStationAcknowledgeStatus';
   static const String getStationName = 'Lookup/GetLookup_StationName';
   static const String getMasterData = 'mobileAppAPI/GetMasterData';
+  static const String rstNotificationInbox = 'CorrectiveNotification/getRSTNotificationInboxJE';
+  static const String getRSTFailureData = 'mobileAppAPI/GetRSTFailureData';
+  static const String updateRSTNotificationAccept = "JECorrectivesMaintenance/updateRSTNotificationAccept";
+  static const String getMCDRequiredQuantity = 'JECorrectivesMaintenance/getMCDRequiredQuantity';
+  static const String getMaterialBalancedQty = 'Common/GetMaterialBalancedQty';
+  static const String updateNotificationRSTRCAMaterialJE = "JECorrectivesMaintenance/updateNotificationRSTRCAMaterialJE";
+   static const String updateRSTNotificationCompletion = 'JECorrectivesMaintenance/updateRSTNotificationCompletion';
+
 }

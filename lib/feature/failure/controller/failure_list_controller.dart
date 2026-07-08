@@ -134,7 +134,7 @@ class FailureListController extends GetxController {
               borderRadius: BorderRadius.circular(16),
               boxShadow: [
                 BoxShadow(
-                  color: AppColors.textColor4,
+                  color: AppColors.textDarkSecondary,
                   blurRadius: 10,
                   offset: const Offset(0, 4),
                 ),
@@ -148,7 +148,7 @@ class FailureListController extends GetxController {
                   children: [
                     const CustLoader(),
                     const SizedBox(height: 16),
-                    const Text("Fetching stations...", style: TextStyle(color: AppColors.textColor3)),
+                    const Text("Fetching stations...", style: TextStyle(color: AppColors.textDarkSecondary)),
                   ],
                 );
               }
@@ -164,10 +164,10 @@ class FailureListController extends GetxController {
                         Get.back();
                         Get.back();
                       },
-                      child: const Icon(TablerIcons.x, color: AppColors.textColor, size: 24),
+                      child: const Icon(TablerIcons.x, color: AppColors.textDarkPrimary, size: 24),
                     ),
                   ),
-                  CustText(name: "Select Station", size: AppConstants.HeaderSize, color: AppColors.textColor7, fontWeightName: FontWeight.w600),
+                  CustText(name: "Select Station", size: AppConstants.headerSize, color: AppColors.black, fontWeightName: FontWeight.w600),
                   const SizedBox(height: 16),
                   Obx(() => CustDropdown(
                     label: "Station",
@@ -293,12 +293,17 @@ class FailureListController extends GetxController {
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonBody = jsonDecode(response.body);
-        print("jsonBody===$jsonBody");
+        debugPrint("jsonBody===$jsonBody");
         final result = FailureListResponse.fromJson(jsonBody);
         if (result.responseCode == 200) {
           final allItems = result.responseOutput;
           final filteredItems = allItems.where((item) => _matchesFailureType(item)).toList();
-          failures.assignAll(filteredItems);
+          // Reverse order for joint inspection inbox
+          if (_isJE && selectedJETab.value == JEFailureListTab.jointInspection) {
+            failures.assignAll(filteredItems.reversed.toList());
+          } else {
+            failures.assignAll(filteredItems);
+          }
         } else {
           errorMessage.value = result.responseMessage ?? "Failed to load data";
         }

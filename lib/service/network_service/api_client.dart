@@ -38,7 +38,7 @@ class ApiClient {
     final response = await _client
         .post(uri, headers: mergedHeaders, body: encodedBody)
         .timeout(AppConstants.apiTimeout);
-    debugPrint('[POST] ${response.statusCode} — $uri');
+    debugPrint('[POST] ${response.statusCode} — $uri $encodedBody ${jsonDecode(response.body)}');
     return response;
   }
 
@@ -78,7 +78,7 @@ class ApiClient {
     final streamedResponse =
         await request.send().timeout(AppConstants.apiMultipartTimeout);
     final response = await http.Response.fromStream(streamedResponse);
-    debugPrint('[MULTIPART POST] ${response.statusCode} — $uri -$fields');
+    debugPrint('[MULTIPART POST] ${response.statusCode} — $uri -$fields  ${jsonDecode(response.body)}');
     return response;
   }
 }

@@ -46,7 +46,7 @@ class _FilterPopupState extends State<FilterPopup> {
           children: [
             Align(
               alignment: Alignment.centerLeft,
-              child: CustText.sectionHeader('All Filters', color: AppColors.textColor),
+              child: CustText.sectionHeader('All Filters', color: AppColors.textDarkPrimary),
             ),
             const SizedBox(height: AppConstants.elementSpacing),
             // Priority
@@ -58,19 +58,19 @@ class _FilterPopupState extends State<FilterPopup> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (selectedPriorities.contains(p))
-                      Icon(Icons.check, color: AppColors.textColor3, size:ResponsiveHelper.height(context, 20)),
+                      Icon(Icons.check, color: AppColors.textBlueSecondary, size:ResponsiveHelper.height(context, 20)),
                     if (selectedPriorities.contains(p))
                       const SizedBox(width: 4), // Decrease this for less gap
                     CustText(
                       name: p,
                       size: 13,
-                      color: selectedPriorities.contains(p) ? AppColors.textColor3 : AppColors.textColor,
+                      color: selectedPriorities.contains(p) ? AppColors.textBlueSecondary : AppColors.textDarkPrimary,
                       fontWeightName: selectedPriorities.contains(p) ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ],
                 ),
                 selected: selectedPriorities.contains(p),
-                selectedColor: AppColors.textColor3.withOpacity(0.1),
+                selectedColor: AppColors.textBlueSecondary.withOpacity(0.1),
                 onSelected: (_) {
                   setState(() {
                     if (selectedPriorities.contains(p)) {
@@ -85,7 +85,7 @@ class _FilterPopupState extends State<FilterPopup> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                   side: BorderSide(
-                    color: selectedPriorities.contains(p) ? AppColors.textColor3 : Colors.grey.shade300,
+                    color: selectedPriorities.contains(p) ? AppColors.textBlueSecondary : Colors.grey.shade300,
                   ),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
@@ -101,19 +101,19 @@ class _FilterPopupState extends State<FilterPopup> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (selectedStatuses.contains(s))
-                      Icon(Icons.check, color: AppColors.textColor3, size: 16),
+                      Icon(Icons.check, color: AppColors.textBlueSecondary, size: 16),
                     if (selectedStatuses.contains(s))
                       const SizedBox(width: 4),
                     CustText(
                       name: s,
                       size: 13,
-                      color: selectedStatuses.contains(s) ? AppColors.textColor3 : AppColors.textColor,
+                      color: selectedStatuses.contains(s) ? AppColors.textBlueSecondary : AppColors.textDarkPrimary,
                       fontWeightName: selectedStatuses.contains(s) ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ],
                 ),
                 selected: selectedStatuses.contains(s),
-                selectedColor: AppColors.textColor3.withOpacity(0.1),
+                selectedColor: AppColors.textBlueSecondary.withOpacity(0.1),
                 onSelected: (_) {
                   setState(() {
                     if (selectedStatuses.contains(s)) {
@@ -128,7 +128,7 @@ class _FilterPopupState extends State<FilterPopup> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                   side: BorderSide(
-                    color: selectedStatuses.contains(s) ? AppColors.textColor3 : Colors.grey.shade300,
+                    color: selectedStatuses.contains(s) ? AppColors.textBlueSecondary : Colors.grey.shade300,
                   ),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
@@ -144,19 +144,19 @@ class _FilterPopupState extends State<FilterPopup> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     if (selectedTypes.contains(t))
-                      Icon(Icons.check, color: AppColors.textColor3, size: 16),
+                      Icon(Icons.check, color: AppColors.textBlueSecondary, size: 16),
                     if (selectedTypes.contains(t))
                       const SizedBox(width: 4),
                     CustText(
                       name: t,
                       size: 13,
-                      color: selectedTypes.contains(t) ? AppColors.textColor3 : AppColors.textColor,
+                      color: selectedTypes.contains(t) ? AppColors.textBlueSecondary : AppColors.textDarkPrimary,
                       fontWeightName: selectedTypes.contains(t) ? FontWeight.w600 : FontWeight.w400,
                     ),
                   ],
                 ),
                 selected: selectedTypes.contains(t),
-                selectedColor: AppColors.textColor3.withOpacity(0.1),
+                selectedColor: AppColors.textBlueSecondary.withOpacity(0.1),
                 onSelected: (_) {
                   setState(() {
                     if (selectedTypes.contains(t)) {
@@ -171,7 +171,7 @@ class _FilterPopupState extends State<FilterPopup> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                   side: BorderSide(
-                    color: selectedTypes.contains(t) ? AppColors.textColor3 : Colors.grey.shade300,
+                    color: selectedTypes.contains(t) ? AppColors.textBlueSecondary : Colors.grey.shade300,
                   ),
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
@@ -216,7 +216,7 @@ class _FilterPopupState extends State<FilterPopup> {
                   onChanged: (val) {
                     setState(() => serviceAffected = val ?? false);
                   },
-                  activeColor: AppColors.textColor3,
+                  activeColor: AppColors.textBlueSecondary,
                 ),
                 CustText(
                   name: 'Passengers Affected',
@@ -236,7 +236,7 @@ class _FilterPopupState extends State<FilterPopup> {
                       Navigator.pop(context);
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.textColor3,
+                      backgroundColor: AppColors.textBlueSecondary,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -256,7 +256,7 @@ class _FilterPopupState extends State<FilterPopup> {
                       // Clear logic
                     },
                     style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: AppColors.textColor3),
+                      side: BorderSide(color: AppColors.textBlueSecondary),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -264,7 +264,7 @@ class _FilterPopupState extends State<FilterPopup> {
                     child: CustText(
                       name: 'Clear',
                       size: 15,
-                      color: AppColors.textColor3,
+                      color: AppColors.textBlueSecondary,
                       fontWeightName: FontWeight.w600,
                     ),
                   ),

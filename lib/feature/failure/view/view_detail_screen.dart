@@ -5,6 +5,7 @@ import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/accordion_card.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 
 class ViewDetailScreen extends StatefulWidget {
   const ViewDetailScreen({Key? key}) : super(key: key);
@@ -26,6 +27,12 @@ class _ViewDetailScreenState extends State<ViewDetailScreen> {
       title: 'SIG/10-2024/0024',
       showDrawer: false,
       onLeadingPressed: () => Navigator.pop(context),
+      actions: [
+        Padding(
+          padding: const EdgeInsets.only(right: 12.0),
+          child: const SyncIconButton(),
+        ),
+      ],
     ),
       body: SafeArea(
         child: Column(
@@ -201,7 +208,7 @@ class _ViewDetailScreenState extends State<ViewDetailScreen> {
         CustText(
           name: '2 Files',
           size: 16,
-          color: AppColors.textColor,
+          color: AppColors.textDarkPrimary,
           fontWeightName: FontWeight.w500,
         ),
         const SizedBox(height: 8),

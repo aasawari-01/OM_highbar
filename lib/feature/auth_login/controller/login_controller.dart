@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
 
 import '../../tabs/view/home_screen.dart';
 
@@ -25,6 +26,7 @@ class LoginController extends GetxController {
   }) async {
     try {
       isLoading.value = true;
+      EasyLoading.show(status: 'Logging in...');
       final LoginResponse result =
           await _authService.login(email: email, password: password);
       if (result.message == "Success" || result.messageCode == 200) {
@@ -36,17 +38,27 @@ class LoginController extends GetxController {
           Get.put(SessionController());
         }
         
-        // Sync master data in background after successful login
-        MasterDataSyncService().syncMasterData();
-        
+        EasyLoading.dismiss();
+        // Navigate to home screen first
         Get.offAll(() => const HomeScreen());
+        
+        // Check if this is first-time login to show initial sync on home screen
+        final isFirstTimeLogin = await AuthManager().isFirstTimeLogin();
+        if (isFirstTimeLogin) {
+          // Sync master data on first-time login (will show loader on home screen)
+          await MasterDataSyncService().syncMasterData();
+          await AuthManager().setFirstTimeLoginComplete();
+        }
+
       } else {
+        EasyLoading.dismiss();
         Get.snackbar(
           'Login failed',
           result.message ?? 'Invalid credentials',
         );
       }
     } catch (e) {
+      EasyLoading.dismiss();
       Get.snackbar(
         'Login failed',
         e.toString(),
