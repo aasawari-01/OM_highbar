@@ -8,6 +8,7 @@ import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/cust_toggle.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
 import '../../../utils/widgets/cust_data_card.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 
 class CommonInspectionChecklistScreen extends StatefulWidget {
   const CommonInspectionChecklistScreen({super.key});
@@ -55,7 +56,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
             onPressed: () {},
           ),
           const SizedBox(width: 4),
-          _buildProfileAction(),
+          const SyncIconButton(),
           const SizedBox(width: 16),
         ],
       ),

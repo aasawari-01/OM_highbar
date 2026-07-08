@@ -12,6 +12,7 @@ import '../../../utils/widgets/cust_toggle.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
 import '../../../utils/widgets/custom_dialog.dart';
 import '../../../utils/widgets/cust_data_card.dart';
+import '../../../utils/widgets/sync_icon_button.dart';
 
 enum InspectionPlan { scheduled, unscheduled }
 
@@ -111,6 +112,8 @@ class _InspectionScreenState extends State<InspectionScreen> {
             icon: const Icon(Icons.filter_list, color: Colors.white, size: 28),
             onPressed: () {},
           ),
+          const SizedBox(width: 4),
+          const SyncIconButton(),
           const SizedBox(width: 16),
         ],
       ),
