@@ -2768,7 +2768,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         value: e['priorityId']?.toString() ?? '',
       )),
     ]);
-
+//for cat
     final categories = (await dbService.getFailureCategories()).map((e) => e.toJson()).toList();
     corrNotificationTypeList.assignAll([
       LabelValue(label: 'Select', value: ''),
