@@ -593,13 +593,11 @@ class RstFailureController extends GetxController {
       final fullData = await _failureService.getRstFailureFullData(notificationId);
       debugPrint("fetchRstFailureData: API data received, rstFetchData=${fullData.rstFetchData.notificationId}");
 
-      // Populate notification history
       if (fullData.notificationHistory != null) {
         notificationHistory.value = fullData.notificationHistory!.toJson();
         debugPrint("fetchRstFailureData: Notification history populated");
       }
 
-      debugPrint("fetchRstFailureData: Parsing RstFetchData...");
       final data = RstFetchData.fromJson(fullData.rstFetchData.toJson());
       rstFailureData.value = data;
       debugPrint("fetchRstFailureData: RstFetchData parsed, description=${data.description}");
