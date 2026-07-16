@@ -138,18 +138,18 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         ),
                         const SizedBox(height: 2),
                         CustText(
-                          name: sessionController.selectedRole.value?.roleDescr ?? 'No Role Selected',
+                          name: sessionController.designationName.value ?? 'No Role Selected',
                           size: 12,
                           color: AppColors.textDarkSecondary,
                           fontWeightName: FontWeight.w400,
                         ),
-                        const SizedBox(height: 2),
-                        CustText(
-                          name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
-                          size: 12,
-                          color: AppColors.textDarkSecondary,
-                          fontWeightName: FontWeight.w400,
-                        ),
+                        // const SizedBox(height: 2),
+                        // CustText(
+                        //   name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
+                        //   size: 12,
+                        //   color: AppColors.textDarkSecondary,
+                        //   fontWeightName: FontWeight.w400,
+                        // ),
                       ],
                     )),
                   ),
@@ -416,13 +416,13 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   fontWeightName: FontWeight.w400,
                   color: AppColors.textDarkSecondary,
                 ),
-                const SizedBox(height: AppConstants.headerSpacing),
-                CustDropdown(
-                  label: AppStrings.selectLine,
-                  hint: AppStrings.selectYourLine,
-                  items: const ['Line 1', 'Line 2'], 
-                  onChanged: (val) {},
-                ),
+                // const SizedBox(height: AppConstants.headerSpacing),
+                // CustDropdown(
+                //   label: AppStrings.selectLine,
+                //   hint: AppStrings.selectYourLine,
+                //   items: const ['Line 1', 'Line 2'],
+                //   onChanged: (val) {},
+                // ),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(
                   label: AppStrings.selectDepartment,
@@ -435,12 +435,30 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   },
                 )),
                 const SizedBox(height: AppConstants.elementSpacing),
+                // Obx(() => CustDropdown(
+                //   label: AppStrings.selectRole,
+                //   hint: AppStrings.chooseYourRole,
+                //   items: sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
+                //   selectedValue: sessionController.selectedRole.value?.roleDescr,
+                //   onChanged: (val) {
+                //     if (val != null) {
+                //       final role = sessionController.roles.firstWhere((e) => e.roleDescr == val);
+                //       sessionController.changeRole(role);
+                //     }
+                //   },
+                // )),
                 Obx(() => CustDropdown(
                   label: AppStrings.selectRole,
-                  hint: AppStrings.chooseYourRole,
-                  items: sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
+                  hint: sessionController.selectedDepartment.value == null
+                      ? AppStrings.selectDepartmentFirst   // new string, or reuse an existing one
+                      : AppStrings.chooseYourRole,
+                  items: sessionController.selectedDepartment.value == null
+                      ? const []
+                      : sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
                   selectedValue: sessionController.selectedRole.value?.roleDescr,
-                  onChanged: (val) {
+                  onChanged: sessionController.selectedDepartment.value == null
+                      ? (_) {}
+                      : (val) {
                     if (val != null) {
                       final role = sessionController.roles.firstWhere((e) => e.roleDescr == val);
                       sessionController.changeRole(role);

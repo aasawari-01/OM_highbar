@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 
+import '../../../utils/widgets/cust_popup.dart';
 import '../../tabs/view/home_screen.dart';
 
 import '../service/auth_service.dart';
@@ -32,6 +33,8 @@ class LoginController extends GetxController {
       if (result.message == "Success" || result.messageCode == 200) {
         debugPrint("Login successful. Received Business Area: ${result.businessArea}");
         await AuthManager().login(result, rememberMe: rememberMe.value);
+
+
         if (Get.isRegistered<SessionController>()) {
           await Get.find<SessionController>().loadSessionData();
         } else {
@@ -52,10 +55,24 @@ class LoginController extends GetxController {
 
       } else {
         EasyLoading.dismiss();
-        Get.snackbar(
-          'Login failed',
-          result.message ?? 'Invalid credentials',
+        Get.dialog(
+          CustPopup(
+            title: "Login Failed",
+            message: (result.message == null || result.message!.trim().isEmpty)
+                ? "Invalid credentials."
+                : result.message!.toLowerCase() == "password"||result.message!.toLowerCase() == "email"
+                ? "The ${result.message} you entered is incorrect. Please try again."
+                : result.message!,
+            icon: Icons.error_outline,
+            iconColor: Colors.red,
+            confirmText: "OK",
+            onConfirm: () => Get.back(),
+          ),
         );
+        // Get.snackbar(
+        //   'Login failed',
+        //   "Invalid ${result.message}" ?? 'Invalid credentials',
+        // );
       }
     } catch (e) {
       EasyLoading.dismiss();

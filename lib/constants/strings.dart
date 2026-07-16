@@ -51,6 +51,7 @@ class AppStrings {
   static const String selectDepartment = 'Select Department';
   static const String chooseYourDepartment = 'Choose your department';
   static const String selectRole = 'Select Role';
+  static const String selectDepartmentFirst = 'First Select Department';
   static const String chooseYourRole = 'Choose your role';
   static const String saveAndContinue = 'Save and Continue';
 
