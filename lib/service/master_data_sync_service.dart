@@ -34,6 +34,9 @@ class MasterDataSyncService extends GetxController {
       debugPrint("syncMasterData: Already in progress, skipping duplicate sync");
       return;
     }
+    final dbService = LocalDatabaseService();
+
+    await dbService.clearMasterTables();
 
     _syncInProgress = true;
     isSyncing.value = true;
@@ -92,8 +95,10 @@ class MasterDataSyncService extends GetxController {
       // 2. Fetch Locations
       syncStatus.value = 'Syncing locations...';
       try {
+        print("user id is $userId");
         final locRes = await _apiClient.post(
           AppUrls.getMasterData,
+
           body: {
             "userId": userId,
             "action": "GetLocationMasterData",

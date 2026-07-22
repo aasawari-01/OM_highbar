@@ -58,6 +58,28 @@ class FailureService {
         jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<bool> saveUserStationDetails(int stationId, String stationName) async {
+    try {
+      final userId = await AuthManager().getUserId();
+      final response = await _apiClient.post(
+        AppUrls.insertUserStationDetails,
+        body: {
+          'CreatedBy': userId,
+          'StationId': stationId.toString(),
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return body['responseCode'] == 200 || body['success'] == true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error saving user station details: $e');
+      return false;
+    }
+  }
+
   /// Submits the JE failure update with optional image files.
   Future<void> updateJEFailure(
     Map<String, dynamic> payload, {
@@ -173,20 +195,49 @@ class FailureService {
   }
 
   /// Returns station names for the station picker popup.
+  // Future<List<LabelValue>> getStationNames() async {
+  //   final userId = await AuthManager().getUserId() ?? '1';
+  //   final response = await _apiClient
+  //       .get('${AppUrls.getStationName}?AssgineUserId=$userId');
+  //   if (response.statusCode != 200) return [];
+  //   final body = jsonDecode(response.body) as Map<String, dynamic>;
+  //   if (body['responseCode'] == 200 && body['responseOutput'] != null) {
+  //     return (body['responseOutput'] as List)
+  //         .map((e) => LabelValue(
+  //               label: e['label']?.toString() ?? '',
+  //               value: e['value']?.toString() ?? '',
+  //             ))
+  //         .toList();
+  //   }
+  //   return [];
+  // }
+
+
   Future<List<LabelValue>> getStationNames() async {
     final userId = await AuthManager().getUserId() ?? '1';
-    final response = await _apiClient
-        .get('${AppUrls.getStationName}?AssgineUserId=$userId');
+
+    final response = await _apiClient.get(
+      '${AppUrls.getStationName}?AssgineUserId=$userId',
+    );
+
+    print('Status Code: ${response.statusCode}');
+    print('Response Body: ${response.body}');
+
     if (response.statusCode != 200) return [];
+
     final body = jsonDecode(response.body) as Map<String, dynamic>;
+
     if (body['responseCode'] == 200 && body['responseOutput'] != null) {
       return (body['responseOutput'] as List)
           .map((e) => LabelValue(
-                label: e['label']?.toString() ?? '',
-                value: e['value']?.toString() ?? '',
-              ))
+        label: e['label']?.toString() ?? '',
+        value: e['value']?.toString() ?? '',
+        code: e['code']?.toString()??''
+
+      ))
           .toList();
     }
+
     return [];
   }
 

@@ -485,7 +485,15 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         color1: AppColors.orangeColor,
                         color2: AppColors.orangeColor,
                         textDarkPrimary: Colors.white,
-                        onSelected: (_) {
+                        onSelected: (_) async {
+                          final dept = sessionController.selectedDepartment.value;
+                          final role = sessionController.selectedRole.value;
+                          if (dept?.deptId != null) {
+                            await AuthManager().setSelectedDept(dept!.deptId!);
+                          }
+                          if (role?.roleId != null) {
+                            await AuthManager().setSelectedRole(role!.roleId!);
+                          }
                           Navigator.pop(context);
                         },
                       ),

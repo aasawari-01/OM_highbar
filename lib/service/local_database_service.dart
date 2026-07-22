@@ -278,19 +278,19 @@ class LocalDatabaseService {
   // Fetch Operations
   Future<List<LocationModel>> getLocations() async {
     final db = await database;
-    final results = await db.rawQuery('SELECT * FROM Locations LIMIT 10000');
+    final results = await db.rawQuery('SELECT * FROM Locations');
     return results.map((e) => LocationModel.fromJson(e)).toList();
   }
 
   Future<List<FunctionalLocationModel>> getFunctionalLocations() async {
     final db = await database;
-    final results = await db.rawQuery('SELECT funcLocation, funcLocId, funcLocationName, location, objectNumber, workCenter FROM FunctionalLocations LIMIT 10000');
+    final results = await db.rawQuery('SELECT funcLocation, funcLocId, funcLocationName, location, objectNumber, workCenter FROM FunctionalLocations');
     return results.map((e) => FunctionalLocationModel.fromJson(e)).toList();
   }
 
   Future<List<EquipmentModel>> getEquipments() async {
     final db = await database;
-    final results = await db.rawQuery('SELECT equipId, equipmentName, functionalLocation, location, equipNo, equipDesc FROM Equipments LIMIT 10000');
+    final results = await db.rawQuery('SELECT equipId, equipmentName, functionalLocation, location, equipNo, equipDesc FROM Equipments');
     return results.map((e) => EquipmentModel.fromJson(e)).toList();
   }
 
@@ -371,6 +371,21 @@ class LocalDatabaseService {
       final results = await db.query('Priorities', orderBy: 'priorityId ASC');
       return results.map((e) => PriorityModel.fromJson(e)).toList();
     }
+  }
+
+
+  Future<void> clearMasterTables() async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      await txn.delete('Locations');
+      await txn.delete('FunctionalLocations');
+      await txn.delete('Equipments');
+      await txn.delete('MeasurementPoints');
+
+    });
+
+    debugPrint("All master tables cleared.");
   }
 
   Future<List<DepartmentModel>> getDepartments() async {

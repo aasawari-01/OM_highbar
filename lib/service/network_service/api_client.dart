@@ -43,11 +43,38 @@ class ApiClient {
   }
 
   /// Sends a JSON GET request.
+  // Future<http.Response> get(
+  //   String endpoint, {
+  //   Map<String, String>? headers,
+  // }) async {
+  //   final uri = _buildUri(endpoint);
+  //   debugPrint('[GET] $uri');
+  //   final mergedHeaders = <String, String>{
+  //     'Content-Type': 'application/json',
+  //     'accept': '*/*',
+  //     if (headers != null) ...headers,
+  //   };
+  //   final response = await _client
+  //       .get(uri, headers: mergedHeaders)
+  //       .timeout(AppConstants.apiTimeout);
+  //   debugPrint('[GET] ${response.statusCode} — $uri');
+  //   return response;
+  // }
+
+  /// Sends a JSON GET request.
   Future<http.Response> get(
-    String endpoint, {
-    Map<String, String>? headers,
-  }) async {
-    final uri = _buildUri(endpoint);
+      String endpoint, {
+        Map<String, String>? headers,
+        Map<String, dynamic>? queryParams,
+      }) async {
+    var uri = _buildUri(endpoint);
+    if (queryParams != null && queryParams.isNotEmpty) {
+      final mergedQuery = <String, String>{
+        ...uri.queryParameters,
+        ...queryParams.map((key, value) => MapEntry(key, value.toString())),
+      };
+      uri = uri.replace(queryParameters: mergedQuery);
+    }
     debugPrint('[GET] $uri');
     final mergedHeaders = <String, String>{
       'Content-Type': 'application/json',

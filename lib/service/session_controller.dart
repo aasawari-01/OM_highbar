@@ -21,6 +21,7 @@ class SessionController extends GetxController {
   final RxString designationName = "".obs;
   final selectedStationId = Rxn<String>();
   final selectedStationName = Rxn<String>();
+  final selectedStationCode = Rxn<String>();
 
   String get userInitials {
     if (userName.value.isEmpty) return "??";
@@ -112,6 +113,8 @@ class SessionController extends GetxController {
     //   log("deparment is $departments");
     // }
 
+
+
     // 2. Resolve selectedDepartment BEFORE touching roles
     final int? selectedDeptId = await AuthManager().getSelectedDeptId();
     if (selectedDeptId != null && departments.isNotEmpty) {
@@ -128,6 +131,8 @@ class SessionController extends GetxController {
 
     // 4. Resolve selectedRole from the already-scoped roles list
     final int? selectedRoleId = await AuthManager().getSelectedRoleId();
+
+    print("data getting from $selectedDeptId---$selectedRoleId");
     if (selectedRoleId != null && roles.isNotEmpty) {
       selectedRole.value = roles.firstWhere(
             (e) => e.roleId == selectedRoleId,

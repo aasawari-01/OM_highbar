@@ -61,9 +61,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (widget.failureType == "Station") {
-        if (session.selectedStationId.value == null) {
-          await controller.fetchAndShowStationPopup();
-        }
+        // if (session.selectedStationId.value == null) {
+        //   await controller.fetchAndShowStationPopup();
+        // }
 
         controller.fetchFailures();
       } else {
@@ -315,6 +315,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                         _buildLabelValue('Created On:', failure.failureOccuranceDateTime ?? ''),
                         const SizedBox(height: 12),
                         _buildLabelValue('Location:', failure.locationName ?? ''),
+                        const SizedBox(height: 12),
+                        failure.occRequestStatus!=null? _buildLabelValue('Acknowledge Status:', failure.occRequestStatus ?? ''):Container(),
+
                       ],
                     ),
                   ),
@@ -336,6 +339,21 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ),
                 ],
               ),
+              if ((failure.statusName ?? '').contains('Work Complete')) ...[
+                const SizedBox(height: 12),
+                const Divider(color: AppColors.dividerColor3, height: 1),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => _showAcknowledgePopup(failure.id ?? 0),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.green,
+                    side: const BorderSide(color: AppColors.green),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 10,horizontal: 10),
+                  ),
+                  child: const Text('Acknowledge', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ],
               if ((failure.statusName ?? '').contains('Reject')) ...[
                 const SizedBox(height: 12),
                 const Divider(color: AppColors.dividerColor3, height: 1),
@@ -554,6 +572,80 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       ),
     );
   }
+  void _showAcknowledgePopup(int failureId) {
+    final TextEditingController remarkController = TextEditingController();
+    Get.dialog(
+      CustPopup(
+        title: "Acknowledge for Failure",
+        message: "Please enter remark to continue",
+        icon: TablerIcons.refresh,
+        iconColor: AppColors.green,
+        customContent: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CustText(name: "Acknowledge for Failure", size: AppConstants.headerSize, color: AppColors.textMutedLight, fontWeightName: FontWeight.w600),
+            const SizedBox(height: 12),
+            CustText(name: "Please enter remark to continue", size: AppConstants.formLabelSize),
+            const SizedBox(height: 12),
+            CustomTextField(
+              controller: remarkController,
+              hintText: "Enter remark...",
+              maxLines: 3,
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: CustOutlineButton(
+                    name: "Cancel",
+                    size: double.infinity,
+                    sHeight: 35,
+                    onSelected: (_) => Get.back(),
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                Expanded(
+                  child: CustButton(
+                    name: "Deny",
+                    size: double.infinity,
+                    sHeight: 35,
+                    onSelected: (_) {
+                      final remark = remarkController.text.trim();
+                      if (remark.isEmpty) {
+                        Get.snackbar("Required", "Please enter a remark.", backgroundColor: Colors.red, colorText: Colors.white);
+                        return;
+                      }
+                      Get.back();
+                      _showAcknowledgeConfirmation(failureId, remark,"deny");
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: CustButton(
+                    name: "Accept",
+                    size: double.infinity,
+                    sHeight: 35,
+                    onSelected: (_) {
+                      final remark = remarkController.text.trim();
+                      if (remark.isEmpty) {
+                        Get.snackbar("Required", "Please enter a remark.", backgroundColor: Colors.red, colorText: Colors.white);
+                        return;
+                      }
+                      Get.back();
+                      _showAcknowledgeConfirmation(failureId, remark, "accept");
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
 
   void _showReopenConfirmation(int failureId, String remark) {
     Get.dialog(
@@ -566,6 +658,28 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         cancelText: "Cancel",
         onConfirm: () {
           controller.reOpenFailure(failureId, remark);
+        },
+      ),
+    );
+  }
+
+  void _showAcknowledgeConfirmation(int failureId, String remark, String submitStatus) {
+    Get.dialog(
+      CustPopup(
+        title: "Confirm",
+
+        message: submitStatus=="deny"?"Do you want deny failure?":"Do you want accept failure?",
+        icon: TablerIcons.alert_triangle,
+        iconColor: AppColors.orangeColor,
+        confirmText: "Confirm",
+        cancelText: "Cancel",
+        onCancel: (){
+          Get.back();
+        },
+        onConfirm: () {
+
+          controller.acknowledgeFailure(failureId, remark,submitStatus);
+          Get.back();
         },
       ),
     );

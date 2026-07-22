@@ -1,9 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+
+import '../../failure/service/failure_service.dart';
+import '../../../utils/widgets/cust_button.dart';
+import '../../../utils/widgets/cust_text.dart';
+import '../../../utils/widgets/cust_dropdown.dart';
+import '../../../utils/widgets/cust_loader.dart';
+
+
+import '../../../core/models/label_value.dart';
+import '../../../constants/app_constants.dart';
+import '../../../constants/colors.dart';
+
 
 import '../../../utils/widgets/cust_popup.dart';
 import '../../tabs/view/home_screen.dart';
+
+
+
 
 import '../service/auth_service.dart';
 import '../model/login_response.dart';
@@ -15,11 +32,194 @@ class LoginController extends GetxController {
   LoginController({AuthService? authService})
       : _authService = authService ?? AuthService();
 
+  final FailureService _failureService = FailureService();
+
   final AuthService _authService;
 
   final RxBool isLoading = false.obs;
   final RxBool isPasswordVisible = false.obs;
   final RxBool rememberMe = false.obs;
+
+
+  final RxList<LabelValue> popupStationList = <LabelValue>[].obs;
+  final RxBool isPopupStationLoading = false.obs;
+
+  Future<void> _showStationSelectionPopup() async {
+    isPopupStationLoading.value = true;
+
+    Get.dialog(
+      WillPopScope(
+        onWillPop: () async => false,
+        child: Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          elevation: 8,
+          backgroundColor: Colors.transparent,
+          child: Container(
+            decoration: BoxDecoration(
+              color: AppColors.white1,
+              borderRadius: BorderRadius.circular(16),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.textDarkSecondary,
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            padding: const EdgeInsets.all(15),
+            child: Obx(() {
+              if (isPopupStationLoading.value) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CustLoader(),
+                    const SizedBox(height: 16),
+                    Text("Fetching stations...", style: TextStyle(color: AppColors.textDarkSecondary)),
+                  ],
+                );
+              }
+
+              final session = Get.find<SessionController>();
+
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: GestureDetector(
+                      onTap: () {
+                        Get.back();
+                        Get.back();
+                      },
+                      child: const Icon(Icons.close, color: AppColors.textDarkPrimary, size: 24),
+                    ),
+                  ),
+                  CustText(name: "Select Station", size: AppConstants.headerSize, color: AppColors.black, fontWeightName: FontWeight.w600),
+                  const SizedBox(height: 16),
+                  CustDropdown(
+                    label: "Station",
+                    hint: "Select Station",
+                    items: popupStationList
+                        .map((e) => e.label ?? '')
+                        .toList(),
+                    selectedValue: session.selectedStationName.value,
+                    onChanged: (val) async {
+                      session.selectedStationName.value = val;
+                      final station = popupStationList.firstWhere(
+                            (e) => e.label == val,
+                        orElse: () => LabelValue(value: '0', code: ''),
+                      );
+
+                      session.selectedStationId.value = station.value ?? '0';
+                      session.selectedStationCode.value = station.code ?? '';
+                      await AuthManager().saveSelectedStationCode(
+                        session.selectedStationCode.value??'',
+                      );
+
+
+                      print("adjakdasdasd");
+                      print(session.selectedStationName.value); // KHP - Khapari
+                      print(session.selectedStationId.value);   // 1
+                      print(session.selectedStationCode.value); // KHP
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CustOutlineButton(
+                          name: "Cancel",
+                          size: double.infinity,
+                          sHeight: 35,
+                          onSelected: (_) {
+                            Get.back();
+                            Get.back();
+                          },
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: CustButton(
+                          name: "OK",
+                          size: double.infinity,
+                          sHeight: 35,
+                          onSelected: (_) async {
+                            if (session.selectedStationName.value != null && session.selectedStationName.value!.isNotEmpty) {
+                              final stationId = int.tryParse(session.selectedStationId.value ?? '0') ?? 0;
+                              final stationName = session.selectedStationName.value ?? '';
+
+                              EasyLoading.show(status: 'Saving station...');
+                              final success = await _failureService.saveUserStationDetails(stationId, stationName);
+                              EasyLoading.dismiss();
+
+                              if (success) {
+                                Get.back();
+                                // Navigate to home screen
+                                Get.offAll(() => const HomeScreen());
+                                // Start master data sync in background
+                                Future.microtask(() async {
+                                  try {
+                                    await _startMasterDataSync();
+                                  } catch (e) {
+                                    debugPrint("Error syncing data after login: $e");
+                                  }
+                                });
+                              } else {
+                                Get.snackbar("Error", "Failed to save station details",backgroundColor: AppColors.red,colorText: AppColors.white1);
+                              }
+                            } else {
+                              Get.snackbar("Error", "Please select a station",
+                                backgroundColor: Colors.red.withOpacity(0.9),
+                                colorText: Colors.white,
+                                snackPosition: SnackPosition.BOTTOM,
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            }),
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+
+    try {
+      final stations = await _failureService.getStationNames();
+      print("station list is $stations");
+      popupStationList.assignAll(stations);
+    } catch (e) {
+      debugPrint('Error fetching stations: $e');
+    } finally {
+      isPopupStationLoading.value = false;
+    }
+  }
+
+
+
+  Future<void> _startMasterDataSync() async {
+    if (Get.isRegistered<MasterDataSyncService>()) {
+      final syncService = Get.find<MasterDataSyncService>();
+      try {
+        await syncService.syncMasterData();
+        // await syncService.syncFailureList('Station');
+        // await syncService.syncFailureList('Maintenance');
+        // await syncService.syncPendingSubmissions();
+      } catch (e) {
+        debugPrint("Error syncing data after login: $e");
+      }
+    }
+  }
+
+
+
+
+
 
   Future<void> login({
     required String email,
@@ -33,6 +233,10 @@ class LoginController extends GetxController {
       if (result.message == "Success" || result.messageCode == 200) {
         debugPrint("Login successful. Received Business Area: ${result.businessArea}");
         await AuthManager().login(result, rememberMe: rememberMe.value);
+        final hasStationController =
+        (result.roleAndDeptMasters ?? []).any(
+              (item) => item.roleDescr?.trim().toLowerCase() == 'station controller',
+        );
 
 
         if (Get.isRegistered<SessionController>()) {
@@ -40,17 +244,32 @@ class LoginController extends GetxController {
         } else {
           Get.put(SessionController());
         }
-        
+
         EasyLoading.dismiss();
-        // Navigate to home screen first
-        Get.offAll(() => const HomeScreen());
-        
-        // Check if this is first-time login to show initial sync on home screen
-        final isFirstTimeLogin = await AuthManager().isFirstTimeLogin();
-        if (isFirstTimeLogin) {
-          // Sync master data on first-time login (will show loader on home screen)
-          await MasterDataSyncService().syncMasterData();
-          await AuthManager().setFirstTimeLoginComplete();
+        // // Navigate to home screen first
+        // Get.offAll(() => const HomeScreen());
+        //
+        // // Check if this is first-time login to show initial sync on home screen
+        // final isFirstTimeLogin = await AuthManager().isFirstTimeLogin();
+        // if (isFirstTimeLogin) {
+        //   // Sync master data on first-time login (will show loader on home screen)
+        //   await MasterDataSyncService().syncMasterData();
+        //   await AuthManager().setFirstTimeLoginComplete();
+        // }
+
+        // await _showStationSelectionPopup();
+        if (hasStationController) {
+          await _showStationSelectionPopup();
+        } else {
+          Get.offAll(() => const HomeScreen());
+
+          Future.microtask(() async {
+            try {
+              await _startMasterDataSync();
+            } catch (e) {
+              debugPrint("Error syncing data after login: $e");
+            }
+          });
         }
 
       } else {

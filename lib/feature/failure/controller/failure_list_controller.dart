@@ -258,6 +258,8 @@ class FailureListController extends GetxController {
 
       if (_useStationFailureListApi) {
         final isClosedList = selectedStationTab.value == StationFailureListTab.closed;
+        print("isdsds issdasd $_isJE----${selectedJETab.value}----${JEFailureListTab.jointInspection}");
+
         response = await _apiClient.post(
           isClosedList ? AppUrls.getStationFailureClosedList : AppUrls.getStationFailureList,
           body: {
@@ -269,6 +271,7 @@ class FailureListController extends GetxController {
           },
         );
       } else if (_isJE && selectedJETab.value == JEFailureListTab.jointInspection) {
+        print("isdsds issdasd $_isJE----${selectedJETab.value}----${JEFailureListTab.jointInspection}");
         response = await _apiClient.post(
           AppUrls.jeJointInboxList,
           body: {
@@ -280,7 +283,10 @@ class FailureListController extends GetxController {
             "endDate": null
           },
         );
+
       } else {
+        print("isdsds issdasd else $_isJE----${selectedJETab.value}----${JEFailureListTab.jointInspection}");
+
         final int deptId = _sessionController.selectedDepartment.value?.deptId ?? 0;
         response = await _apiClient.post(
           AppUrls.jeInboxList,
@@ -290,6 +296,7 @@ class FailureListController extends GetxController {
           },
         );
       }
+
 
       if (response.statusCode == 200) {
         final Map<String, dynamic> jsonBody = jsonDecode(response.body);
@@ -302,7 +309,7 @@ class FailureListController extends GetxController {
           if (_isJE && selectedJETab.value == JEFailureListTab.jointInspection) {
             failures.assignAll(filteredItems.reversed.toList());
           } else {
-            failures.assignAll(filteredItems);
+            failures.assignAll(filteredItems.reversed.toList());
           }
         } else {
           errorMessage.value = result.responseMessage ?? "Failed to load data";
@@ -326,7 +333,11 @@ class FailureListController extends GetxController {
     await _updateStationAcknowledgeStatus(id, "UPDATE_CLOSED_OCC_Station", "Closed Request");
   }
 
-  Future<void> _updateStationAcknowledgeStatus(int id, String action, String description) async {
+  Future<void> acknowledgeFailure(int id,String remark,submitStatus) async {
+    await _updateStationAcknowledgeStatus(id, "UPDATE_Acknowledge_OCC_Station", remark,submitStatus: submitStatus);
+  }
+
+  Future<void> _updateStationAcknowledgeStatus(int id, String action, String description,{submitStatus}) async {
     try {
       isLoading.value = true;
       errorMessage.value = "";
@@ -337,7 +348,7 @@ class FailureListController extends GetxController {
 
       final Map<String, dynamic> payload = {
         "Id": id,
-        "StatusId": 202,
+        "StatusId": submitStatus=="deny"?198:submitStatus=="accept"?197:202,
         "Action": action,
         "CreatedBy": userId,
         "CreatedByName": userName,

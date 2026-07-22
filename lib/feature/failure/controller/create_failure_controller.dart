@@ -1,3 +1,5 @@
+import 'dart:developer';
+
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -6,6 +8,7 @@ import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../../constants/app_constants.dart';
 import '../../../constants/colors.dart';
 import '../../../constants/strings.dart';
@@ -25,7 +28,9 @@ import '../model/joint_inspection_history.dart';
 import '../service/failure_service.dart';
 import '../../../service/network_service/api_client.dart';
 import '../../../service/network_service/app_urls.dart';
+import '../view/failure_list_screen.dart';
 import 'failure_form_state.dart';
+import 'failure_list_controller.dart';
 import 'failure_rca_logic.dart';
 import 'failure_material_logic.dart';
 
@@ -135,6 +140,25 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       if (selectedActualFailureRectifiedDate.value!.isBefore(date)) {
         selectedActualFailureRectifiedDate.value = null;
       }
+    }
+  }
+
+
+  Future<void> _autoSelectFailureReportedBy() async {
+    // Don't overwrite if already set (e.g. re-entrant call)
+    if (selectedFailureReportedBy.value != null &&
+        selectedFailureReportedBy.value!.isNotEmpty) {
+      return;
+    }
+    final currentUserId = await AuthManager().getUserId();
+    if (currentUserId == null || currentUserId.isEmpty) return;
+
+    final matched = userList.firstWhere(
+          (e) => e.value == currentUserId,
+      orElse: () => LabelValue(label: null),
+    );
+    if (matched.label != null && matched.label!.isNotEmpty) {
+      selectedFailureReportedBy.value = matched.label;
     }
   }
 
@@ -487,7 +511,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       return;
     }
     if (_syncService.isSyncing.value) {
-      Get.snackbar('Sync in Progress', 'Please wait for data sync to complete');
+      // Get.snackbar('Sync in Progress', 'Please wait for data sync to complete');
       return;
     }
     try {
@@ -515,18 +539,28 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       EasyLoading.dismiss();
       jointInspectionHistoryList.assignAll(updated);
       _clearJointInspectionInputs();
-      Get.snackbar(AppStrings.success, AppStrings.jiAdded,
-          backgroundColor: Colors.green, colorText: Colors.white);
+      // Get.snackbar(AppStrings.success, AppStrings.jiAdded,
+      //     backgroundColor: Colors.green, colorText: Colors.white);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: AppStrings.jiAdded,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
     } catch (e) {
       EasyLoading.dismiss();
-      Get.snackbar(AppStrings.error, 'An error occurred: $e');
+      Get.snackbar(AppStrings.error, 'An error occurred: $e',backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
   Future<void> updateJointInspectionHistory() async {
     if (editingJointInspectionIndex.value < 0) return;
     if (_syncService.isSyncing.value) {
-      Get.snackbar('Sync in Progress', 'Please wait for data sync to complete');
+      // Get.snackbar('Sync in Progress', 'Please wait for data sync to complete');
       return;
     }
     try {
@@ -561,11 +595,21 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       EasyLoading.dismiss();
       jointInspectionHistoryList.assignAll(updated);
       _clearJointInspectionInputs();
-      Get.snackbar(AppStrings.success, AppStrings.jiUpdated,
-          backgroundColor: Colors.green, colorText: Colors.white);
+      // Get.snackbar(AppStrings.success, AppStrings.jiUpdated,
+      //     backgroundColor: Colors.green, colorText: Colors.white);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: AppStrings.jiUpdated,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
     } catch (e) {
       EasyLoading.dismiss();
-      Get.snackbar(AppStrings.error, 'An error occurred: $e');
+      Get.snackbar(AppStrings.error, 'An error occurred: $e',backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -632,11 +676,21 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       if (editingJointInspectionIndex.value == index) {
         _clearJointInspectionInputs();
       }
-      Get.snackbar(AppStrings.success, AppStrings.jiDeleted,
-          backgroundColor: Colors.green, colorText: Colors.white);
+      // Get.snackbar(AppStrings.success, AppStrings.jiDeleted,
+      //     backgroundColor: Colors.green, colorText: Colors.white);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: AppStrings.jiDeleted,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
     } catch (e) {
       EasyLoading.dismiss();
-      Get.snackbar(AppStrings.error, 'An error occurred: $e');
+      Get.snackbar(AppStrings.error, 'An error occurred: $e',backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -1010,7 +1064,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
             
             // Filter functional locations based on JI department's workCenter
             _filterJiFunctionalLocations();
-            
+
             jiFunctionalLocation.value =
                 _textOrNull(je['functionalLocationName_JI']) ??
                     _labelForValue(
@@ -1188,13 +1242,39 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       };
 
       final message = await _failureService.submitJIScreenData(payload);
+      // final failureListController = Get.find<FailureListController>();
+      // failureListController.fetchFailures();
+
+
+
+      if (Get.isRegistered<FailureListController>(tag: failureCategory.value)) {
+        await Get.find<FailureListController>(
+          tag: failureCategory.value,
+        ).fetchFailures();
+      }
       Get.back(result: true);
-      Get.snackbar(AppStrings.success, message,
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM);
+
+      // Get.offAll(() => FailureListScreen(
+      //   failureType: failureCategory.value,
+      // ));
+
+
+      // Get.snackbar(AppStrings.success, message,
+      //     backgroundColor: Colors.green,
+      //     colorText: Colors.white,
+      //     snackPosition: SnackPosition.BOTTOM);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: message,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
     } catch (e) {
-      Get.snackbar(AppStrings.error, e.toString());
+      Get.snackbar(AppStrings.error, e.toString(),backgroundColor: AppColors.red,colorText: AppColors.white1);
     } finally {
       EasyLoading.dismiss();
     }
@@ -1206,6 +1286,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   }
 
   Future<void> loadFailureDetails(String failureNo) async {
+
     encryptedId.value = failureNo;
     notificationId.value = 0;
     jointInspectionHistoryList.clear();
@@ -1597,6 +1678,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
       if (output['getFailureCreationDetails'] != null) {
         final details = output['getFailureCreationDetails'];
+
         originalFailureId.value = details['id'];
         notificationCode.value = details['failureId'] ?? '';
         selectedPriority.value = details['priority'];
@@ -1841,8 +1923,18 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         await _failureService.updateStationFailure(payload);
         debugPrint("steppppp");
         Get.back(result: true);
-        Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
-            backgroundColor: Colors.green, colorText: Colors.white);
+        // Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
+        //     backgroundColor: Colors.green, colorText: Colors.white);
+        Get.dialog(
+          CustPopup(
+            title: AppStrings.success,
+            message: AppStrings.failureUpdated,
+            icon: Icons.error_outline,
+            iconColor: Colors.red,
+            confirmText: "OK",
+            onConfirm: () => Get.back(),
+          ),
+        );
 
       } catch (e, s) {
         debugPrint("UPDATE ERROR: $e");
@@ -1887,6 +1979,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
   void _mergeLocationDropdownsFromOutput(FailureDetailOutput output) {
     final locs = output.getLocationTypeList;
+    print("locatyion is $locs");
     if (locs != null && locs.isNotEmpty) {
       final filtered = locs.where((e) => e.label?.trim().isNotEmpty == true && e.label?.toLowerCase() != 'select').toList();
       if (filtered.isNotEmpty) {
@@ -2097,6 +2190,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         .values
         .where((e) => (e['equipmentName']?.toString() ?? '').isNotEmpty && (e['equipmentName']?.toString().toLowerCase() != 'select'))
         .toList();
+    log("master locations $uniqueLocs");
 
     masterLocations.assignAll(uniqueLocs);
     masterFunctionalLocations.assignAll(uniqueFuncs);
@@ -2110,7 +2204,19 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       final labelValue = LabelValue(
         label: item['locationName']?.toString() ?? '',
         value: item['locationTypeId']?.toString() ?? '',
+        code: item['locationTypeCode']?.toString()??''
       );
+
+      // Auto-select location based on station code
+      final stationCode = await AuthManager().getSelectedStationCode();
+      print(stationCode);
+      final matched = locationTypeList.firstWhere(
+            (e) => e.code == stationCode,
+        orElse: () => LabelValue(),
+      );
+
+      selectedLocation.value = matched.label ?? '';
+      print("selected location is ---${selectedLocation.value}----${session.selectedStationCode.value}");
       if (!locationTypeList.any((e) => e.label == labelValue.label)) {
         locationTypeList.add(labelValue);
       }
@@ -2200,6 +2306,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   }
 
   void _setEquipmentOptions(List<Map<String, dynamic>> equips) {
+    print("equipement list$equipmentList");
     // If the currently selected equipment would disappear because it's not in
     // the newly filtered set (e.g. it came from an API response not yet synced
     // to local DB), keep that ONE entry so the field doesn't go blank.
@@ -2223,7 +2330,10 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     }
 
     equipmentList.clear();
+    print("equipement list$equipmentList");
+
     equipmentList.add(LabelValue(label: 'Select', value: ''));
+    print("equipement list$equipmentList");
 
     final localEquipments = equips
         .where((e) => (e['equipmentName']?.toString() ?? '').trim().toLowerCase() != 'select')
@@ -2232,8 +2342,10 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       value: e['equipId']?.toString() ?? '',
     ))
         .toList();
+    print("equipement list$equipmentList");
 
     equipmentList.addAll(localEquipments);
+    print("equipement list$equipmentList");
 
     if (preserved != null && !equipmentList.any((e) => e.label == preserved!.label)) {
       equipmentList.add(preserved);
@@ -2367,7 +2479,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       if (hasDept && workCenter != null && workCenter.isNotEmpty) {
         final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
         match = match && (funcWorkCenter == workCenter.trim().toUpperCase());
-        debugPrint("Filtering funcLoc: workCenter filter - funcWorkCenter=$funcWorkCenter, filterWorkCenter=$workCenter, match=$match");
+        // debugPrint("Filtering funcLoc: workCenter filter - funcWorkCenter=$funcWorkCenter, filterWorkCenter=$workCenter, match=$match");
       }
 
       return match;
@@ -2411,7 +2523,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   void _filterJiFunctionalLocations() {
     debugPrint("=== _filterJiFunctionalLocations START ===");
     debugPrint("jiDepartment.value: ${jiDepartment.value}");
-    
+
     if (jiDepartment.value == null || jiDepartment.value == 'Select') {
       // No department selected, show all functional locations
       debugPrint("No department selected, showing all functional locations");
@@ -2420,12 +2532,12 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     }
 
     debugPrint("departmentList: ${departmentList.map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
-    
+
     final dept = departmentList.firstWhere(
           (e) => e.label == jiDepartment.value,
         orElse: () => LabelValue(),
     );
-    
+
     debugPrint("Matched dept: label=${dept.label}, value=${dept.value}, uniqueId=${dept.uniqueId}");
 
     String? workCenter;
@@ -2445,7 +2557,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
     debugPrint("Filtering functional locations by workCenter: $workCenter");
     debugPrint("Sample functional locations (first 5): ${masterFunctionalLocations.take(5).map((e) => {'funcLocation': e['funcLocation'], 'workCenter': e['workCenter']}).toList()}");
-    
+
     final filteredFuncs = masterFunctionalLocations.where((e) {
       final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
       final match = funcWorkCenter == workCenter?.trim().toUpperCase();
@@ -2524,6 +2636,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   /// Call this after loading an existing failure's details, since those flows set the
   /// selections directly without going through the normal filter path.
   void _refilterEquipmentForCurrentSelections() {
+    print("equipement list$equipmentList");
     final hasLocation = selectedLocation.value != null && selectedLocation.value != 'Select';
     final hasFuncLoc = selectedFunctionalLocation.value != null && selectedFunctionalLocation.value != 'Select';
 
@@ -2605,6 +2718,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     final eq = masterEquipments.firstWhere(
             (e) => e['equipmentName'] == equipLabel,
         orElse: () => <String, dynamic>{});
+
+
 
     // Auto-select location based on equipment
     final locCode = eq['location']?.toString();
@@ -2737,7 +2852,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       actionTakenList.assignAll(data.actionTaken);
     } catch (e) {
       EasyLoading.dismiss();
-      Get.snackbar(AppStrings.error, e.toString());
+      Get.snackbar(AppStrings.error, e.toString(),backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -2821,6 +2936,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
       // Always reload departments from local storage after sync
       await _loadDepartments();
+
+      await _autoSelectFailureReportedBy();
     } catch (e) {
       debugPrint("loadStationCreateDropdowns error: $e");
     } finally {
@@ -3034,15 +3151,47 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
       final failureNo = await _failureService.createStationFailure(body);
       EasyLoading.dismiss();
+
+
+      if (Get.isRegistered<FailureListController>(tag: failureCategory.value)) {
+        await Get.find<FailureListController>(
+          tag: failureCategory.value,
+        ).fetchFailures();
+      }
+
+      // Get.offAll(() => FailureListScreen(
+      //   failureType: failureCategory.value,
+      // ));
+
       Get.back();
       final message = (failureNo != null && failureNo.isNotEmpty)
           ? 'Station failure created: $failureNo'
           : AppStrings.failureCreated;
-      Get.snackbar(AppStrings.success, message);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: message,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
+      // Get.snackbar(AppStrings.success, message);
     } catch (e) {
       EasyLoading.dismiss();
       debugPrint("Create Station Failure Error: $e");
-      Get.snackbar("Error", "An unexpected error occurred");
+      // Get.snackbar("Error", "An unexpected error occurred");
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.error,
+          message: "Something went wrong",
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
     }
   }
 
@@ -3413,12 +3562,22 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       await _failureService.updateJEFailure(payload, files: files);
       EasyLoading.dismiss();
       Get.back();
-      Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
-          backgroundColor: Colors.green, colorText: Colors.white);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: AppStrings.failureUpdated,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
+      // Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
+      //     backgroundColor: Colors.green, colorText: Colors.white);
     } catch (e) {
       EasyLoading.dismiss();
       debugPrint('updateFailure error: $e');
-      Get.snackbar(AppStrings.error, 'An unexpected error occurred');
+      Get.snackbar(AppStrings.error, 'An unexpected error occurred',backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 

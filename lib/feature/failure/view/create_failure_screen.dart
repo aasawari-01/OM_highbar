@@ -210,6 +210,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
   @override
   void initState() {
+    print('from joint inspection SE JE');
     super.initState();
     if (Get.isRegistered<CreateFailureController>()) {
       Get.delete<CreateFailureController>();
@@ -218,13 +219,21 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     controller.failureCategory.value = widget.failureType;
     controller.isFromJointInspection.value = widget.isFromJointInspection;
     controller.failureDescriptionController.clear();
+    print('from joint inspection SE JE222');
+    print('from joint inspection SE JE222 ${widget.failureNo}---${widget.isFromJointInspection}');
     if (widget.failureNo != null) {
+      print('from joint inspection SE JE ${widget.failureType}----${controller.isStationController}');
       if (widget.isFromJointInspection) {
+        print('from joint inspection SE JE');
         controller.loadJointInspectionDetails(widget.failureNo!);
       } else if (widget.failureType == 'Station' &&
           controller.isStationController) {
+
+
         controller.loadStationFailureDetails(widget.failureNo!);
       } else {
+
+        print('from joint inspection SE JE ${widget.failureType}----${controller.isStationController}');
         WidgetsBinding.instance.addPostFrameCallback((_) {
           controller.loadFailureDetails(widget.failureNo!);
         });
@@ -515,7 +524,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
-        title: _isJeChangeNotification
+        title:_isJointInspectionFlow?'Joint Inspection JE': _isJeChangeNotification
             ? 'Edit ${widget.failureType} Failure'
             : 'Create ${widget.failureType} Failure',
         showDrawer: false,
@@ -1365,7 +1374,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                   const SizedBox(
                                       height: AppConstants.elementSpacing),
                                   CustDropdown(
-                                    label: 'Equipment Number *',
+                                    label: 'Equipment Number',
                                     hint: controller.isEquipmentLoading.value
                                         ? 'Loading...'
                                         : 'Select equipment number',
@@ -2333,6 +2342,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     hint: "Select Station",
                     items: controller.popupStationList.map((e) => e.label ?? '').toList(),
                     selectedValue: session.selectedStationName.value,
+                    enabled: false,
                     onChanged: (val) {
                       session.selectedStationName.value = val;
                       session.selectedStationId.value = controller.popupStationList
@@ -2385,7 +2395,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   CustomTextField(
-                    label: "Failure Description",
+                    label: "Failure Description *",
                     controller: controller.failureDescriptionController,
                     hintText: "Enter failure description",
                     maxLines: 4,
@@ -2410,6 +2420,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           controller.onLocationChanged(value);
                         },
                         validator: (val) => _requiredDropdown(val, "Location"),
+                    enabled: false,
                       )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => CustDropdown(
@@ -2452,7 +2463,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   CustDateTimePicker(
-                    label: "Actual Failure Occurrence",
+                    label: "Actual Failure Occurrence *",
                     hint: "DD/MM/YYYY hh:mm",
                     selectedDateTime:
                         controller.selectedFailureOccurrenceDate.value,
@@ -2466,17 +2477,25 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     },
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
+                  // Obx(() => CustDropdown(
+                  //       label: "Failure Reported by",
+                  //       hint: "Select...",
+                  //       items: controller.userList
+                  //           .map((e) => e.label ?? '')
+                  //           .toList(),
+                  //       selectedValue:
+                  //           controller.selectedFailureReportedBy.value,
+                  //       onChanged: (v) =>
+                  //           controller.selectedFailureReportedBy.value = v,
+                  //     )),
+
                   Obx(() => CustDropdown(
-                        label: "Failure Reported by",
-                        hint: "Select...",
-                        items: controller.userList
-                            .map((e) => e.label ?? '')
-                            .toList(),
-                        selectedValue:
-                            controller.selectedFailureReportedBy.value,
-                        onChanged: (v) =>
-                            controller.selectedFailureReportedBy.value = v,
-                      )),
+                    label: "Failure Reported by",
+                    hint: "Select...",
+                    items: controller.userList.map((e) => e.label ?? '').toList(),
+                    selectedValue: controller.selectedFailureReportedBy.value,
+                    onChanged: (v) => controller.selectedFailureReportedBy.value = v,
+                  )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   CustDateTimePicker(
                     label: "Actual Failure Completed Date & Time",
@@ -2489,7 +2508,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => CustDropdown(
-                        label: "Failure Category Type",
+                        label: "Failure Category Type *",
                         hint: "Select...",
                         items: controller.corrNotificationTypeList
                             .map((e) => e.label ?? '')
@@ -2876,7 +2895,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       } catch (e) {
                         debugPrint("Error picking image: $e");
                         Get.snackbar("Error",
-                            "Could not capture photo. Please check camera permissions.");
+                            "Could not capture photo. Please check camera permissions.",backgroundColor: AppColors.red,colorText: AppColors.white1);
                       }
                     },
                   ),
@@ -2900,7 +2919,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         }
                       } catch (e) {
                         debugPrint("Error picking file: $e");
-                        Get.snackbar("Error", "Could not pick file.");
+                        Get.snackbar("Error", "Could not pick file.",backgroundColor: AppColors.red,colorText: AppColors.white1);
                       }
                     },
                   ),

@@ -12,6 +12,7 @@ import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 
 import '../../../utils/responsive_helper.dart';
+import '../controller/forgot_password_controller.dart';
 import '../controller/login_controller.dart';
 import 'forgot_password_view.dart';
 
@@ -147,6 +148,7 @@ class LoginView extends StatelessWidget {
                           ),
                           GestureDetector(
                             onTap: () {
+                              Get.put(ForgotPasswordController());
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(builder: (_) => ForgotPasswordView()),

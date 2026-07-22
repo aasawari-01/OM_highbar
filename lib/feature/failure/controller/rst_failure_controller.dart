@@ -2,8 +2,11 @@ import 'package:flutter/material.dart' hide Action;
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http_pkg;
 import 'package:get/get_connect/http/src/multipart/multipart_file.dart' as http;
+import '../../../constants/colors.dart';
+import '../../../constants/strings.dart';
 import '../../../core/models/label_value.dart';
 import '../../../service/network_service/app_urls.dart';
+import '../../../utils/widgets/cust_popup.dart';
 import '../model/rst_failure_full_response.dart';
 import '../../../service/local_database_service.dart';
 import '../service/failure_service.dart';
@@ -115,7 +118,7 @@ class RstFailureController extends GetxController {
       selectedSicType.value = null;
       selectedSicResponsiblePerson.value = null;
     } else {
-      Get.snackbar("Error", "Please select SIC Type and Responsible Person");
+      Get.snackbar("Error", "Please select SIC Type and Responsible Person",backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -134,7 +137,7 @@ class RstFailureController extends GetxController {
       selectedJointInspectionResponsiblePerson.value = null;
       jointInspectionRemarksController.clear();
     } else {
-      Get.snackbar("Error", "Please select Department and Responsible Person");
+      Get.snackbar("Error", "Please select Department and Responsible Person",backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -282,7 +285,7 @@ class RstFailureController extends GetxController {
       objectPartTextController.clear();
       faultTextController.clear();
     } else {
-      Get.snackbar("Error", "Please select Object Part and Fault");
+      Get.snackbar("Error", "Please select Object Part and Fault",backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -358,7 +361,7 @@ class RstFailureController extends GetxController {
       popupRootCauseTextController.clear();
       popupRootCauseFiles.clear();
     } else {
-      Get.snackbar("Error", "Please select Root Cause");
+      Get.snackbar("Error", "Please select Root Cause",backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -376,7 +379,7 @@ class RstFailureController extends GetxController {
       popupActionTakenTextController.clear();
       popupActionTakenFiles.clear();
     } else {
-      Get.snackbar("Error", "Please select Action Taken");
+      Get.snackbar("Error", "Please select Action Taken",backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -493,7 +496,7 @@ class RstFailureController extends GetxController {
         oldSerialDismantleDate.value == null ||
         newSerialNumberController.text.trim().isEmpty ||
         newSerialInstallationDate.value == null) {
-      Get.snackbar("Error", "Please fill all required fields");
+      Get.snackbar("Error", "Please fill all required fields",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
 
@@ -661,23 +664,23 @@ class RstFailureController extends GetxController {
   Future<void> submitPartE() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar("Error", "Missing notification Id");
+      Get.snackbar("Error", "Missing notification Id",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
     if (!isPersonsWithdrawn.value) {
-      Get.snackbar("Error", "Please confirm the declaration");
+      Get.snackbar("Error", "Please confirm the declaration",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
     if (actualWorkStart.value == null) {
-      Get.snackbar("Error", "Please select Actual Work Start");
+      Get.snackbar("Error", "Please select Actual Work Start",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
     if (actualWorkComplete.value == null) {
-      Get.snackbar("Error", "Please select Actual Work Complete");
+      Get.snackbar("Error", "Please select Actual Work Complete",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
     if (selectedTrainStatus.value == null) {
-      Get.snackbar("Error", "Please select Train Status");
+      Get.snackbar("Error", "Please select Train Status",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
 
@@ -701,10 +704,10 @@ class RstFailureController extends GetxController {
         rcaImages: rcaMultipart,
       );
 
-      Get.snackbar("Success", msg);
+      Get.snackbar("Success", msg,);
       await fetchRstFailureData(notificationId); // refreshes documents list with real ids/paths from server
     } catch (e) {
-      Get.snackbar("Error", e.toString());
+      Get.snackbar("Error", e.toString(),backgroundColor: AppColors.red,colorText: AppColors.white1);
     } finally {
       isLoading.value = false;
     }
@@ -792,7 +795,7 @@ class RstFailureController extends GetxController {
       selectedMaintainerName.value = null;
       workAllotedController.clear();
     } else {
-      Get.snackbar("Error", "Please select Name and enter Work Alloted");
+      Get.snackbar("Error", "Please select Name and enter Work Alloted",backgroundColor: AppColors.red,colorText: AppColors.white1);
     }
   }
 
@@ -812,7 +815,7 @@ class RstFailureController extends GetxController {
     );
     
     if (isDuplicate && editingMaterialRequiredIndex.value < 0) {
-      Get.snackbar("Duplicate", "Selected material already exists!");
+      Get.snackbar("Duplicate", "Selected material already exists!",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
 
@@ -912,7 +915,7 @@ class RstFailureController extends GetxController {
 
   void saveWorkAlloted() {
     if (selectedMaintainerName.value == null || workAllotedController.text.isEmpty) {
-      Get.snackbar("Error", "Please select Name and enter Work Alloted");
+      Get.snackbar("Error", "Please select Name and enter Work Alloted",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
 
@@ -953,11 +956,11 @@ class RstFailureController extends GetxController {
   Future<void> submitPartC() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar("Error", "Missing notification Id");
+      Get.snackbar("Error", "Missing notification Id",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
     if (workAllotedList.isEmpty) {
-      Get.snackbar("Error", "Please add at least one work alloted entry");
+      Get.snackbar("Error", "Please add at least one work alloted entry",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
 
@@ -978,11 +981,20 @@ class RstFailureController extends GetxController {
         isWorkAllotedAccept: isAcceptResponsibility.value,
         isPowerBlockReq: isPowerBlockRequired.value,
       );
-      Get.snackbar("Success", msg);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: msg,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
       // Refresh to pick up server-assigned Ids for newly added entries
       await fetchRstFailureData(notificationId);
     } catch (e) {
-      Get.snackbar("Error", e.toString());
+      Get.snackbar("Error", e.toString(),backgroundColor: AppColors.red,colorText: AppColors.white1);
     } finally {
       isLoading.value = false;
     }
@@ -991,7 +1003,7 @@ class RstFailureController extends GetxController {
   Future<void> submitPartD() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar("Error", "Missing notification Id");
+      Get.snackbar("Error", "Missing notification Id",backgroundColor: AppColors.red,colorText: AppColors.white1);
       return;
     }
     if (!validateMaterialRequiredUsedQty()) return;
@@ -1098,10 +1110,19 @@ class RstFailureController extends GetxController {
     try {
       isLoading.value = true;
       final msg = await _failureService.updateNotificationRSTRCAMaterialJE(payload);
-      Get.snackbar("Success", msg);
+      Get.dialog(
+        CustPopup(
+          title: AppStrings.success,
+          message: msg,
+          icon: Icons.error_outline,
+          iconColor: Colors.red,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
+      );
       await fetchRstFailureData(notificationId);
     } catch (e) {
-      Get.snackbar("Error", e.toString());
+      Get.snackbar("Error", e.toString(),backgroundColor: AppColors.red,colorText: AppColors.white1);
     } finally {
       isLoading.value = false;
     }

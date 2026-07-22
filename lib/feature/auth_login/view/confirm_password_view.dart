@@ -11,8 +11,8 @@ import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 import '../controller/forgot_password_controller.dart';
 
-class ForgotPasswordView extends GetView<ForgotPasswordController> {
-  ForgotPasswordView({Key? key}) : super(key: key);
+class ResetPasswordView extends GetView<ForgotPasswordController> {
+  ResetPasswordView({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -47,8 +47,8 @@ class ForgotPasswordView extends GetView<ForgotPasswordController> {
                 ),
                 child: Obx(
                       () => Form(
-                    key: controller.forgotFormKey,
-                    autovalidateMode: controller.forgotAutovalidateMode.value,
+                    key: controller.resetFormKey,
+                    autovalidateMode: controller.resetAutovalidateMode.value,
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -64,25 +64,26 @@ class ForgotPasswordView extends GetView<ForgotPasswordController> {
                           ],
                         ),
                         const SizedBox(height: 16),
-                        CustText.sectionHeader("Forgot Password",
+                        CustText.sectionHeader("Reset Password",
                             color: AppColors.backgroundColor),
                         const SizedBox(height: 4),
                         CustText.body(
-                          "We'll send a reset link to your email",
+                          "Enter the passcode sent to your email and set a new password",
                           color: AppColors.textDarkSecondary,
                         ),
                         const SizedBox(height: AppConstants.sectionSpacing),
 
                         CustText(
-                            name: "Email",
+                            name: "Email Id",
                             color: AppColors.black,
                             size: AppConstants.formLabelSize,
                             fontWeightName: FontWeight.w700),
                         const SizedBox(height: AppConstants.labelSpacing),
                         CustomTextField(
-                          controller: controller.emailController,
+                          controller: controller.resetEmailController,
                           hintText: "Enter your email",
                           keyboardType: TextInputType.emailAddress,
+                          readOnly: true,
                           prefixIcon: const Icon(TablerIcons.mail,
                               size: AppConstants.iconSize,
                               color: AppColors.hintTextColor),
@@ -90,36 +91,80 @@ class ForgotPasswordView extends GetView<ForgotPasswordController> {
                             if ((val == null || val.trim().isEmpty)) {
                               return "Email is required";
                             }
-                            final emailRegex =
-                            RegExp(r'^[\w\.\-]+@([\w\-]+\.)+[\w\-]{2,4}$');
-                            if (!emailRegex.hasMatch(val.trim())) {
-                              return "Enter a valid email";
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: AppConstants.headerSpacing),
+
+                        CustText(
+                            name: "Passcode",
+                            color: AppColors.black,
+                            size: AppConstants.formLabelSize,
+                            fontWeightName: FontWeight.w700),
+                        const SizedBox(height: AppConstants.labelSpacing),
+                        CustomTextField(
+                          controller: controller.passcodeController,
+                          hintText: "Enter passcode",
+                          keyboardType: TextInputType.number,
+                          prefixIcon: const Icon(TablerIcons.shield_lock,
+                              size: AppConstants.iconSize,
+                              color: AppColors.hintTextColor),
+                          validator: (val) {
+                            if ((val == null || val.trim().isEmpty)) {
+                              return "Passcode is required";
+                            }
+                            if (val.trim().length < 4) {
+                              return "Enter a valid passcode";
                             }
                             return null;
                           },
                         ),
                         const SizedBox(height: AppConstants.headerSpacing),
 
+                        CustText(
+                            name: "New Password",
+                            color: AppColors.black,
+                            size: AppConstants.formLabelSize,
+                            fontWeightName: FontWeight.w700),
+                        const SizedBox(height: AppConstants.labelSpacing),
+                        Obx(
+                              () => CustomTextField(
+                            controller: controller.newPasswordController,
+                            hintText: "Enter new password",
+                            obscureText: controller.obscurePassword.value,
+                            prefixIcon: const Icon(TablerIcons.lock,
+                                size: AppConstants.iconSize,
+                                color: AppColors.hintTextColor),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                controller.obscurePassword.value
+                                    ? TablerIcons.eye_off
+                                    : TablerIcons.eye,
+                                size: AppConstants.iconSize,
+                                color: AppColors.hintTextColor,
+                              ),
+                              onPressed: controller.toggleObscurePassword,
+                            ),
+                            validator: (val) {
+                              if ((val == null || val.trim().isEmpty)) {
+                                return "New password is required";
+                              }
+                              if (val.trim().length < 6) {
+                                return "Password must be at least 6 characters";
+                              }
+                              return null;
+                            },
+                          ),
+                        ),
+                        const SizedBox(height: AppConstants.headerSpacing),
+
                         CustButton(
-                          name: "Send Reset Link",
+                          name: "Password Confirm",
                           size: double.infinity,
                           sHeight: 40,
                           color1: AppColors.orangeColor,
                           color2: AppColors.orangeColor,
-                          onSelected: (bool) => controller.forgotPassword(),
-                        ),
-                        const SizedBox(height: AppConstants.elementSpacing),
-
-                        Center(
-                          child: GestureDetector(
-                            onTap: () => Get.back(),
-                            child: CustText.body(
-                              "← Back to Login",
-                              color: AppColors.orangeColor,
-                              size: 15,
-                              fontWeightName: FontWeight.w600,
-                            ),
-                          ),
+                          onSelected: (bool) => controller.updatePassword(),
                         ),
                         const SizedBox(height: AppConstants.sectionSpacing),
 

@@ -70,19 +70,36 @@ class AuthManager {
     );
 
     // Default selected dept to first in list
-    if (response.deptMaster.isNotEmpty) {
-       await prefs.setInt(_keySelectedDeptId, response.deptMaster.first.deptId ?? 0);
+
+    // Only default dept/role if nothing was previously saved (preserved across logout)
+    final bool hasSavedDept = prefs.containsKey(_keySelectedDeptId);
+    final bool hasSavedRole = prefs.containsKey(_keySelectedRoleId);
+
+    if (!hasSavedDept && response.deptMaster.isNotEmpty) {
+      await prefs.setInt(_keySelectedDeptId, response.deptMaster.first.deptId ?? 0);
     }
-    // Default selected role to the FIRST allowed mobile role; fallback to first role overall
-    if (response.roleMaster.isNotEmpty) {
+    if (!hasSavedRole && response.roleMaster.isNotEmpty) {
       final firstAllowed = response.roleMaster.firstWhere(
-        (r) => allowedMobileRoles.any(
-          (a) => (r.roleDescr ?? '').trim().toLowerCase() == a.trim().toLowerCase(),
+            (r) => allowedMobileRoles.any(
+              (a) => (r.roleDescr ?? '').trim().toLowerCase() == a.trim().toLowerCase(),
         ),
         orElse: () => response.roleMaster.first,
       );
       await prefs.setInt(_keySelectedRoleId, firstAllowed.roleId ?? 0);
     }
+    // if (response.deptMaster.isNotEmpty) {
+    //    await prefs.setInt(_keySelectedDeptId, response.deptMaster.first.deptId ?? 0);
+    // }
+    // // Default selected role to the FIRST allowed mobile role; fallback to first role overall
+    // if (response.roleMaster.isNotEmpty) {
+    //   final firstAllowed = response.roleMaster.firstWhere(
+    //     (r) => allowedMobileRoles.any(
+    //       (a) => (r.roleDescr ?? '').trim().toLowerCase() == a.trim().toLowerCase(),
+    //     ),
+    //     orElse: () => response.roleMaster.first,
+    //   );
+    //   await prefs.setInt(_keySelectedRoleId, firstAllowed.roleId ?? 0);
+    // }
   }
 
   // Check if user is logged in
@@ -193,6 +210,16 @@ class AuthManager {
         .toList();
   }
 
+  Future<void> saveSelectedStationCode(String code) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selectedStationCode', code);
+  }
+
+  Future<String?> getSelectedStationCode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('selectedStationCode');
+  }
+
   // Logout and clear data
   Future<void> logout() async {
     EasyLoading.show(status: 'Logging out...');
@@ -215,13 +242,13 @@ class AuthManager {
     await prefs.remove(_keyToken);
     await prefs.remove(_keyUserName);
     await prefs.remove(_keyFullName);
-    await prefs.remove(_keyDeptMaster);
-    await prefs.remove(_keyRoleMaster);
-    await prefs.remove(_keySelectedDeptId);
-    await prefs.remove(_keySelectedRoleId);
+    // await prefs.remove(_keyDeptMaster);
+    // await prefs.remove(_keyRoleMaster);
+    // await prefs.remove(_keySelectedDeptId);
+    // await prefs.remove(_keySelectedRoleId);
     await prefs.remove(_keyBusinessArea);
     await prefs.remove(_keyRememberMe);
-    await prefs.remove(_keyRoleAndDeptMaster);
+    // await prefs.remove(_keyRoleAndDeptMaster);
     // Note: _keyFirstTimeLogin is NOT cleared on logout to preserve sync status
     EasyLoading.dismiss();
   }

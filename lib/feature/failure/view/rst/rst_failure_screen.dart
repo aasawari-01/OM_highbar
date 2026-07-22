@@ -143,7 +143,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                       } catch (e) {
                         debugPrint("Error picking image: $e");
                         Get.snackbar("Error",
-                            "Could not capture photo. Please check camera permissions.");
+                            "Could not capture photo. Please check camera permissions.",backgroundColor: AppColors.red,colorText: AppColors.white1);
                       }
                     },
                   ),
@@ -169,7 +169,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                         }
                       } catch (e) {
                         debugPrint("Error picking file: $e");
-                        Get.snackbar("Error", "Could not pick file.");
+                        Get.snackbar("Error", "Could not pick file.",backgroundColor: AppColors.red,colorText: AppColors.white1);
                       }
                     },
                   ),
