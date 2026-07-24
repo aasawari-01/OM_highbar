@@ -11,7 +11,7 @@ import '../../feature/failure/view/rst/rst_list_screen.dart';
 import '../../feature/inspection/view/inspection_list_screen.dart';
 import '../../feature/inspection/view/top_management/inspection_dashboard_screen.dart';
 import '../../feature/inspection/view/top_management/top_management_create_inspection_screen.dart';
-import '../../feature/failure/view/rst/rst_failure_screen.dart';
+
 import '../../feature/ibl/view/ibl_screen.dart';
 import '../../service/auth_manager.dart';
 import 'cust_dropdown.dart';
@@ -32,7 +32,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
   String? _expandedSubSectionKey;
   Set<String> _openSections = {};
   Set<String> _openSubSections = {};
-  
+
   final SessionController sessionController = Get.find<SessionController>();
 
   void _handleSectionExpansion(String sectionKey, bool isSubSection) {
@@ -110,7 +110,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
               bottom: false,
               child: Row(
                 children: [
-                   Container(
+                  Container(
                     width: 54,
                     height: 54,
                     decoration: const BoxDecoration(
@@ -138,18 +138,18 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         ),
                         const SizedBox(height: 2),
                         CustText(
-                          name: sessionController.selectedRole.value?.roleDescr ?? 'No Role Selected',
+                          name: sessionController.designationName.value.isNotEmpty ? sessionController.designationName.value : 'No Role Selected',
                           size: 12,
                           color: AppColors.textDarkSecondary,
                           fontWeightName: FontWeight.w400,
                         ),
-                        const SizedBox(height: 2),
-                        CustText(
-                          name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
-                          size: 12,
-                          color: AppColors.textDarkSecondary,
-                          fontWeightName: FontWeight.w400,
-                        ),
+                        // const SizedBox(height: 2),
+                        // CustText(
+                        //   name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
+                        //   size: 12,
+                        //   color: AppColors.textDarkSecondary,
+                        //   fontWeightName: FontWeight.w400,
+                        // ),
                       ],
                     )),
                   ),
@@ -161,7 +161,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
               ),
             ),
           ),
-          
+
           Expanded(
             child: ListView(
               padding: const EdgeInsets.symmetric(vertical: AppConstants.elementSpacing),
@@ -296,7 +296,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
     IconData? icon,
   }) {
     bool isExpanded = isSubSection ? _openSubSections.contains(sectionKey) : _openSections.contains(sectionKey);
-    
+
     return Stack(
       children: [
         Theme(
@@ -314,8 +314,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
             dense: true,
             visualDensity: const VisualDensity(
               vertical: -2,
-              ),
-              onExpansionChanged: (expanded) {
+            ),
+            onExpansionChanged: (expanded) {
               if (expanded) {
                 _handleSectionExpansion(sectionKey, isSubSection);
               } else {
@@ -416,13 +416,13 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   fontWeightName: FontWeight.w400,
                   color: AppColors.textDarkSecondary,
                 ),
-                const SizedBox(height: AppConstants.headerSpacing),
-                CustDropdown(
-                  label: AppStrings.selectLine,
-                  hint: AppStrings.selectYourLine,
-                  items: const ['Line 1', 'Line 2'], 
-                  onChanged: (val) {},
-                ),
+                // const SizedBox(height: AppConstants.headerSpacing),
+                // CustDropdown(
+                //   label: AppStrings.selectLine,
+                //   hint: AppStrings.selectYourLine,
+                //   items: const ['Line 1', 'Line 2'],
+                //   onChanged: (val) {},
+                // ),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(
                   label: AppStrings.selectDepartment,
@@ -435,12 +435,30 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   },
                 )),
                 const SizedBox(height: AppConstants.elementSpacing),
+                // Obx(() => CustDropdown(
+                //   label: AppStrings.selectRole,
+                //   hint: AppStrings.chooseYourRole,
+                //   items: sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
+                //   selectedValue: sessionController.selectedRole.value?.roleDescr,
+                //   onChanged: (val) {
+                //     if (val != null) {
+                //       final role = sessionController.roles.firstWhere((e) => e.roleDescr == val);
+                //       sessionController.changeRole(role);
+                //     }
+                //   },
+                // )),
                 Obx(() => CustDropdown(
                   label: AppStrings.selectRole,
-                  hint: AppStrings.chooseYourRole,
-                  items: sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
+                  hint: sessionController.selectedDepartment.value == null
+                      ? AppStrings.selectDepartmentFirst   // new string, or reuse an existing one
+                      : AppStrings.chooseYourRole,
+                  items: sessionController.selectedDepartment.value == null
+                      ? const []
+                      : sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
                   selectedValue: sessionController.selectedRole.value?.roleDescr,
-                  onChanged: (val) {
+                  onChanged: sessionController.selectedDepartment.value == null
+                      ? (_) {}
+                      : (val) {
                     if (val != null) {
                       final role = sessionController.roles.firstWhere((e) => e.roleDescr == val);
                       sessionController.changeRole(role);
@@ -467,7 +485,15 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         color1: AppColors.orangeColor,
                         color2: AppColors.orangeColor,
                         textDarkPrimary: Colors.white,
-                        onSelected: (_) {
+                        onSelected: (_) async {
+                          final dept = sessionController.selectedDepartment.value;
+                          final role = sessionController.selectedRole.value;
+                          if (dept?.deptId != null) {
+                            await AuthManager().setSelectedDept(dept!.deptId!);
+                          }
+                          if (role?.roleId != null) {
+                            await AuthManager().setSelectedRole(role!.roleId!);
+                          }
                           Navigator.pop(context);
                         },
                       ),

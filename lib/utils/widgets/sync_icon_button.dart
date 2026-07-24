@@ -4,26 +4,38 @@ import 'package:get/get.dart';
 import 'package:om_mobile/constants/app_constants.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../constants/colors.dart';
-import '../../../utils/responsive_helper.dart';
-import 'cust_text.dart';
 import 'cust_popup.dart';
 
 class SyncIconButton extends StatelessWidget {
-  const SyncIconButton({Key? key}) : super(key: key);
+  final String? failureType;
+
+  const SyncIconButton({Key? key, this.failureType}) : super(key: key);
 
   void _showSyncPopup(BuildContext context) {
+    final title = failureType != null ? "Sync $failureType Failures" : "Sync Master Data";
+    final message = failureType != null 
+        ? "This will sync the $failureType failure list from the server. Continue?"
+        : "This will sync all master data from the server. Continue?";
+
     Get.dialog(
       CustPopup(
         icon: TablerIcons.cloud_upload,
         iconColor: AppColors.orangeColor,
-        title: "Sync Master Data",
-        message: "This will sync all master data from the server. Continue?",
+        title: title,
+        message: message,
         cancelText: "Cancel",
         confirmText: "Sync",
         onCancel: () => Get.back(),
         onConfirm: () {
           Get.back();
-          MasterDataSyncService().syncMasterData();
+          final syncService = MasterDataSyncService();
+          if (failureType != null) {
+            syncService.syncFailureList(failureType!);
+          } else {
+            syncService.syncMasterData();
+          }
+          // Also sync pending submissions
+          syncService.syncPendingSubmissions();
         },
       ),
     );

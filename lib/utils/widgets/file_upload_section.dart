@@ -189,12 +189,6 @@ class DashedBorderPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
 
-    final path = Path()
-      ..moveTo(0, 0)
-      ..lineTo(size.width, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
 
     final dashPath = Path();
     final dashCount = (size.width / (dashWidth + dashSpace)).floor();

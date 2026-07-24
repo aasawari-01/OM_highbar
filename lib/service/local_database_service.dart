@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:flutter/foundation.dart';
@@ -29,12 +32,102 @@ class LocalDatabaseService {
 
   Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'master_data.db');
+    
+    // Check if database exists, if not copy from assets
+    final dbFile = File(path);
+    if (!await dbFile.exists()) {
+      debugPrint("_initDatabase: Database does not exist, copying from assets");
+      await _copyDatabaseFromAssets(path);
+    }
+    
     return await openDatabase(
       path,
-      version: 7, // bumped from 6
+      version: 8, // bumped from 7 for failure list tables
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
+  }
+
+  Future<void> _copyDatabaseFromAssets(String targetPath) async {
+    try {
+      // Load the database from assets
+      final byteData = await rootBundle.load('assets/master.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      
+      // Write to the target path
+      await File(targetPath).writeAsBytes(bytes, flush: true);
+      debugPrint("_copyDatabaseFromAssets: Successfully copied database from assets to $targetPath");
+      
+      // Print sample data from database
+      await _printSampleData(targetPath);
+    } catch (e) {
+      debugPrint("_copyDatabaseFromAssets: Error copying database from assets: $e");
+      // If copy fails, create a new database
+      final db = await openDatabase(
+        targetPath,
+        version: 8,
+        onCreate: _onCreate,
+        onUpgrade: _onUpgrade,
+      );
+      await db.close();
+    }
+  }
+
+  Future<void> _printSampleData(String dbPath) async {
+    try {
+      final db = await openDatabase(dbPath);
+      
+      // Get list of tables
+      final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+      );
+      debugPrint("_printSampleData: Tables in database: ${tables.map((t) => t['name']).toList()}");
+      
+      // Print sample data from each table
+      for (var table in tables) {
+        final tableName = table['name'] as String;
+        if (tableName == 'sqlite_sequence') continue; // Skip internal table
+        
+        final rows = await db.query(tableName, limit: 5);
+        if (rows.isNotEmpty) {
+          debugPrint("_printSampleData: Table '$tableName' - First ${rows.length} rows:");
+          for (var row in rows) {
+            debugPrint("  $row");
+          }
+        } else {
+          debugPrint("_printSampleData: Table '$tableName' is empty");
+        }
+      }
+      
+      await db.close();
+    } catch (e) {
+      debugPrint("_printSampleData: Error: $e");
+    }
+  }
+
+  /// Force re-import database from assets (useful for testing or data refresh)
+  Future<void> forceImportFromAssets() async {
+    try {
+      // Close existing database connection
+      if (_database != null) {
+        await _database!.close();
+        _database = null;
+      }
+      
+      // Delete existing database file
+      final path = join(await getDatabasesPath(), 'master_data.db');
+      final dbFile = File(path);
+      if (await dbFile.exists()) {
+        await dbFile.delete();
+        debugPrint("forceImportFromAssets: Deleted existing database");
+      }
+      
+      // Copy from assets
+      await _copyDatabaseFromAssets(path);
+      debugPrint("forceImportFromAssets: Database successfully re-imported from assets");
+    } catch (e) {
+      debugPrint("forceImportFromAssets: Error: $e");
+    }
   }
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
@@ -57,6 +150,9 @@ class LocalDatabaseService {
       // Ensure workCenter column exists even if Departments was created
       // earlier without it (or got corrupted to `deptCode` by the old bug).
       await _ensureDepartmentsSchema(db);
+    }
+    if (oldVersion < 8) {
+      await _createFailureTables(db);
     }
   }
 
@@ -123,6 +219,14 @@ class LocalDatabaseService {
         workCenter TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS Stations (
+        stationId INTEGER PRIMARY KEY,
+        stationLabel TEXT,
+        stationValue TEXT
+      )
+    ''');
   }
 
   Future<void> _createRstTables(Database db) async {
@@ -159,6 +263,73 @@ class LocalDatabaseService {
       CREATE TABLE IF NOT EXISTS RstTrainStatuses (
         statusId INTEGER PRIMARY KEY,
         statusDescr TEXT
+      )
+    ''');
+  }
+
+  Future<void> _createFailureTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS FailureList (
+        id INTEGER PRIMARY KEY,
+        failureNo TEXT,
+        notificationCode TEXT,
+        jobCardId TEXT,
+        failureDescription TEXT,
+        functionLocationId INTEGER,
+        equipmentId INTEGER,
+        functionalLocation TEXT,
+        equipmentDescription TEXT,
+        statusName TEXT,
+        statusDescription TEXT,
+        failureOccuranceDateTime TEXT,
+        assignedUserId INTEGER,
+        occRequestStatus TEXT,
+        otherRequestFrom TEXT,
+        locationName TEXT,
+        remarks TEXT,
+        creationType TEXT,
+        priority TEXT,
+        departmentName TEXT,
+        subLocation TEXT,
+        trainId TEXT,
+        system TEXT,
+        actualFailureCompletedDateTime TEXT,
+        isTripAffected INTEGER,
+        tripDelayUpline INTEGER,
+        tripDelayDownline INTEGER,
+        tripCancel INTEGER,
+        isTrainReplace INTEGER,
+        trainReplace INTEGER,
+        isTrainDeboarded INTEGER,
+        trainDeboarded INTEGER,
+        numberOfPassengerAffected INTEGER,
+        isPassengerAffected INTEGER,
+        trappedDuration INTEGER,
+        rescusedDuration INTEGER,
+        trainDelayInMin INTEGER,
+        noOfTranWithdrawal INTEGER,
+        failureReportedby TEXT,
+        failureCategoryTypeText TEXT,
+        failureRectificationDetails TEXT,
+        carriedOutRemarks TEXT,
+        departmentId_1 INTEGER,
+        locationId INTEGER,
+        funcationLocationId INTEGER,
+        syncStatus TEXT DEFAULT 'online',
+        lastSyncedAt TEXT,
+        failureType TEXT,
+        getImageBefor TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS PendingFailureSubmissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payload TEXT NOT NULL,
+        failureType TEXT,
+        createdAt TEXT NOT NULL,
+        synced INTEGER DEFAULT 0,
+        syncError TEXT
       )
     ''');
   }
@@ -225,6 +396,71 @@ class LocalDatabaseService {
       )
     ''');
 
+    await db.execute('''
+      CREATE TABLE FailureList (
+        id INTEGER PRIMARY KEY,
+        failureNo TEXT,
+        notificationCode TEXT,
+        jobCardId TEXT,
+        failureDescription TEXT,
+        functionLocationId INTEGER,
+        equipmentId INTEGER,
+        functionalLocation TEXT,
+        equipmentDescription TEXT,
+        statusName TEXT,
+        statusDescription TEXT,
+        failureOccuranceDateTime TEXT,
+        assignedUserId INTEGER,
+        occRequestStatus TEXT,
+        otherRequestFrom TEXT,
+        locationName TEXT,
+        remarks TEXT,
+        creationType TEXT,
+        priority TEXT,
+        departmentName TEXT,
+        subLocation TEXT,
+        trainId TEXT,
+        system TEXT,
+        actualFailureCompletedDateTime TEXT,
+        isTripAffected INTEGER,
+        tripDelayUpline INTEGER,
+        tripDelayDownline INTEGER,
+        tripCancel INTEGER,
+        isTrainReplace INTEGER,
+        trainReplace INTEGER,
+        isTrainDeboarded INTEGER,
+        trainDeboarded INTEGER,
+        numberOfPassengerAffected INTEGER,
+        isPassengerAffected INTEGER,
+        trappedDuration INTEGER,
+        rescusedDuration INTEGER,
+        trainDelayInMin INTEGER,
+        noOfTranWithdrawal INTEGER,
+        failureReportedby TEXT,
+        failureCategoryTypeText TEXT,
+        failureRectificationDetails TEXT,
+        carriedOutRemarks TEXT,
+        departmentId_1 INTEGER,
+        locationId INTEGER,
+        funcationLocationId INTEGER,
+        syncStatus TEXT DEFAULT 'online',
+        lastSyncedAt TEXT,
+        failureType TEXT,
+        getImageBefor TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE PendingFailureSubmissions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        payload TEXT NOT NULL,
+        failureType TEXT,
+        createdAt TEXT NOT NULL,
+        synced INTEGER DEFAULT 0,
+        syncError TEXT
+      )
+    ''');
+
     await _createLookupTables(db);
   }
 
@@ -241,6 +477,7 @@ class LocalDatabaseService {
   // Insert Operations
   Future<void> insertLocations(List<LocationModel> locations) async {
     final db = await database;
+    await db.delete('Locations');
     Batch batch = db.batch();
     for (var loc in locations) {
       batch.insert('Locations', loc.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
@@ -278,20 +515,89 @@ class LocalDatabaseService {
   // Fetch Operations
   Future<List<LocationModel>> getLocations() async {
     final db = await database;
-    final results = await db.rawQuery('SELECT * FROM Locations LIMIT 10000');
+    String query = 'SELECT * FROM Locations';
+    final results = await db.rawQuery(query);
     return results.map((e) => LocationModel.fromJson(e)).toList();
   }
 
   Future<List<FunctionalLocationModel>> getFunctionalLocations() async {
     final db = await database;
-    final results = await db.rawQuery('SELECT funcLocation, funcLocId, funcLocationName, location, objectNumber, workCenter FROM FunctionalLocations LIMIT 10000');
-    return results.map((e) => FunctionalLocationModel.fromJson(e)).toList();
+    const batchSize = 5000;
+    String baseQuery = 'SELECT funcLocation, funcLocId, funcLocationName, location, objectNumber, workCenter, planningPlant FROM FunctionalLocations';
+    List<dynamic> baseArgs = [];
+    // Paginate to avoid CursorWindow OOM on large datasets
+    final List<FunctionalLocationModel> allResults = [];
+    int offset = 0;
+    while (true) {
+      final results = await db.rawQuery('$baseQuery LIMIT $batchSize OFFSET $offset', baseArgs);
+      if (results.isEmpty) break;
+      allResults.addAll(results.map((e) => FunctionalLocationModel.fromJson(e)));
+      if (results.length < batchSize) break;
+      offset += batchSize;
+    }
+    return allResults;
+  }
+
+  Future<List<Map<String, dynamic>>> getFilteredFunctionalLocations({String? locationCode, String? workCenter}) async {
+    final db = await database;
+    String query = 'SELECT funcLocation, funcLocId, funcLocationName, funcDescription, location, objectNumber, workCenter, planningPlant FROM FunctionalLocations WHERE 1=1';
+    List<dynamic> args = [];
+    if (locationCode != null && locationCode.isNotEmpty) {
+      query += ' AND UPPER(location) = ?';
+      args.add(locationCode.toUpperCase());
+    }
+    if (workCenter != null && workCenter.isNotEmpty) {
+      query += ' AND UPPER(workCenter) = ?';
+      args.add(workCenter.toUpperCase());
+    }
+    
+    // Protect against loading all records if no filters are applied
+    if (args.isEmpty) {
+      query += ' LIMIT 100';
+    }
+    
+    final results = await db.rawQuery(query, args);
+    return results;
   }
 
   Future<List<EquipmentModel>> getEquipments() async {
     final db = await database;
-    final results = await db.rawQuery('SELECT equipId, equipmentName, functionalLocation, location, equipNo, equipDesc FROM Equipments LIMIT 10000');
-    return results.map((e) => EquipmentModel.fromJson(e)).toList();
+    const batchSize = 5000;
+    String baseQuery = 'SELECT equipId, equipmentName, functionalLocation, location, equipNo, equipDesc, planningPlant FROM Equipments';
+    List<dynamic> baseArgs = [];
+    // Paginate to avoid CursorWindow OOM on large datasets
+    final List<EquipmentModel> allResults = [];
+    int offset = 0;
+    while (true) {
+      final results = await db.rawQuery('$baseQuery LIMIT $batchSize OFFSET $offset', baseArgs);
+      if (results.isEmpty) break;
+      allResults.addAll(results.map((e) => EquipmentModel.fromJson(e)));
+      if (results.length < batchSize) break;
+      offset += batchSize;
+    }
+    return allResults;
+  }
+
+  Future<List<Map<String, dynamic>>> getFilteredEquipments({String? locationCode, String? funcLocCode}) async {
+    final db = await database;
+    String query = 'SELECT equipId, equipmentName, functionalLocation, location, equipNo, equipDesc, planningPlant FROM Equipments WHERE 1=1';
+    List<dynamic> args = [];
+    if (locationCode != null && locationCode.isNotEmpty) {
+      query += ' AND UPPER(location) = ?';
+      args.add(locationCode.toUpperCase());
+    }
+    if (funcLocCode != null && funcLocCode.isNotEmpty) {
+      query += ' AND UPPER(functionalLocation) = ?';
+      args.add(funcLocCode.toUpperCase());
+    }
+    
+    // Protect against loading all records if no filters are applied
+    if (args.isEmpty) {
+      query += ' LIMIT 100';
+    }
+    
+    final results = await db.rawQuery(query, args);
+    return results;
   }
 
   Future<List<MeasurementPointModel>> getMeasurementPoints() async {
@@ -414,6 +720,45 @@ class LocalDatabaseService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getStations() async {
+    final db = await database;
+    try {
+      final results = await db.query('Stations', orderBy: 'stationId ASC');
+      debugPrint("getStations: Retrieved ${results.length} stations from local storage");
+      return results;
+    } catch (e) {
+      debugPrint('getStations – creating lookup tables: $e');
+      await _createLookupTables(db);
+      final results = await db.query('Stations', orderBy: 'stationId ASC');
+      debugPrint("getStations: Retrieved ${results.length} stations after creating lookup tables");
+      return results;
+    }
+  }
+
+  Future<void> insertStations(List<Map<String, dynamic>> stations) async {
+    final db = await database;
+    final batch = db.batch();
+    for (final station in stations) {
+      batch.insert(
+        'Stations',
+        {
+          'stationId': int.tryParse(station['value']?.toString() ?? '0') ?? 0,
+          'stationLabel': station['label']?.toString() ?? '',
+          'stationValue': station['value']?.toString() ?? '',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+    debugPrint("insertStations: Inserted ${stations.length} stations");
+  }
+
+  Future<void> clearStations() async {
+    final db = await database;
+    await db.delete('Stations');
+    debugPrint("clearStations: Cleared all stations");
+  }
+
   // RST Master Data Operations
   Future<void> insertRstFailureTypes(List<RstFailureType> items) async {
     final db = await database;
@@ -528,5 +873,159 @@ class LocalDatabaseService {
       final results = await db.query('RstStorageLocations', orderBy: 'value ASC');
       return results.map((e) => LabelValue.fromJson(e)).toList();
     }
+  }
+
+  // Failure List Operations
+  Future<void> insertFailureList(List<Map<String, dynamic>> failures, String failureType) async {
+    final db = await database;
+    final batch = db.batch();
+    for (var failure in failures) {
+      final data = Map<String, dynamic>.from(failure);
+      data['syncStatus'] = 'online';
+      data['lastSyncedAt'] = DateTime.now().toIso8601String();
+      data['failureType'] = failureType;
+      // Convert boolean to integer for SQLite
+      if (data['isTripAffected'] is bool) {
+        data['isTripAffected'] = data['isTripAffected'] ? 1 : 0;
+      }
+      if (data['isTrainReplace'] is bool) {
+        data['isTrainReplace'] = data['isTrainReplace'] ? 1 : 0;
+      }
+      if (data['isTrainDeboarded'] is bool) {
+        data['isTrainDeboarded'] = data['isTrainDeboarded'] ? 1 : 0;
+      }
+      if (data['isPassengerAffected'] is bool) {
+        data['isPassengerAffected'] = data['isPassengerAffected'] ? 1 : 0;
+      }
+      // Convert list to JSON string
+      if (data['getImageBefor'] is List) {
+        data['getImageBefor'] = jsonEncode(data['getImageBefor']);
+      }
+      batch.insert('FailureList', data, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+    debugPrint("insertFailureList: Inserted ${failures.length} failures for type $failureType");
+  }
+
+  Future<List<Map<String, dynamic>>> getFailureList(String failureType) async {
+    final db = await database;
+    try {
+      final results = await db.query(
+        'FailureList',
+        where: 'failureType = ?',
+        whereArgs: [failureType],
+        orderBy: 'id DESC',
+      );
+      // Convert back boolean values and parse JSON
+      return results.map((e) {
+        final data = Map<String, dynamic>.from(e);
+        if (data['isTripAffected'] is int) {
+          data['isTripAffected'] = data['isTripAffected'] == 1;
+        }
+        if (data['isTrainReplace'] is int) {
+          data['isTrainReplace'] = data['isTrainReplace'] == 1;
+        }
+        if (data['isTrainDeboarded'] is int) {
+          data['isTrainDeboarded'] = data['isTrainDeboarded'] == 1;
+        }
+        if (data['isPassengerAffected'] is int) {
+          data['isPassengerAffected'] = data['isPassengerAffected'] == 1;
+        }
+        if (data['getImageBefor'] is String && data['getImageBefor'].isNotEmpty) {
+          try {
+            data['getImageBefor'] = jsonDecode(data['getImageBefor']);
+          } catch (e) {
+            data['getImageBefor'] = null;
+          }
+        }
+        return data;
+      }).toList();
+    } catch (e) {
+      debugPrint('getFailureList error: $e');
+      await _createFailureTables(db);
+      return [];
+    }
+  }
+
+  Future<void> clearFailureList(String failureType) async {
+    final db = await database;
+    await db.delete('FailureList', where: 'failureType = ?', whereArgs: [failureType]);
+    debugPrint("clearFailureList: Cleared failures for type $failureType");
+  }
+
+  Future<void> updateFailureSyncStatus(int id, String syncStatus) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'syncStatus': syncStatus,
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Pending Failure Submissions Operations
+  Future<int> insertPendingSubmission(Map<String, dynamic> payload, String failureType) async {
+    final db = await database;
+    final result = await db.insert('PendingFailureSubmissions', {
+      'payload': jsonEncode(payload),
+      'failureType': failureType,
+      'createdAt': DateTime.now().toIso8601String(),
+      'synced': 0,
+    });
+    debugPrint("insertPendingSubmission: Added pending submission with id $result");
+    return result;
+  }
+
+  Future<List<Map<String, dynamic>>> getPendingSubmissions() async {
+    final db = await database;
+    try {
+      final results = await db.query(
+        'PendingFailureSubmissions',
+        where: 'synced = 0',
+        orderBy: 'createdAt ASC',
+      );
+      return results.map((e) {
+        final data = Map<String, dynamic>.from(e);
+        if (data['payload'] is String) {
+          try {
+            data['payload'] = jsonDecode(data['payload']);
+          } catch (e) {
+            debugPrint('Error decoding payload: $e');
+          }
+        }
+        return data;
+      }).toList();
+    } catch (e) {
+      debugPrint('getPendingSubmissions error: $e');
+      await _createFailureTables(db);
+      return [];
+    }
+  }
+
+  Future<void> updateSubmissionSynced(int id, bool synced, {String? error}) async {
+    final db = await database;
+    await db.update(
+      'PendingFailureSubmissions',
+      {
+        'synced': synced ? 1 : 0,
+        'syncError': error,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<void> deletePendingSubmission(int id) async {
+    final db = await database;
+    await db.delete('PendingFailureSubmissions', where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearPendingSubmissions() async {
+    final db = await database;
+    await db.delete('PendingFailureSubmissions');
+    debugPrint("clearPendingSubmissions: Cleared all pending submissions");
   }
 }

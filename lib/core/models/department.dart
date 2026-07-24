@@ -1,25 +1,25 @@
 class DepartmentModel {
   final int? deptId;
   final String deptName;
-  final String deptCode;
+  final String workCenter;
 
   DepartmentModel({
     this.deptId,
     required this.deptName,
-    required this.deptCode,
+    required this.workCenter,
   });
 
   factory DepartmentModel.fromJson(Map<String, dynamic> json) {
     return DepartmentModel(
       deptId: json['deptId'] as int?,
       deptName: json['deptName']?.toString() ?? '',
-      deptCode: json['deptCode']?.toString() ?? '',
+      workCenter: json['workCenter']?.toString() ?? json['deptCode']?.toString() ?? '',
     );
   }
 
   Map<String, dynamic> toJson() => {
     'deptId': deptId,
     'deptName': deptName,
-    'deptCode': deptCode,
+    'workCenter': workCenter,
   };
 }

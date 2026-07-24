@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -21,8 +21,6 @@ import '../../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../../utils/widgets/cust_loader.dart';
 import '../../../../utils/widgets/horizontal_paginated_view.dart';
 import '../../controller/rst_failure_controller.dart';
-import 'sic_checklist_screen.dart';
-import 'package:flutter/services.dart';
 import '../../../../service/master_data_sync_service.dart';
 
 class RstFailureScreen extends StatefulWidget {
@@ -62,38 +60,6 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
     } else {
       debugPrint("_RstFailureScreenState.initState: notificationId is null, skipping fetch");
     }
-  }
-
-  Widget _buildSectionHeader(String title, String status, bool isExpanded, VoidCallback onTap, {bool isCompleted = true}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
-        ),
-        child: Row(
-          children: [
-            CustText.sectionHeader(
-              title,
-              color: AppColors.orangeColor,
-            ),
-            const Spacer(),
-            CustText.body(
-              status,
-              color: isCompleted ? Colors.green : AppColors.orangeColor,
-              fontWeightName: FontWeight.w600,
-              size: 13,
-            ),
-            const SizedBox(width: 8),
-            Icon(
-              isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-              color: Colors.grey,
-            ),
-          ],
-        ),
-      ),
-    );
   }
 
   void _showUploadPopup(List<Map<String, dynamic>> targetList) {
@@ -770,7 +736,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               return DateFormat('dd/MM/yyyy hh:mm a').format(dt);
             } catch (e3) {
               try {
-                final dt = DateFormat('dd/MM/yyyy hh:mm a').parse(dateValue);
+                DateFormat('dd/MM/yyyy hh:mm a').parse(dateValue);
                 return dateValue; // Already in correct format
               } catch (e4) {
                 try {
@@ -1602,7 +1568,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             const SizedBox(height: AppConstants.elementSpacing),
             Builder(builder: (context) {
               final sparePartItems = controller.materialRequiredList
-                  .map((e) => e['materialCode'] as String? ?? '')
+                  .map((e) => e['materialCode']?.toString() ?? '')
                   .where((e) => e.isNotEmpty)
                   .toList();
               return CustDropdown(
@@ -2085,53 +2051,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
     });
   }
 
-  Widget _buildViewOnlyImageItem(Map<String, dynamic> file) {
-    final String path = file['path']?.toString() ?? '';
-    final String url = _buildFileUrl(path);
-    debugPrint("Before image URL: $url"); // TEMP — confirm this looks right, then remove
 
-    return GestureDetector(
-      onTap: () => _showFilePreview(file),
-      child: Container(
-        width: 90,
-        height: 90,
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: const Color(0xFFF7F7F7),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.grey.shade200),
-        ),
-        child: url.isNotEmpty
-            ? Image.network(
-          url,
-          fit: BoxFit.cover,
-          errorBuilder: (_, error, ___) {
-            debugPrint("Image load failed for $url — $error"); // TEMP
-            return const Icon(TablerIcons.photo, color: AppColors.textMutedLight, size: 28);
-          },
-          loadingBuilder: (context, child, progress) => progress == null
-              ? child
-              : const Center(
-            child: SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ),
-        )
-            : const Icon(TablerIcons.photo, color: AppColors.textMutedLight, size: 28),
-      ),
-    );
-  }
-
-  String _buildFileUrl(String path) {
-    if (path.isEmpty) return '';
-    final base = AppUrls.baseUrl.endsWith('/')
-        ? AppUrls.baseUrl.substring(0, AppUrls.baseUrl.length - 1)
-        : AppUrls.baseUrl;
-    final cleanPath = path.startsWith('/') ? path : '/$path';
-    return '$base$cleanPath';
-  }
   @override
   Widget build(BuildContext context) {
     return Scaffold(

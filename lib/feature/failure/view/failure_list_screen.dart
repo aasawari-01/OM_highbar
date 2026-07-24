@@ -17,6 +17,7 @@ import '../model/failure_list_response.dart';
 import '../../../service/session_controller.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../utils/widgets/cust_loader.dart';
+import '../../filter/view/filter.dart';
 
 class FailureListScreen extends StatefulWidget {
   final String failureType;
@@ -32,11 +33,6 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   final TextEditingController _searchController = TextEditingController();
   bool _isSearching = false;
   final session = Get.find<SessionController>();
-
-  bool get _showStationTabs {
-    final role = Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
-    return widget.failureType == 'Station' && role.contains('Station Controller');
-  }
 
   bool get _showJETabs {
     final role = Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
@@ -54,31 +50,19 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     controller.setFailureType(widget.failureType);
 
-    if (_showStationTabs || _showJETabs) {
+    if (_showJETabs) {
       _tabController = TabController(length: 2, vsync: this);
       _tabController!.addListener(_onTabChanged);
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (widget.failureType == "Station") {
-        if (session.selectedStationId.value == null) {
-          await controller.fetchAndShowStationPopup();
-        }
-
-        controller.fetchFailures();
-      } else {
-        controller.fetchFailures();
-      }
+      controller.fetchFailures();
     });
   }
 
   void _onTabChanged() {
     if (_tabController == null || _tabController!.indexIsChanging) return;
-    if (_showStationTabs) {
-      controller.setStationTab(
-        _tabController!.index == 0 ? StationFailureListTab.active : StationFailureListTab.closed,
-      );
-    } else if (_showJETabs) {
+    if (_showJETabs) {
       controller.setJETab(
         _tabController!.index == 0 ? JEFailureListTab.inbox : JEFailureListTab.jointInspection,
       );
@@ -115,10 +99,34 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
           ),
           IconButton(
             icon: const Icon(Icons.filter_list, color: Colors.white, size: 28),
-            onPressed: () {},
+            onPressed: () {
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (context) => Padding(
+                  padding: EdgeInsets.only(
+                    bottom: MediaQuery.of(context).viewInsets.bottom,
+                  ),
+                  child: FilterPopup(
+                    initialStatuses: controller.selectedStatusFilter.value.isEmpty 
+                      ? {} 
+                      : {controller.selectedStatusFilter.value},
+                    onApply: (statuses) {
+                      if (statuses.isNotEmpty) {
+                        controller.selectedStatusFilter.value = statuses.first;
+                      } else {
+                        controller.selectedStatusFilter.value = "";
+                      }
+                      // UI updates automatically because filteredFailures uses selectedStatusFilter.value
+                    },
+                  ),
+                ),
+              );
+            },
           ),
           const SizedBox(width: 4),
-          const SyncIconButton(),
+          SyncIconButton(failureType: widget.failureType),
           const SizedBox(width: 16),
         ],
       ),
@@ -130,7 +138,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         ),
         child: Column(
           children: [
-            if (_showStationTabs || _showJETabs) ...[
+            if (_showJETabs) ...[
               TabBar(
                 controller: _tabController,
                 labelColor: AppColors.orangeColor,
@@ -139,12 +147,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                 indicatorWeight: 3,
                 labelStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
                 unselectedLabelStyle: const TextStyle(fontWeight: FontWeight.w400, fontSize: 14),
-                tabs: _showStationTabs 
-                  ? const [
-                      Tab(text: 'Failure List'),
-                      Tab(text: 'Closed List'),
-                    ]
-                  : const [
+                tabs: const [
                       Tab(text: 'JE Inbox'),
                       Tab(text: 'Joint Inspection Inbox'),
                     ],
@@ -186,10 +189,6 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         }
 
         if (isStationController && widget.failureType != 'Station') {
-          return const SizedBox.shrink();
-        }
-
-        if (isStationController && controller.selectedStationTab.value == StationFailureListTab.closed) {
           return const SizedBox.shrink();
         }
 
@@ -235,9 +234,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       if (controller.filteredFailures.isEmpty) {
         return Center(
           child: Text(
-            _showStationTabs && controller.selectedStationTab.value == StationFailureListTab.closed
-                ? 'No closed failures found'
-                : 'No failures found',
+            'No failures found',
             style: const TextStyle(fontSize: 16, color: Colors.grey),
           ),
         );
@@ -268,6 +265,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
             notificationCode: failure.notificationCode, 
             failureType: widget.failureType,
             isFromJointInspection: isJI,
+            failureItem: failure,
           )),
         );
       },
@@ -323,11 +321,11 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                     height: 12,
                     margin: const EdgeInsets.only(bottom: 4),
                     decoration: BoxDecoration(
-                      color: _getStatusDotColor("online"),
+                      color: _getStatusDotColor(failure.syncStatus),
                       shape: BoxShape.circle,
                       boxShadow: [
                         BoxShadow(
-                          color: _getStatusDotColor("online").withOpacity(0.4),
+                          color: _getStatusDotColor(failure.syncStatus).withOpacity(0.4),
                           blurRadius: 4,
                           offset: const Offset(0, 2),
                         ),
@@ -336,6 +334,28 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ),
                 ],
               ),
+              if ((failure.statusName ?? '').contains('Work Complete')) ...[
+                OutlinedButton(
+                  onPressed: () async {
+                    final result = await Get.to(() => CreateFailureScreen(
+                      failureNo: failure.failureNo,
+                      notificationCode: failure.notificationCode,
+                      failureType: widget.failureType,
+                      isUpdate: true,
+                    ));
+                    if (result == true) {
+                      controller.fetchFailures();
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.orangeColor,
+                    side: const BorderSide(color: AppColors.orangeColor),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: const Text('Update', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                ),
+              ],
               if ((failure.statusName ?? '').contains('Reject')) ...[
                 const SizedBox(height: 12),
                 const Divider(color: AppColors.dividerColor3, height: 1),
@@ -420,39 +440,6 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     return AppColors.textDarkSecondary;
   }
 
-  Widget _priorityChip(String priority) {
-    Color text;
-    switch (priority) {
-      case 'Low':
-        text = AppColors.darkBlue;
-        break;
-      case 'Medium':
-        text = AppColors.yellow;
-        break;
-      case 'High':
-        text = AppColors.orangeColor;
-        break;
-      case 'N/A':
-        text = AppColors.textDarkSecondary;
-        break;
-      default:
-        text = AppColors.red;
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.grey,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: CustText(
-        name: priority,
-        size: 13,
-        color: text,
-      ),
-    );
-  }
-
   Widget _statusChip(String status) {
     final color = _getStatusColor(status);
     return Container(
@@ -476,7 +463,8 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       case 'offline':
         return AppColors.orangeColor;
       default:
-        return AppColors.textDarkSecondary;
+        // Default to green (online) if syncStatus is null
+        return AppColors.green;
     }
   }
 

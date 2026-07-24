@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
-import '../../feature/tabs/view/home_screen.dart';
 import 'cust_popup.dart';
 
 class CustomDialog extends StatelessWidget {

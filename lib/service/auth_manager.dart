@@ -27,9 +27,12 @@ class AuthManager {
   static const String _keySelectedDeptId = 'selected_dept_id';
   static const String _keySelectedRoleId = 'selected_role_id';
   static const String _keyBusinessArea = 'business_area';
+  static const String _keyDesignationName = 'designationName';
+
 
   static const String _keyRememberMe = 'remember_me';
   static const String _keyFirstTimeLogin = 'first_time_login';
+  static const String _keyRoleAndDeptMaster = 'role_and_dept_master';
 
   // Roles allowed on mobile
   static const List<String> allowedMobileRoles = [
@@ -43,34 +46,60 @@ class AuthManager {
   // Save login data
   Future<void> login(LoginResponse response, {bool rememberMe = false}) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    print("login data is $response");
     await prefs.setBool(_keyIsLoggedIn, true);
     await prefs.setBool(_keyRememberMe, rememberMe);
     await prefs.setString(_keyUserId, response.userId?.toString() ?? '');
     await prefs.setString(_keyToken, response.token ?? '');
+    await prefs.setString(_keyDesignationName, response.designationName??'');
     await prefs.setString(_keyUserName, response.userName ?? '');
     await prefs.setString(_keyFullName, response.fullName ?? '');
     if (response.businessArea != null) {
       await prefs.setInt(_keyBusinessArea, response.businessArea!);
     }
-    
+
     // Store lists as JSON strings
     await prefs.setString(_keyDeptMaster, jsonEncode(response.deptMaster.map((e) => e.toJson()).toList()));
     await prefs.setString(_keyRoleMaster, jsonEncode(response.roleMaster.map((e) => e.toJson()).toList()));
-    
+    await prefs.setString(
+      _keyRoleAndDeptMaster,
+      jsonEncode(
+        response.roleAndDeptMasters.map((e) => e.toJson()).toList(),
+      ),
+    );
+
     // Default selected dept to first in list
-    if (response.deptMaster.isNotEmpty) {
-       await prefs.setInt(_keySelectedDeptId, response.deptMaster.first.deptId ?? 0);
+
+    // Only default dept/role if nothing was previously saved (preserved across logout)
+    final bool hasSavedDept = prefs.containsKey(_keySelectedDeptId);
+    final bool hasSavedRole = prefs.containsKey(_keySelectedRoleId);
+
+    if (!hasSavedDept && response.deptMaster.isNotEmpty) {
+      await prefs.setInt(_keySelectedDeptId, response.deptMaster.first.deptId ?? 0);
     }
-    // Default selected role to the FIRST allowed mobile role; fallback to first role overall
-    if (response.roleMaster.isNotEmpty) {
+    if (!hasSavedRole && response.roleMaster.isNotEmpty) {
       final firstAllowed = response.roleMaster.firstWhere(
-        (r) => allowedMobileRoles.any(
-          (a) => (r.roleDescr ?? '').trim().toLowerCase() == a.trim().toLowerCase(),
+            (r) => allowedMobileRoles.any(
+              (a) => (r.roleDescr ?? '').trim().toLowerCase() == a.trim().toLowerCase(),
         ),
         orElse: () => response.roleMaster.first,
       );
       await prefs.setInt(_keySelectedRoleId, firstAllowed.roleId ?? 0);
     }
+    // if (response.deptMaster.isNotEmpty) {
+    //    await prefs.setInt(_keySelectedDeptId, response.deptMaster.first.deptId ?? 0);
+    // }
+    // // Default selected role to the FIRST allowed mobile role; fallback to first role overall
+    // if (response.roleMaster.isNotEmpty) {
+    //   final firstAllowed = response.roleMaster.firstWhere(
+    //     (r) => allowedMobileRoles.any(
+    //       (a) => (r.roleDescr ?? '').trim().toLowerCase() == a.trim().toLowerCase(),
+    //     ),
+    //     orElse: () => response.roleMaster.first,
+    //   );
+    //   await prefs.setInt(_keySelectedRoleId, firstAllowed.roleId ?? 0);
+    // }
   }
 
   // Check if user is logged in
@@ -107,6 +136,12 @@ class AuthManager {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyFullName);
   }
+
+  Future<String?> getDesignationName() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyDesignationName);
+  }
+
 
   Future<int?> getBusinessArea() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -160,6 +195,21 @@ class AuthManager {
     await prefs.setBool(_keyFirstTimeLogin, false);
   }
 
+
+  Future<List<RoleAndDeptMaster>> getRoleAndDeptMaster() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+
+    final String? json = prefs.getString(_keyRoleAndDeptMaster);
+
+    if (json == null) return [];
+
+    final List<dynamic> decoded = jsonDecode(json);
+
+    return decoded
+        .map((e) => RoleAndDeptMaster.fromJson(e))
+        .toList();
+  }
+
   // Logout and clear data
   Future<void> logout() async {
     EasyLoading.show(status: 'Logging out...');
@@ -182,12 +232,13 @@ class AuthManager {
     await prefs.remove(_keyToken);
     await prefs.remove(_keyUserName);
     await prefs.remove(_keyFullName);
-    await prefs.remove(_keyDeptMaster);
-    await prefs.remove(_keyRoleMaster);
-    await prefs.remove(_keySelectedDeptId);
-    await prefs.remove(_keySelectedRoleId);
+    // await prefs.remove(_keyDeptMaster);
+    // await prefs.remove(_keyRoleMaster);
+    // await prefs.remove(_keySelectedDeptId);
+    // await prefs.remove(_keySelectedRoleId);
     await prefs.remove(_keyBusinessArea);
     await prefs.remove(_keyRememberMe);
+    // await prefs.remove(_keyRoleAndDeptMaster);
     // Note: _keyFirstTimeLogin is NOT cleared on logout to preserve sync status
     EasyLoading.dismiss();
   }

@@ -10,6 +10,16 @@ class FailureListResponse {
   });
 
   factory FailureListResponse.fromJson(Map<String, dynamic> json) {
+    if (json.containsKey('success')) {
+      return FailureListResponse(
+        responseCode: json['success'] == true ? 200 : 400,
+        responseMessage: json['message'] as String?,
+        responseOutput: (json['data']?['stationFailureList'] as List<dynamic>?)
+                ?.map((e) => FailureItem.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
+      );
+    }
     return FailureListResponse(
       responseCode: json['responseCode'] as int?,
       responseMessage: json['responseMessage'] as String?,
@@ -42,6 +52,34 @@ class FailureItem {
   final String? creationType;
   final String? priority;
   final String? departmentName;
+  final String? subLocation;
+  final String? trainId;
+  final String? system;
+  final String? actualFailureCompletedDateTime;
+  final bool? isTripAffected;
+  final int? tripDelayUpline;
+  final int? tripDelayDownline;
+  final int? tripCancel;
+  final bool? isTrainReplace;
+  final int? trainReplace;
+  final bool? isTrainDeboarded;
+  final int? trainDeboarded;
+  final int? numberOfPassengerAffected;
+  final bool? isPassengerAffected;
+  final int? trappedDuration;
+  final int? rescusedDuration;
+  final int? trainDelayInMin;
+  final int? noOfTranWithdrawal;
+  final String? failureReportedby;
+  final String? failureCategoryTypeText;
+  final String? failureRectificationDetails;
+  final String? carriedOutRemarks;
+  final int? departmentId_1;
+  final int? locationId;
+  final int? funcationLocationId;
+  final List<dynamic>? getImageBefor;
+  final String? syncStatus;
+  final String? lastSyncedAt;
 
   FailureItem({
     this.id,
@@ -64,6 +102,34 @@ class FailureItem {
     this.creationType,
     this.priority,
     this.departmentName,
+    this.subLocation,
+    this.trainId,
+    this.system,
+    this.actualFailureCompletedDateTime,
+    this.isTripAffected,
+    this.tripDelayUpline,
+    this.tripDelayDownline,
+    this.tripCancel,
+    this.isTrainReplace,
+    this.trainReplace,
+    this.isTrainDeboarded,
+    this.trainDeboarded,
+    this.numberOfPassengerAffected,
+    this.isPassengerAffected,
+    this.trappedDuration,
+    this.rescusedDuration,
+    this.trainDelayInMin,
+    this.noOfTranWithdrawal,
+    this.failureReportedby,
+    this.failureCategoryTypeText,
+    this.failureRectificationDetails,
+    this.carriedOutRemarks,
+    this.departmentId_1,
+    this.locationId,
+    this.funcationLocationId,
+    this.getImageBefor,
+    this.syncStatus,
+    this.lastSyncedAt,
   });
 
   factory FailureItem.fromJson(Map<String, dynamic> json) {
@@ -72,7 +138,7 @@ class FailureItem {
     if (isStationListItem) {
       return FailureItem(
         id: json['id'] as int?,
-        failureNo: json['failureCreationId'] as String? ?? json['id']?.toString(),
+        failureNo: json['failureCreationId'] as String? ?? json['failureId'] as String? ?? json['id']?.toString(),
         notificationCode: json['failureId'] as String?,
         failureDescription: json['failureDescription'] as String?,
         functionalLocation: json['funcationLocation'] as String?,
@@ -84,6 +150,34 @@ class FailureItem {
         priority: json['priority'] as String?,
         departmentName: json['departmentName'] as String?,
         remarks: json['failureRectificationDetails'] as String?,
+        subLocation: json['subLocation'] as String?,
+        trainId: json['trainId']?.toString(),
+        system: json['system'] as String?,
+        actualFailureCompletedDateTime: json['actualFailureCompletedDateTime'] as String?,
+        isTripAffected: json['isTripAffected'] as bool?,
+        tripDelayUpline: json['tripDelayUpline'] as int?,
+        tripDelayDownline: json['tripDelayDownline'] as int?,
+        tripCancel: json['tripCancel'] as int?,
+        isTrainReplace: json['isTrainReplace'] as bool?,
+        trainReplace: json['trainReplace'] as int?,
+        isTrainDeboarded: json['isTrainDeboarded'] as bool?,
+        trainDeboarded: json['trainDeboarded'] as int?,
+        numberOfPassengerAffected: json['numberOfPassengerAffected'] as int?,
+        isPassengerAffected: json['isPassengerAffected'] as bool?,
+        trappedDuration: json['trappedDuration'] as int?,
+        rescusedDuration: json['rescusedDuration'] as int?,
+        trainDelayInMin: json['trainDelayInMin'] as int?,
+        noOfTranWithdrawal: json['noOfTranWithdrawal'] as int?,
+        failureReportedby: json['failureReportedby'] as String?,
+        failureCategoryTypeText: json['failureCategoryTypeText'] as String?,
+        failureRectificationDetails: json['failureRectificationDetails'] as String?,
+        carriedOutRemarks: json['carriedOutRemarks'] as String?,
+        departmentId_1: json['departmentId_1'] as int?,
+        locationId: json['locationId'] as int?,
+        funcationLocationId: json['funcationLocationId'] as int?,
+        getImageBefor: json['getImageBefor'] as List<dynamic>?,
+        syncStatus: json['syncStatus'] as String?,
+        lastSyncedAt: json['lastSyncedAt'] as String?,
       );
     }
 
@@ -108,6 +202,61 @@ class FailureItem {
       creationType: json['creationType'] as String?,
       priority: json['priority'] as String?,
       departmentName: json['departmentName'] as String?,
+      syncStatus: json['syncStatus'] as String?,
+      lastSyncedAt: json['lastSyncedAt'] as String?,
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'failureNo': failureNo,
+      'notificationCode': notificationCode,
+      'jobCardId': jobCardId,
+      'failureDescription': failureDescription,
+      'functionLocationId': functionLocationId,
+      'equipmentId': equipmentId,
+      'functionalLocation': functionalLocation,
+      'equipmentDescription': equipmentDescription,
+      'statusName': statusName,
+      'statusDescription': statusDescription,
+      'failureOccuranceDateTime': failureOccuranceDateTime,
+      'assignedUserId': assignedUserId,
+      'occRequestStatus': occRequestStatus,
+      'otherRequestFrom': otherRequestFrom,
+      'locationName': locationName,
+      'remarks': remarks,
+      'creationType': creationType,
+      'priority': priority,
+      'departmentName': departmentName,
+      'subLocation': subLocation,
+      'trainId': trainId,
+      'system': system,
+      'actualFailureCompletedDateTime': actualFailureCompletedDateTime,
+      'isTripAffected': isTripAffected,
+      'tripDelayUpline': tripDelayUpline,
+      'tripDelayDownline': tripDelayDownline,
+      'tripCancel': tripCancel,
+      'isTrainReplace': isTrainReplace,
+      'trainReplace': trainReplace,
+      'isTrainDeboarded': isTrainDeboarded,
+      'trainDeboarded': trainDeboarded,
+      'numberOfPassengerAffected': numberOfPassengerAffected,
+      'isPassengerAffected': isPassengerAffected,
+      'trappedDuration': trappedDuration,
+      'rescusedDuration': rescusedDuration,
+      'trainDelayInMin': trainDelayInMin,
+      'noOfTranWithdrawal': noOfTranWithdrawal,
+      'failureReportedby': failureReportedby,
+      'failureCategoryTypeText': failureCategoryTypeText,
+      'failureRectificationDetails': failureRectificationDetails,
+      'carriedOutRemarks': carriedOutRemarks,
+      'departmentId_1': departmentId_1,
+      'locationId': locationId,
+      'funcationLocationId': funcationLocationId,
+      'getImageBefor': getImageBefor,
+      'syncStatus': syncStatus,
+      'lastSyncedAt': lastSyncedAt,
+    };
   }
 }

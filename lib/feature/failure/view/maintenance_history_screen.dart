@@ -3,8 +3,11 @@ import 'package:om_mobile/utils/widgets/cust_text.dart';
 import 'package:om_mobile/utils/widgets/cust_textfield.dart';
 import 'package:om_mobile/utils/widgets/custom_app_bar.dart';
 import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
+import 'package:get/get.dart';
 import '../../../constants/colors.dart';
 import '../../../constants/app_constants.dart';
+import '../model/asset_qr_response.dart';
+import '../service/failure_service.dart';
 
 class MaintenanceHistoryScreen extends StatefulWidget {
   final bool showAssetQR;
@@ -26,41 +29,77 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
   int _schedulePage = 1;
 
   final TextEditingController _searchController = TextEditingController();
+  final FailureService _failureService = FailureService();
 
-  final List<Map<String, String>> _failureHistory = [
-    {
-      'failureNo': 'SIG/04-2026/0068',
-      'dateTime': '18-10-2025  16:00',
-      'description': 'DER',
-      'status': 'Completed',
-    },
-    {
-      'failureNo': 'SIG/05-2026/0070',
-      'dateTime': '22-11-2025  10:30',
-      'description': 'Fault in wiring',
-      'status': 'Open',
-    },
-  ];
+  AssetQrData? _assetData;
+  bool _isLoading = false;
+  String? _errorMessage;
 
-  final List<Map<String, String>> _scheduleHistory = [
-    {
-      'orderNo': 'SIG/04-2026/0068',
-      'plannedDate': '18-12-2025',
-      'description': 'DER',
-      'status': 'Completed',
-    },
-    {
-      'orderNo': 'SIG/05-2026/0071',
-      'plannedDate': '25-01-2026',
-      'description': 'Routine check',
-      'status': 'Planned',
-    },
-  ];
+  final List<Map<String, String>> _failureHistory = [];
+  final List<Map<String, String>> _scheduleHistory = [];
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.showAssetQR) {
+      _fetchAssetData();
+    }
+  }
 
   @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _fetchAssetData() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final funcLocId = Get.arguments as String? ?? '';
+      final response = await _failureService.getAssetDataByFuncLocId(funcLocId);
+      
+      if (response.responseCode == 200 && response.responseOutput != null) {
+        setState(() {
+          _assetData = response.responseOutput;
+          _failureHistory.clear();
+          _scheduleHistory.clear();
+          
+          for (var item in _assetData!.lstFailureMaintenanceHistory) {
+            _failureHistory.add({
+              'failureNo': item.failureNo ?? '',
+              'dateTime': item.failureDate ?? '',
+              'description': item.description ?? '',
+              'status': item.status ?? '',
+            });
+          }
+          
+          for (var item in _assetData!.lstPreventiveMaintenanceHistory) {
+            _scheduleHistory.add({
+              'orderNo': item.orderNo ?? '',
+              'plannedDate': item.plannedDate ?? '',
+              'description': item.description ?? '',
+              'status': item.status ?? '',
+            });
+          }
+        });
+      } else {
+        setState(() {
+          _errorMessage = response.responseMessage;
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load asset data: $e';
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -98,6 +137,33 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
 
 
   Widget _buildAssetQrView() {
+    if (_isLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+              const SizedBox(height: 16),
+              ElevatedButton(
+                onPressed: _fetchAssetData,
+                child: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (_assetData == null) {
+      return const Center(child: Text('No asset data available'));
+    }
+
     return Column(
       children: [
         Expanded(
@@ -175,28 +241,28 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
         children: [
           Row(
             children: [
-              Expanded(child: _detailItem('Department:', 'MEP')),
-              Expanded(child: _detailItem('Model No:', '17-10-2025 14:00')),
+              Expanded(child: _detailItem('Department:', _assetData?.department ?? '')),
+              Expanded(child: _detailItem('Model No:', _assetData?.modelNo ?? '')),
             ],
           ),
           _divider(),
           Row(
             children: [
-              Expanded(child: _detailItem('System:', 'System')),
-              Expanded(child: _detailItem('Sub system:', 'Sub System')),
+              Expanded(child: _detailItem('System:', _assetData?.system ?? '')),
+              Expanded(child: _detailItem('Sub system:', _assetData?.subSystem ?? '')),
             ],
           ),
           _divider(),
-          _detailItem('Location:', 'LAD Chowk'),
+          _detailItem('Location:', _assetData?.location ?? ''),
           _divider(),
           Row(
             children: [
-              Expanded(child: _detailItem('OEM:', 'OEM')),
-              Expanded(child: _detailItem('Warranty:', '10/07/2026')),
+              Expanded(child: _detailItem('OEM:', _assetData?.oem ?? '')),
+              Expanded(child: _detailItem('Warranty:', _assetData?.warranty ?? '')),
             ],
           ),
           SizedBox(height: AppConstants.subElementSpacing,),
-          _detailItem('DLP:', 'DLP'),
+          _detailItem('Functional Location:', _assetData?.funcLocation ?? ''),
         ],
       ),
     );
@@ -289,27 +355,57 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldBlock('Superior Asset:', 'MEP-FPS-FEX-00003'),
+        _fieldBlock('Superior Asset:', _assetData?.superiorFunLocation ?? ''),
         _divider(),
-        _fieldBlock('Current Asset ID:', 'MEP-FPS-FEX-00003'),
+        _fieldBlock('Current Asset ID:', _assetData?.funcLocation ?? ''),
         _divider(),
-        _fieldBlock('Sub Asset ID:', 'DER'),
+        _fieldBlock('Description:', _assetData?.description ?? ''),
+        _divider(),
+        _fieldBlock('Superior Description:', _assetData?.superiorFunLocationDescription ?? ''),
       ],
     );
   }
 
   Widget _buildEquipmentContent() {
+    if (_assetData?.lstEquipmentsDetails == null || _assetData!.lstEquipmentsDetails.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('No equipment details available'),
+        ),
+      );
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _fieldBlock('Equipment', 'MEP-FPS-FEX-00003'),
+        _fieldBlock('Equipment Count:', '${_assetData!.lstEquipmentsDetails.length}'),
         _divider(),
-        _fieldBlock('Equipment Description', 'MEP-FPS-FEX-00003'),
+        ..._assetData!.lstEquipmentsDetails.map((equip) {
+          final equipMap = equip as Map<String, dynamic>;
+          return Column(
+            children: [
+              _fieldBlock('Equipment Name:', equipMap['equipmentName']?.toString() ?? ''),
+              _divider(),
+              _fieldBlock('Equipment Description:', equipMap['equipmentDescriptions']?.toString() ?? ''),
+              _divider(),
+            ],
+          );
+        }).toList(),
       ],
     );
   }
 
   Widget _buildFailureHistoryContent() {
+    if (_failureHistory.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('No failure history available'),
+        ),
+      );
+    }
+
     final item =
         _failureHistory[(_failurePage - 1).clamp(0, _failureHistory.length - 1)];
     return Column(
@@ -340,6 +436,15 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
   }
 
   Widget _buildScheduleHistoryContent() {
+    if (_scheduleHistory.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text('No preventive maintenance history available'),
+        ),
+      );
+    }
+
     final item = _scheduleHistory[
         (_schedulePage - 1).clamp(0, _scheduleHistory.length - 1)];
     return Column(
@@ -426,7 +531,19 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
       child: SizedBox(
         height: 50,
         child: ElevatedButton(
-          onPressed: () {},
+          onPressed: () {
+            if (_assetData != null) {
+              // Navigate to Create Failure screen with asset data
+              Get.toNamed('/CreateNotification', arguments: {
+                'funcLocId': _assetData!.funcLocId,
+                'funcLocation': _assetData!.funcLocation,
+                'description': _assetData!.description,
+                'department': _assetData!.department,
+                'deptId': _assetData!.deptId,
+                'location': _assetData!.location,
+              });
+            }
+          },
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.orangeColor,
             shape:

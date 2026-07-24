@@ -50,6 +50,12 @@ dependencies:
   sqflite: ^2.4.2
   path: ^1.9.1
   sqflite_common_ffi: ^2.3.7+1
+  simple_barcode_scanner: ^0.6.0
+  sqlite3: ^2.9.4
+  encrypt: ^5.0.3
+  pointycastle: ^3.9.1
+  dart_des: ^1.0.2
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
@@ -78,6 +84,7 @@ flutter:
     - assets/images/
     - assets/images/home_image/
     - assets/images/login_image/
+    - assets/master.db
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

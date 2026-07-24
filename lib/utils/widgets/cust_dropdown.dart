@@ -6,7 +6,6 @@ import 'package:dropdown_search/dropdown_search.dart';
 import '../../constants/app_constants.dart';
 import '../../constants/colors.dart';
 import '../../utils/responsive_helper.dart';
-import '../../utils/string_utils.dart';
 import 'cust_text.dart';
 
 class CustDropdown extends StatelessWidget {

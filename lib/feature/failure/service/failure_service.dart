@@ -13,6 +13,7 @@ import '../../../service/network_service/app_urls.dart';
 import '../../../service/local_database_service.dart';
 import '../model/failure_detail_response.dart';
 import '../model/joint_inspection_history.dart';
+import '../model/asset_qr_response.dart';
 
 
 
@@ -27,6 +28,28 @@ class FailureService {
       'accept': 'application/json',
       if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
     };
+  }
+
+  Future<bool> saveUserStationDetails(int stationId, String stationName) async {
+    try {
+      final userId = await AuthManager().getUserId();
+      final response = await _apiClient.post(
+        AppUrls.insertUserStationDetails,
+        body: {
+          'CreatedBy': userId,
+          'StationId': stationId.toString(),
+        },
+      );
+      
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        return body['responseCode'] == 200 || body['success'] == true;
+      }
+      return false;
+    } catch (e) {
+      debugPrint('Error saving user station details: $e');
+      return false;
+    }
   }
 
   Future<int> _userId() async =>
@@ -112,28 +135,7 @@ class FailureService {
 
   // ── Station Failure ───────────────────────────────────────────────────────
 
-  /// Loads station failure details. Returns the raw `responseOutput` map.
-  Future<Map<String, dynamic>> getStationFailureDetails(String id) async {
-    final userId = await _userId();
-    final response = await _apiClient.post(
-      AppUrls.getStationFailureCreationById,
-      body: {
-        'Id': id,
-        'UserId': userId,
-        'DepartmentIds': '',
-        'Action': '',
-        'LocationId': 0,
-      },
-    );
-    if (response.statusCode != 200) {
-      throw Exception('Server error: ${response.statusCode}');
-    }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
-      throw Exception(body['responseMessage'] ?? 'Failed to load details');
-    }
-    return body['responseOutput'] as Map<String, dynamic>;
-  }
+
 
   /// Creates a new station failure. Returns the created failure number.
   Future<String?> createStationFailure(Map<String, dynamic> payload) async {
@@ -174,6 +176,23 @@ class FailureService {
 
   /// Returns station names for the station picker popup.
   Future<List<LabelValue>> getStationNames() async {
+    // First try to load from local database
+    try {
+      final dbService = LocalDatabaseService();
+      final localStations = await dbService.getStations();
+      if (localStations.isNotEmpty) {
+        debugPrint("getStationNames: Loaded ${localStations.length} stations from local DB");
+        return localStations.map((e) => LabelValue(
+          label: e['stationLabel']?.toString() ?? '',
+          value: e['stationValue']?.toString() ?? '',
+        )).toList();
+      }
+    } catch (e) {
+      debugPrint("getStationNames: Error loading from local DB: $e");
+    }
+
+    // Fallback to API if local data is not available
+    debugPrint("getStationNames: No local data, fetching from API");
     final userId = await AuthManager().getUserId() ?? '1';
     final response = await _apiClient
         .get('${AppUrls.getStationName}?AssgineUserId=$userId');
@@ -188,6 +207,27 @@ class FailureService {
           .toList();
     }
     return [];
+  }
+
+  /// Returns station failure details for a given failure ID.
+  Future<Map<String, dynamic>> getStationFailureDetails(String id) async {
+    final userId = await _userId();
+    final response = await _apiClient.post(
+      AppUrls.insertChangeDepartmentFailure,
+      body: {
+        'Id': id,
+        'UserId': userId,
+        'Action': 'GetStationFailureDetails'
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load station failure details');
+    }
+    return body['responseOutput'] as Map<String, dynamic>;
   }
 
   // ── Joint Inspection ──────────────────────────────────────────────────────
@@ -663,5 +703,17 @@ class FailureService {
       fetchRstTrainStatuses(),
       fetchRstStorageLocations(),
     ]);
+  }
+
+  /// Fetches asset data by functional location ID for QR scan
+  Future<AssetQrResponse> getAssetDataByFuncLocId(String funcLocId) async {
+    final response = await _apiClient.get(
+      '${AppUrls.getAllDataByFuncLocId}?funcLocId=$funcLocId',
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return AssetQrResponse.fromJson(body);
   }
 }
