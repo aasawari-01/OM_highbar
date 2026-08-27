@@ -1,9 +1,13 @@
 class AppUrls {
   /// Base URL for all API .
-   static const String baseUrl = "http://192.168.24.53:5000/api/";
-   static const String imageUrl = "http://192.168.24.53:5000/";
+  // static const String baseUrl = "http://192.168.24.53:5000/api/";
+  // static const String imageUrl = "http://192.168.24.53:5000/";
 
-   /// Auth endpoints
+
+  static const String baseUrl = "http://192.168.24.158:5000/api/";
+  static const String imageUrl = "http://192.168.24.158:5000/";
+
+  /// Auth endpoints
   static const String login = 'UserLogin/userLoginValidate';
   static const String logout = 'UserLogin/userLogout';
   static const String forgotPassword = 'UserLogin/ForgotPassword';
@@ -36,6 +40,7 @@ class AppUrls {
   static const String getMCDRequiredQuantity = 'JECorrectivesMaintenance/getMCDRequiredQuantity';
   static const String getMaterialBalancedQty = 'Common/GetMaterialBalancedQty';
   static const String updateNotificationRSTRCAMaterialJE = "JECorrectivesMaintenance/updateNotificationRSTRCAMaterialJE";
-   static const String updateRSTNotificationCompletion = 'JECorrectivesMaintenance/updateRSTNotificationCompletion';
-   static const String insertUserStationDetails = 'AssetRegister/Insert_Users_Station_Details';
+  static const String updateRSTNotificationCompletion = 'JECorrectivesMaintenance/updateRSTNotificationCompletion';
+  static const String insertUserStationDetails = 'AssetRegister/Insert_Users_Station_Details';
+  static const String occTOscMasterData = 'OccToScCommunication/GetOCCInstructionPageLoadData';
 }

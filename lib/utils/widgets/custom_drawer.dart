@@ -13,6 +13,8 @@ import '../../feature/inspection/view/top_management/inspection_dashboard_screen
 import '../../feature/inspection/view/top_management/top_management_create_inspection_screen.dart';
 import '../../feature/failure/view/rst/rst_failure_screen.dart';
 import '../../feature/ibl/view/ibl_screen.dart';
+import '../../feature/occ_to_sc_comm/view/create_occ_instruction.dart';
+import '../../feature/occ_to_sc_comm/view/occ_to_sc_inbox.dart';
 import '../../service/auth_manager.dart';
 import 'cust_dropdown.dart';
 import 'cust_button.dart';
@@ -260,6 +262,18 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   children: [
                     _drawerItem('Dashboard', 'inspection_tm_dashboard', const InspectionDashboardScreen()),
                     _drawerItem('Create Inspection', 'inspection_tm_create', const TopManagementCreateInspectionScreen()),
+                  ],
+                ),
+
+                divider(),
+                // Inspection (Top Management)
+                _drawerSection(
+                  title: 'OCC to SC Communication',
+                  sectionKey: 'occ_to_sc_communication',
+                  icon: TablerIcons.clipboard_check,
+                  children: [
+                    _drawerItem('Inbox', 'inbox_occ', const OccScInboxScreen()),
+                    _drawerItem('Create Instructions', 'create_instructions', const CreateOccScCommunicationScreen()),
                   ],
                 ),
               ],

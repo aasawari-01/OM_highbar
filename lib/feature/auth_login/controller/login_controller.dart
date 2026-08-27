@@ -4,6 +4,7 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 
+import '../../../service/notification_service/notification_service.dart';
 import '../../failure/service/failure_service.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_text.dart';
@@ -43,6 +44,21 @@ class LoginController extends GetxController {
 
   final RxList<LabelValue> popupStationList = <LabelValue>[].obs;
   final RxBool isPopupStationLoading = false.obs;
+
+  final NotificationService notificationService = NotificationService();
+
+  Future<void> handleSuccessfulLogin() async {
+    final fcmToken = await notificationService.getFcmToken();
+
+    print("FCM Token for logged-in user: $fcmToken");
+
+    if (fcmToken != null) {
+      // Send token to your backend
+      // await authService.updateFcmToken(
+      //   fcmToken: fcmToken,
+      // );
+    }
+  }
 
   Future<void> _showStationSelectionPopup() async {
     isPopupStationLoading.value = true;
@@ -258,9 +274,11 @@ class LoginController extends GetxController {
         // }
 
         // await _showStationSelectionPopup();
+        await handleSuccessfulLogin();
         if (hasStationController) {
           await _showStationSelectionPopup();
         } else {
+
           Get.offAll(() => const HomeScreen());
 
           Future.microtask(() async {

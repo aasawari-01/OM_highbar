@@ -1,8 +1,10 @@
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:om_mobile/constants/colors.dart';
 import 'package:om_mobile/service/hive_database_service.dart';
+import 'package:om_mobile/service/notification_service/notification_service.dart';
 import 'feature/auth_login/view/login_view.dart';
 import 'feature/tabs/view/home_screen.dart';
 
@@ -30,6 +32,8 @@ void main() async {
   
   final bool isLoggedIn = await AuthManager().isLoggedIn();
   final bool isRememberMe = await AuthManager().isRememberMe();
+  await Firebase.initializeApp();
+  await Get.putAsync(() => NotificationService().init());
   
   Widget initialRoute = LoginView();
   await Get.putAsync(() => HiveService().init());

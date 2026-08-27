@@ -52,6 +52,9 @@ dependencies:
   sqflite_common_ffi: ^2.3.7+1
   hive_flutter: ^1.1.0
   hive: ^2.2.3
+  firebase_core: ^4.13.0
+  firebase_messaging: ^16.5.0
+  flutter_local_notifications: ^17.2.2
 
 dev_dependencies:
   flutter_test:
