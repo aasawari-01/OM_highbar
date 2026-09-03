@@ -127,10 +127,17 @@ class LoginController extends GetxController {
                         orElse: () => LabelValue(value: '0', code: ''),
                       );
 
+
+                      print("adjakdasdasd  ${station.value}");
+
                       session.selectedStationId.value = station.value ?? '0';
                       session.selectedStationCode.value = station.code ?? '';
                       await AuthManager().saveSelectedStationCode(
                         session.selectedStationCode.value??'',
+                      );
+
+                      await AuthManager().saveSelectedStationID(
+                        session.selectedStationId.value??'',
                       );
 
 

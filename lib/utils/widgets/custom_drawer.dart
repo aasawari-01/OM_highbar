@@ -86,6 +86,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
 
   @override
   Widget build(BuildContext context) {
+
+    print("selected role is ${sessionController.selectedRole.string}");
     return Drawer(
       width: MediaQuery.sizeOf(context).width / 1.3,
       backgroundColor: Colors.white,
@@ -188,6 +190,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+
+                      print("role is $role");
                       final canAccessStationFailure =
                           role.contains('Station Controller') || role.contains('Junior Engineer');
                       if (!canAccessStationFailure) {
@@ -267,15 +271,28 @@ class _CustomDrawerState extends State<CustomDrawer> {
 
                 divider(),
                 // Inspection (Top Management)
-                _drawerSection(
+
+                Obx(() {
+
+                  final role = sessionController.selectedRole.value?.roleDescr ?? '';
+
+                  final canAccessOCCtoSC =
+                      role.contains('Station Controller') || role.contains('OCC');
+                  final isOcc =
+              role.contains('OCC');
+                  print("role Is $canAccessOCCtoSC---$isOcc");
+                 return canAccessOCCtoSC ?_drawerSection(
                   title: 'OCC to SC Communication',
                   sectionKey: 'occ_to_sc_communication',
                   icon: TablerIcons.clipboard_check,
                   children: [
-                    _drawerItem('Inbox', 'inbox_occ', const OccScInboxScreen()),
-                    _drawerItem('Create Instructions', 'create_instructions', const CreateOccScCommunicationScreen()),
+
+                    _drawerItem('Inbox', 'inbox_occ', OccScInboxScreen(isOcc: isOcc,)),
+                    isOcc?_drawerItem('Create Instructions', 'create_instructions', const CreateOccScCommunicationScreen()):Container(),
                   ],
-                ),
+                ):Container();
+
+                }),
               ],
             ),
           ),

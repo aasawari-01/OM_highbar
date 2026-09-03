@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
+import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 
 import 'package:om_mobile/constants/colors.dart';
 
@@ -7,49 +9,39 @@ import '../../../constants/app_constants.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
 
-class InstructionDetailsScreen extends StatelessWidget {
-  final Map<String, dynamic> instruction;
+import '../controller/occ_instruction_details_controller.dart';
+import '../model/occ_instruction_detail_model.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+class InstructionDetailsScreen extends StatelessWidget {
   const InstructionDetailsScreen({
     Key? key,
-    required this.instruction,
+    required this.instructionId,
+    required this.isOcc,
+    this.stationId = 0,
   }) : super(key: key);
+
+  final int instructionId;
+  final bool isOcc;
+  final int stationId;
 
   @override
   Widget build(BuildContext context) {
-    final acknowledgements = [
-      {
-        'name': 'SC - Electrical',
-        'status': 'Acknowledged',
-        'remark':
-        'Instruction received. Team has been informed and action initiated.',
-        'date': '27 Aug 2026',
-        'time': '10:48 AM',
-      },
-      {
-        'name': 'SC - AFC',
-        'status': 'Acknowledged',
-        'remark':
-        'AFC team has checked the equipment. Further inspection is in progress.',
-        'date': '27 Aug 2026',
-        'time': '11:02 AM',
-      },
-      {
-        'name': 'SC - Operations',
-        'status': 'Pending',
-        'remark': '',
-        'date': '-',
-        'time': '-',
-      },
-    ];
+    Get.delete<InstructionDetailsController>(force: true);
+    final InstructionDetailsController controller = Get.put(
+      InstructionDetailsController(
+        instructionId: instructionId,
+        isOcc: isOcc,
+        stationId: stationId,
+      ),
+    );
 
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
         title: 'Instruction Details',
         showDrawer: false,
-        onLeadingPressed: () =>
-            Navigator.pop(context),
+        onLeadingPressed: () => Navigator.pop(context),
       ),
       body: Container(
         width: double.infinity,
@@ -61,41 +53,165 @@ class InstructionDetailsScreen extends StatelessWidget {
             topRight: Radius.circular(20),
           ),
         ),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(
-            AppConstants.screenPadding,
-          ),
-          child: Column(
-            crossAxisAlignment:
-            CrossAxisAlignment.start,
-            children: [
-              _buildInstructionHeader(),
+        child: Obx(
+              () {
+            if (controller.isLoading.value) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
 
-              const SizedBox(height: 16),
+            final instruction = controller.instruction.value;
 
-              _buildBasicDetails(),
+            if (instruction == null) {
+              return const Center(
+                child: CustText(
+                  name: 'Unable to load instruction details.',
+                  size: 12,
+                  color: Colors.black45,
+                ),
+              );
+            }
 
-              const SizedBox(height: 16),
-
-              _buildLocationSection(),
-
-              const SizedBox(height: 16),
-
-              _buildDescriptionSection(),
-
-              const SizedBox(height: 16),
-
-              _buildAttachmentsSection(),
-
-              const SizedBox(height: 20),
-
-              _buildAcknowledgementSection(
-                acknowledgements,
+            return SingleChildScrollView(
+              padding: const EdgeInsets.all(
+                AppConstants.screenPadding,
               ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildInstructionHeader(instruction),
+                  const SizedBox(height: 16),
+                  _buildBasicDetails(instruction),
+                  const SizedBox(height: 16),
+                  _buildLocationSection(instruction),
+                  if (instruction.technicalSystems.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    _buildTechnicalDetailsSection(instruction),
+                  ],
+                  const SizedBox(height: 16),
+                  _buildDescriptionSection(instruction),
+                  const SizedBox(height: 16),
+                  _buildAttachmentsSection(instruction),
+                  const SizedBox(height: 20),
+                  isOcc?_buildAcknowledgementSection(instruction):Container(),
+                  if (controller.canAcknowledge) ...[
+                    const SizedBox(height: 16),
+                    _buildAcknowledgeAction(controller, instruction),
+                  ],
+                  const SizedBox(height: 30),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-              const SizedBox(height: 30),
+
+
+  Widget _buildAcknowledgeAction(
+      InstructionDetailsController controller,
+      OccInstructionDetail instruction,
+      ) {
+    final bool alreadyAcknowledged =
+        instruction.isAcknowledgedByCurrentUser == true;
+
+    if (alreadyAcknowledged) {
+      return _sectionContainer(
+        title: 'Your Acknowledgement',
+        icon: TablerIcons.circle_check,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(TablerIcons.check, size: 15, color: Colors.green),
+                const SizedBox(width: 6),
+                Text(
+                  instruction.myAcknowledgementDateTime == null
+                      ? 'Acknowledged'
+                      : 'Acknowledged on ${DateFormat('dd MMM yyyy, hh:mm a').format(instruction.myAcknowledgementDateTime!)}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black87,
+                  ),
+                ),
+              ],
+            ),
+            if ((instruction.myAcknowledgementRemark ?? '').isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                instruction.myAcknowledgementRemark!,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: Colors.black54,
+                  height: 1.4,
+                ),
+              ),
             ],
-          ),
+          ],
+        ),
+      );
+    }
+
+    return _sectionContainer(
+      title: 'Acknowledge Instruction',
+      icon: TablerIcons.circle_check,
+      child: Obx(
+            () => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller.remarkController,
+              maxLines: 3,
+              style: const TextStyle(fontSize: 12),
+              decoration: InputDecoration(
+                hintText: 'Add a remark before acknowledging',
+                hintStyle: const TextStyle(fontSize: 11, color: Colors.black38),
+                contentPadding: const EdgeInsets.all(11),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(11),
+                  borderSide: BorderSide(color: Colors.grey.shade300),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: controller.isSubmittingAcknowledgement.value
+                    ? null
+                    : controller.acknowledgeInstruction,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.appBarColor,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: controller.isSubmittingAcknowledgement.value
+                    ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+                    : const Text(
+                  'Acknowledge',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -105,16 +221,14 @@ class InstructionDetailsScreen extends StatelessWidget {
   // Header
   // -------------------------------------------------------------------
 
-  Widget _buildInstructionHeader() {
+  Widget _buildInstructionHeader(OccInstructionDetail instruction) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(17),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: Colors.grey.shade200,
-        ),
+        border: Border.all(color: Colors.grey.shade200),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withOpacity(0.035),
@@ -141,37 +255,33 @@ class InstructionDetailsScreen extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CustText(
-                  name: instruction['subject'] ?? '',
+                  name: instruction.instructionNumber,
                   size: 16,
                   color: Colors.black87,
-
                   maxLines: 2,
                 ),
                 const SizedBox(height: 5),
                 CustText(
-                  name: instruction['id'] ?? '',
+                  name: instruction.issueDate == null
+                      ? '-'
+                      : DateFormat('dd MMM yyyy')
+                      .format(instruction.issueDate!),
                   size: 11,
-                  color:
-                  AppColors.textMutedLight,
+                  color: AppColors.textMutedLight,
                 ),
               ],
             ),
           ),
-          _buildInstructionTypeBadge(
-            instruction['instructionType'] ?? '',
-          ),
+          _buildInstructionTypeBadge(instruction.instructionTypeName),
         ],
       ),
     );
   }
 
-  Widget _buildInstructionTypeBadge(
-      String value,
-      ) {
+  Widget _buildInstructionTypeBadge(String value) {
     Color color;
 
     switch (value) {
@@ -186,17 +296,13 @@ class InstructionDetailsScreen extends StatelessWidget {
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 6,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: color.withOpacity(0.10),
-        borderRadius:
-        BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        value,
+        value.isEmpty ? '-' : value,
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,
@@ -210,7 +316,7 @@ class InstructionDetailsScreen extends StatelessWidget {
   // Basic details
   // -------------------------------------------------------------------
 
-  Widget _buildBasicDetails() {
+  Widget _buildBasicDetails(OccInstructionDetail instruction) {
     return _sectionContainer(
       title: 'Instruction Information',
       icon: TablerIcons.info_circle,
@@ -218,20 +324,37 @@ class InstructionDetailsScreen extends StatelessWidget {
         children: [
           _detailRow(
             'Sent By',
-            instruction['sentBy'] ?? 'OCC',
+            instruction.instructionByName.isEmpty
+                ? '-'
+                : instruction.instructionByName,
           ),
           _detailRow(
             'Date',
-            instruction['date'] ?? '-',
+            instruction.issueDate == null
+                ? '-'
+                : DateFormat('dd MMM yyyy').format(instruction.issueDate!),
+          ),
+          _detailRow(
+            'Valid Upto',
+            instruction.validityUpto == null
+                ? '-'
+                : DateFormat('dd MMM yyyy')
+                .format(instruction.validityUpto!),
           ),
           _detailRow(
             'Time',
-            instruction['time'] ?? '-',
+            instruction.createdDateTime == null
+                ? '-'
+                : DateFormat('hh:mm a').format(instruction.createdDateTime!),
           ),
           _detailRow(
             'Status',
-            instruction['status'] ?? '-',
+            instruction.instructionStatus.isEmpty
+                ? '-'
+                : instruction.instructionStatus,
           ),
+          if ((instruction.emergencyTypeName ?? '').isNotEmpty)
+            _detailRow('Emergency Type', instruction.emergencyTypeName!),
         ],
       ),
     );
@@ -241,52 +364,134 @@ class InstructionDetailsScreen extends StatelessWidget {
   // Location
   // -------------------------------------------------------------------
 
-  Widget _buildLocationSection() {
-    final lines =
-        (instruction['lines'] as List?) ?? [];
-
-    final stations =
-        (instruction['stations'] as List?) ?? [];
+  Widget _buildLocationSection(OccInstructionDetail instruction) {
+    final stations = instruction.stations;
 
     return _sectionContainer(
       title: 'Location',
       icon: TablerIcons.map_pin,
+      child: stations.isEmpty
+          ? const Text(
+        'No station information available.',
+        style: TextStyle(
+          fontSize: 11,
+          color: Colors.black38,
+          fontStyle: FontStyle.italic,
+        ),
+      )
+          : _buildStationTagGroup(stations),
+    );
+  }
+
+  Widget _buildStationTagGroup(List<InstructionStation> stations) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(TablerIcons.map_pin, size: 15, color: AppColors.textMutedLight),
+            const SizedBox(width: 6),
+            const Text(
+              'Stations',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Colors.black54,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: stations.map((station) {
+            final bool acknowledged = station.isAcknowledged == true;
+
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: acknowledged
+                    ? Colors.green.withOpacity(0.08)
+                    : Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+                border: acknowledged
+                    ? Border.all(color: Colors.green.withOpacity(0.3))
+                    : null,
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (acknowledged)
+                    const Padding(
+                      padding: EdgeInsets.only(right: 5),
+                      child: Icon(TablerIcons.check, size: 12, color: Colors.green),
+                    ),
+                  Text(
+                    station.stationName ??
+                        (station.stationId != null
+                            ? 'Station #${station.stationId}'
+                            : '-'),
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: acknowledged ? Colors.green.shade800 : Colors.black87,
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }).toList(),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTechnicalDetailsSection(OccInstructionDetail instruction) {
+    final Map<String, List<String>> grouped = {};
+
+    for (final system in instruction.technicalSystems) {
+      final String dept = (system.deptName?.isNotEmpty ?? false)
+          ? system.deptName!
+          : 'Department';
+
+      grouped.putIfAbsent(dept, () => []);
+
+      if ((system.systemName ?? '').isNotEmpty) {
+        grouped[dept]!.add(system.systemName!);
+      }
+    }
+
+    return _sectionContainer(
+      title: 'Technical Details',
+      icon: TablerIcons.settings,
       child: Column(
-        crossAxisAlignment:
-        CrossAxisAlignment.start,
-        children: [
-          _buildTagGroup(
-            title: 'Lines',
-            values: lines,
-            icon: TablerIcons.route,
-          ),
-          const SizedBox(height: 14),
-          _buildTagGroup(
-            title: 'Stations',
-            values: stations,
-            icon: TablerIcons.map_pin,
-          ),
-        ],
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: grouped.entries.map((entry) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _buildTagGroup(
+              title: entry.key,
+              values: entry.value,
+              icon: TablerIcons.building,
+            ),
+          );
+        }).toList(),
       ),
     );
   }
 
   Widget _buildTagGroup({
     required String title,
-    required List values,
+    required List<String> values,
     required IconData icon,
   }) {
     return Column(
-      crossAxisAlignment:
-      CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(
-              icon,
-              size: 15,
-              color: AppColors.textMutedLight,
-            ),
+            Icon(icon, size: 15, color: AppColors.textMutedLight),
             const SizedBox(width: 6),
             Text(
               title,
@@ -302,30 +507,21 @@ class InstructionDetailsScreen extends StatelessWidget {
         Wrap(
           spacing: 7,
           runSpacing: 7,
-          children: values.map(
-                (value) {
-              return Container(
-                padding:
-                const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius:
-                  BorderRadius.circular(10),
-                ),
-                child: Text(
-                  value.toString(),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight:
-                    FontWeight.w500,
-                  ),
-                ),
-              );
-            },
-          ).toList(),
+          children: values.map((value) {
+            return Container(
+              padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Text(
+                value,
+                style:
+                const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+              ),
+            );
+          }).toList(),
         ),
       ],
     );
@@ -335,17 +531,13 @@ class InstructionDetailsScreen extends StatelessWidget {
   // Description
   // -------------------------------------------------------------------
 
-  Widget _buildDescriptionSection() {
+  Widget _buildDescriptionSection(OccInstructionDetail instruction) {
     return _sectionContainer(
       title: 'Description',
       icon: TablerIcons.align_left,
       child: Text(
-        instruction['description'] ?? '',
-        style: const TextStyle(
-          fontSize: 13,
-          color: Colors.black87,
-          height: 1.5,
-        ),
+        instruction.instructionContent,
+        style: const TextStyle(fontSize: 13, color: Colors.black87, height: 1.5),
       ),
     );
   }
@@ -354,140 +546,190 @@ class InstructionDetailsScreen extends StatelessWidget {
   // Attachments
   // -------------------------------------------------------------------
 
-  Widget _buildAttachmentsSection() {
-    final files = [
-      'inspection_report.pdf',
-      'equipment_photo.jpg',
-      'maintenance_note.docx',
-    ];
+  Widget _buildAttachmentsSection(OccInstructionDetail instruction) {
+    final attachments = instruction.attachments;
 
     return _sectionContainer(
-      title: 'Attachments',
+      title: 'Attachments (${attachments.length})',
       icon: TablerIcons.paperclip,
-      child: Column(
-        children: files.map(
-              (file) {
-            return Container(
-              margin:
-              const EdgeInsets.only(
-                bottom: 8,
-              ),
-              padding:
-              const EdgeInsets.symmetric(
-                horizontal: 11,
-                vertical: 10,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                borderRadius:
-                BorderRadius.circular(11),
-                border: Border.all(
-                  color:
-                  Colors.grey.shade200,
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    decoration:
-                    BoxDecoration(
-                      color:
-                      Colors.blue
-                          .withOpacity(
-                        0.08,
-                      ),
-                      borderRadius:
-                      BorderRadius.circular(
-                        9,
-                      ),
-                    ),
-                    child: const Icon(
-                      TablerIcons.file,
-                      size: 17,
-                      color: Colors.blue,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      file,
-                      style:
-                      const TextStyle(
-                        fontSize: 11,
-                        fontWeight:
-                        FontWeight.w500,
-                      ),
-                      maxLines: 1,
-                      overflow:
-                      TextOverflow.ellipsis,
-                    ),
-                  ),
-                  const Icon(
-                    TablerIcons.eye,
-                    size: 17,
-                    color:
-                    AppColors
-                        .textMutedLight,
-                  ),
-                ],
-              ),
-            );
-          },
-        ).toList(),
+      child: attachments.isEmpty
+          ? const Text(
+        'No attachments added.',
+        style: TextStyle(
+          fontSize: 11,
+          color: Colors.black38,
+          fontStyle: FontStyle.italic,
+        ),
+      )
+          : Column(
+        children:
+        attachments.map((file) => _buildAttachmentTile(file)).toList(),
       ),
     );
+  }
+
+  Widget _buildAttachmentTile(InstructionAttachment file) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(9),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          if (file.isImage)
+            ClipRRect(
+              borderRadius: BorderRadius.circular(9),
+              child: Image.network(
+                file.fullUrl,
+                width: 34,
+                height: 34,
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) =>
+                    _buildAttachmentIcon(file),
+              ),
+            )
+          else
+            _buildAttachmentIcon(file),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  file.fileName.isEmpty ? '-' : file.fileName,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _formatFileSize(file.fileSize),
+                  style: const TextStyle(fontSize: 9, color: Colors.black45),
+                ),
+              ],
+            ),
+          ),
+          GestureDetector(
+            onTap: () => _openAttachment(file),
+            child: const Icon(
+              TablerIcons.eye,
+              size: 17,
+              color: AppColors.textMutedLight,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAttachmentIcon(InstructionAttachment file) {
+    IconData icon;
+    Color color;
+
+    if (file.isPdf) {
+      icon = TablerIcons.file_text;
+      color = Colors.red;
+    } else if (file.isImage) {
+      icon = TablerIcons.photo;
+      color = Colors.blue;
+    } else {
+      icon = TablerIcons.file;
+      color = Colors.blueGrey;
+    }
+
+    return Container(
+      width: 34,
+      height: 34,
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Icon(icon, size: 17, color: color),
+    );
+  }
+
+  String _formatFileSize(int bytes) {
+    if (bytes <= 0) return '-';
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _openAttachment(InstructionAttachment file) async {
+    debugPrint('Opening attachment: ${file.fileName} -> ${file.fullUrl}');
+
+    final Uri uri = Uri.parse(file.fullUrl);
+
+    final bool launched = await launchUrl(
+      uri,
+      mode: LaunchMode.externalApplication,
+    );
+
+    if (!launched) {
+      Get.snackbar(
+        'Error',
+        'Unable to open ${file.fileName}.',
+        backgroundColor: Colors.red.withOpacity(0.9),
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    }
   }
 
   // -------------------------------------------------------------------
   // Acknowledgements
   // -------------------------------------------------------------------
 
-  Widget _buildAcknowledgementSection(
-      List<Map<String, dynamic>>
-      acknowledgements,
-      ) {
+  Widget _buildAcknowledgementSection(OccInstructionDetail instruction) {
+    final acknowledgements = instruction.acknowledgements;
+
     return _sectionContainer(
-      title:
-      'Acknowledgements (${acknowledgements.length})',
+      title: 'Acknowledgements (${acknowledgements.length})',
       icon: TablerIcons.users,
-      child: Column(
+      child: acknowledgements.isEmpty
+          ? const Text(
+        'No acknowledgements yet.',
+        style: TextStyle(
+          fontSize: 11,
+          color: Colors.black38,
+          fontStyle: FontStyle.italic,
+        ),
+      )
+          : Column(
         children: List.generate(
           acknowledgements.length,
-              (index) {
-            final ack =
-            acknowledgements[index];
-
-            return _buildAcknowledgementCard(
-              ack,
-              isLast:
-              index ==
-                  acknowledgements.length -
-                      1,
-            );
-          },
+              (index) => _buildAcknowledgementCard(
+            acknowledgements[index],
+            isLast: index == acknowledgements.length - 1,
+          ),
         ),
       ),
     );
   }
 
   Widget _buildAcknowledgementCard(
-      Map<String, dynamic> ack, {
+      InstructionAcknowledgement ack, {
         required bool isLast,
       }) {
     final bool acknowledged =
-        ack['status'] ==
-            'Acknowledged';
+        (ack.status ?? '').toLowerCase() == 'acknowledged';
 
     final Color statusColor =
-    acknowledged
-        ? Colors.green
-        : Colors.orange.shade700;
+    acknowledged ? Colors.green : Colors.orange.shade700;
+
+    final String date = ack.acknowledgedDateTime == null
+        ? '-'
+        : DateFormat('dd MMM yyyy').format(ack.acknowledgedDateTime!);
+
+    final String time = ack.acknowledgedDateTime == null
+        ? '-'
+        : DateFormat('hh:mm a').format(ack.acknowledgedDateTime!);
 
     return Row(
-      crossAxisAlignment:
-      CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Column(
           children: [
@@ -495,145 +737,91 @@ class InstructionDetailsScreen extends StatelessWidget {
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color:
-                statusColor
-                    .withOpacity(0.10),
+                color: statusColor.withOpacity(0.10),
                 shape: BoxShape.circle,
               ),
               child: Icon(
-                acknowledged
-                    ? TablerIcons.check
-                    : TablerIcons.clock,
+                acknowledged ? TablerIcons.check : TablerIcons.clock,
                 size: 18,
                 color: statusColor,
               ),
             ),
             if (!isLast)
-              Container(
-                width: 1,
-                height: 70,
-                color: Colors.grey.shade300,
-              ),
+              Container(width: 1, height: 70, color: Colors.grey.shade300),
           ],
         ),
-
         const SizedBox(width: 11),
-
         Expanded(
           child: Container(
-            margin:
-            const EdgeInsets.only(
-              bottom: 13,
-            ),
-            padding:
-            const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 13),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.grey.shade50,
-              borderRadius:
-              BorderRadius.circular(13),
-              border: Border.all(
-                color:
-                Colors.grey.shade200,
-              ),
+              borderRadius: BorderRadius.circular(13),
+              border: Border.all(color: Colors.grey.shade200),
             ),
             child: Column(
-              crossAxisAlignment:
-              CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Expanded(
                       child: Text(
-                        ack['name'] ?? '',
-                        style:
-                        const TextStyle(
+                        ack.stationName ?? ack.acknowledgedByName ?? '-',
+                        style: const TextStyle(
                           fontSize: 12,
-                          fontWeight:
-                          FontWeight.w700,
-                          color:
-                          Colors.black87,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black87,
                         ),
                       ),
                     ),
                     Container(
-                      padding:
-                      const EdgeInsets
-                          .symmetric(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 8,
                         vertical: 4,
                       ),
-                      decoration:
-                      BoxDecoration(
-                        color: statusColor
-                            .withOpacity(
-                          0.10,
-                        ),
-                        borderRadius:
-                        BorderRadius
-                            .circular(
-                          20,
-                        ),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        ack['status'] ?? '',
+                        ack.status ?? '-',
                         style: TextStyle(
                           fontSize: 9,
-                          fontWeight:
-                          FontWeight.w700,
-                          color:
-                          statusColor,
+                          fontWeight: FontWeight.w700,
+                          color: statusColor,
                         ),
                       ),
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 6),
-
-                if ((ack['remark'] ?? '')
-                    .toString()
-                    .isNotEmpty)
+                if ((ack.remark ?? '').isNotEmpty)
                   Text(
-                    ack['remark'] ?? '',
-                    style:
-                    const TextStyle(
+                    ack.remark!,
+                    style: const TextStyle(
                       fontSize: 11,
-                      color:
-                      Colors.black54,
+                      color: Colors.black54,
                       height: 1.4,
                     ),
                   )
                 else
                   const Text(
                     'No acknowledgement remark added.',
-                    style:
-                    TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color:
-                      Colors.black38,
-                      fontStyle:
-                      FontStyle.italic,
+                      color: Colors.black38,
+                      fontStyle: FontStyle.italic,
                     ),
                   ),
-
                 const SizedBox(height: 8),
-
                 Row(
                   children: [
-                    const Icon(
-                      TablerIcons.clock,
-                      size: 13,
-                      color: Colors.black38,
-                    ),
+                    const Icon(TablerIcons.clock, size: 13, color: Colors.black38),
                     const SizedBox(width: 4),
                     Text(
-                      '${ack['date']} • ${ack['time']}',
-                      style:
-                      const TextStyle(
-                        fontSize: 9,
-                        color:
-                        Colors.black45,
-                      ),
+                      '$date • $time',
+                      style: const TextStyle(fontSize: 9, color: Colors.black45),
                     ),
                   ],
                 ),
@@ -660,13 +848,10 @@ class InstructionDetailsScreen extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: Colors.grey.shade200,
-        ),
+        border: Border.all(color: Colors.grey.shade200),
       ),
       child: Column(
-        crossAxisAlignment:
-        CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
@@ -674,18 +859,10 @@ class InstructionDetailsScreen extends StatelessWidget {
                 width: 30,
                 height: 30,
                 decoration: BoxDecoration(
-                  color: AppColors
-                      .appBarColor
-                      .withOpacity(0.10),
-                  borderRadius:
-                  BorderRadius.circular(8),
+                  color: AppColors.appBarColor.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(
-                  icon,
-                  size: 16,
-                  color:
-                  AppColors.textMutedLight,
-                ),
+                child: Icon(icon, size: 16, color: AppColors.textMutedLight),
               ),
               const SizedBox(width: 9),
               Text(
@@ -705,25 +882,17 @@ class InstructionDetailsScreen extends StatelessWidget {
     );
   }
 
-  Widget _detailRow(
-      String title,
-      String value,
-      ) {
+  Widget _detailRow(String title, String value) {
     return Padding(
-      padding:
-      const EdgeInsets.only(bottom: 11),
+      padding: const EdgeInsets.only(bottom: 11),
       child: Row(
-        crossAxisAlignment:
-        CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
             width: 95,
             child: Text(
               title,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Colors.black45,
-              ),
+              style: const TextStyle(fontSize: 11, color: Colors.black45),
             ),
           ),
           Expanded(

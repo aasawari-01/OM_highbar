@@ -45,7 +45,8 @@ class SessionController extends GetxController {
     "Junior Engineer",
     "Station Controller",
     "OCC Controller",
-    "Chief Engineer"
+    "Chief Engineer",
+    "OCC"
   ];
 
   bool isRoleAllowed(String roleName) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import 'package:om_mobile/service/auth_manager.dart';
 
 import '../../../service/network_service/api_client.dart';
 
@@ -210,16 +211,18 @@ class OccScCommunicationController extends GetxController {
       // final dynamic storedUserId =
       // ApiClient.box.read('userId');
 
-      final dynamic storedUserId =
-      1;
+      final String? userId= await AuthManager().getUserId();
 
-      final int userId =
-      storedUserId is int
-          ? storedUserId
-          : int.tryParse(
-        storedUserId?.toString() ?? '0',
-      ) ??
-          0;
+      // final dynamic storedUserId =
+      // 1;
+      //
+      // final int userId =
+      // storedUserId is int
+      //     ? storedUserId
+      //     : int.tryParse(
+      //   storedUserId?.toString() ?? '0',
+      // ) ??
+      //     0;
 
       debugPrint(
         'Fetching OCC to SC master data. userId = $userId',
@@ -227,7 +230,7 @@ class OccScCommunicationController extends GetxController {
 
       final response =
       await _occToScService.getOccToScMasterData(
-        userId: userId,
+        userId: userId??'',
       );
 
       if (!response.success) {
@@ -602,13 +605,107 @@ class OccScCommunicationController extends GetxController {
   // ---------------------------------------------------------------------
   // Submit
   // ---------------------------------------------------------------------
+  // Future<void> submitReportIssue() async {
+  //   if (!validateForm()) {
+  //     Get.snackbar(
+  //       'Validation Error',
+  //       'Please fill all compulsory fields marked with *',
+  //       backgroundColor:
+  //       Colors.red.withOpacity(0.9),
+  //       colorText: Colors.white,
+  //       snackPosition: SnackPosition.BOTTOM,
+  //     );
+  //
+  //     return;
+  //   }
+  //
+  //   isSubmitting.value = true;
+  //
+  //   try {
+  //     final Map<String, dynamic> payload = {
+  //       'instructedBy':
+  //       selectedInstructedBy.value,
+  //
+  //       'instructionType':
+  //       selectedInstructionType.value,
+  //
+  //       'stationType':
+  //       selectedStationTypes.toList(),
+  //
+  //       'lines':
+  //       selectedLines.toList(),
+  //
+  //       'issueDate': issueDate.value.toIso8601String(),
+  //       'validUpto': validUptoDate.value?.toIso8601String(),
+  //
+  //       'stations':
+  //       selectedStations.toList(),
+  //
+  //
+  //       if (isTechnical)
+  //         'departments':
+  //         selectedDepartments.toList(),
+  //
+  //       if (isTechnical)
+  //         'systems':
+  //         selectedSystems.toList(),
+  //
+  //       if (isEmergency)
+  //         'emergencyTypes':
+  //         selectedEmergencyTypes.toList(),
+  //
+  //       'description':
+  //       descriptionController.text.trim(),
+  //
+  //       'files': uploadedFiles
+  //           .map(
+  //             (file) => file['path'],
+  //       )
+  //           .where(
+  //             (path) => path != null,
+  //       )
+  //           .toList(),
+  //     };
+  //
+  //     debugPrint(
+  //       'OCC to SC payload: $payload',
+  //     );
+  //
+  //     // TODO:
+  //     // Call your actual OCC -> SC submit API here.
+  //     //
+  //     // final response = await _occToScService.submit(...);
+  //
+  //     Get.back();
+  //
+  //     Get.snackbar(
+  //       'Success',
+  //       'Issue reported successfully.',
+  //       backgroundColor:
+  //       Colors.green.withOpacity(0.9),
+  //       colorText: Colors.white,
+  //       snackPosition: SnackPosition.BOTTOM,
+  //     );
+  //   } catch (e) {
+  //     Get.snackbar(
+  //       'Error',
+  //       'Unable to report issue.',
+  //       backgroundColor:
+  //       Colors.red.withOpacity(0.9),
+  //       colorText: Colors.white,
+  //       snackPosition: SnackPosition.BOTTOM,
+  //     );
+  //   } finally {
+  //     isSubmitting.value = false;
+  //   }
+  // }
+
   Future<void> submitReportIssue() async {
     if (!validateForm()) {
       Get.snackbar(
         'Validation Error',
         'Please fill all compulsory fields marked with *',
-        backgroundColor:
-        Colors.red.withOpacity(0.9),
+        backgroundColor: Colors.red.withOpacity(0.9),
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
       );
@@ -616,79 +713,88 @@ class OccScCommunicationController extends GetxController {
       return;
     }
 
+    final int? instructionTypeId =
+    _idForName(instructionTypeList, selectedInstructionType.value);
+
+    final int? instructionById =
+    _idForName(instructedByList, selectedInstructedBy.value);
+
+    if (instructionTypeId == null || instructionById == null) {
+      Get.snackbar(
+        'Error',
+        'Invalid Instruction Type / Instructed By selection.',
+        backgroundColor: Colors.red.withOpacity(0.9),
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+
+      return;
+    }
+
+    List<Map<String, dynamic>>? technicalDetails;
+
+    if (isTechnical) {
+      technicalDetails = _buildTechnicalDetails();
+    }
+
+    int? emergencyTypeId;
+
+    if (isEmergency) {
+      emergencyTypeId = _selectedEmergencyTypeId();
+
+      if (emergencyTypeId == null) {
+        Get.snackbar(
+          'Error',
+          'Please select a valid Emergency Type.',
+          backgroundColor: Colors.red.withOpacity(0.9),
+          colorText: Colors.white,
+          snackPosition: SnackPosition.BOTTOM,
+        );
+
+        return;
+      }
+    }
+
     isSubmitting.value = true;
 
     try {
-      final Map<String, dynamic> payload = {
-        'instructedBy':
-        selectedInstructedBy.value,
-
-        'instructionType':
-        selectedInstructionType.value,
-
-        'stationType':
-        selectedStationTypes.toList(),
-
-        'lines':
-        selectedLines.toList(),
-
-        'issueDate': issueDate.value.toIso8601String(),
-        'validUpto': validUptoDate.value?.toIso8601String(),
-
-        'stations':
-        selectedStations.toList(),
-
-
-        if (isTechnical)
-          'departments':
-          selectedDepartments.toList(),
-
-        if (isTechnical)
-          'systems':
-          selectedSystems.toList(),
-
-        if (isEmergency)
-          'emergencyTypes':
-          selectedEmergencyTypes.toList(),
-
-        'description':
-        descriptionController.text.trim(),
-
-        'files': uploadedFiles
-            .map(
-              (file) => file['path'],
-        )
-            .where(
-              (path) => path != null,
-        )
-            .toList(),
-      };
-
-      debugPrint(
-        'OCC to SC payload: $payload',
+      final response = await _occToScService.createOccInstruction(
+        issueDate: issueDate.value,
+        validityUpto: validUptoDate.value ?? issueDate.value,
+        instructionTypeId: instructionTypeId,
+        instructionById: instructionById,
+        emergencyTypeId: emergencyTypeId,
+        instructionContent: descriptionController.text.trim(),
+        stationIds: _selectedStationIds(),
+        technicalDetails: technicalDetails,
+        createdBy: await _currentUserId(),
+        files: uploadedFiles,
       );
 
-      // TODO:
-      // Call your actual OCC -> SC submit API here.
-      //
-      // final response = await _occToScService.submit(...);
+      if (!response.success) {
+        throw OccToScException(
+          response.message.isNotEmpty
+              ? response.message
+              : 'Unable to submit instruction.',
+        );
+      }
 
       Get.back();
 
       Get.snackbar(
         'Success',
         'Issue reported successfully.',
-        backgroundColor:
-        Colors.green.withOpacity(0.9),
+        backgroundColor: Colors.green.withOpacity(0.9),
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
       );
-    } catch (e) {
+    } catch (e,stacktrace) {
+
+      print("stack trace is $stacktrace");
       Get.snackbar(
         'Error',
-        'Unable to report issue.',
-        backgroundColor:
-        Colors.red.withOpacity(0.9),
+        e is OccToScException ? e.message : 'Unable to report issue.',
+        backgroundColor: Colors.red.withOpacity(0.9),
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
       );
@@ -743,18 +849,78 @@ class OccScCommunicationController extends GetxController {
     }
   }
 
-  Future<void> pickValidUptoDate(BuildContext context) async {
-    final DateTime minimumDate = issueDate.value;
 
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: validUptoDate.value ?? minimumDate,
-      firstDate: minimumDate,
-      lastDate: DateTime(2100),
-    );
 
-    if (picked != null) {
-      setValidUptoDate(picked);
+
+  // ---------------------------------------------------------------------
+// Id lookup helpers (UI stores names, API wants ids)
+// ---------------------------------------------------------------------
+  int? _idForName(List<MasterDataItem> list, String? name) {
+    if (name == null) return null;
+
+    for (final item in list) {
+      if (item.name == name) {
+        return item.id;
+      }
     }
+
+    return null;
+  }
+
+  List<int> _selectedStationIds() {
+    final List<int> ids = [];
+
+    for (final name in selectedStations) {
+      for (final station in stationList) {
+        if (station.name == name) {
+          ids.add(station.id);
+          break;
+        }
+      }
+    }
+
+    return ids;
+  }
+
+// departmentId + systems (by name) per selected department.
+// Skips a department if none of its systems are currently selected.
+  List<Map<String, dynamic>> _buildTechnicalDetails() {
+    final List<Map<String, dynamic>> details = [];
+
+    for (final deptName in selectedDepartments) {
+      final department = _findDepartment(deptName);
+
+      if (department == null) continue;
+
+      final List<String> systemsForDept = department.systems
+          .map((s) => s.name)
+          .where((name) => selectedSystems.contains(name))
+          .toList();
+
+      if (systemsForDept.isEmpty) continue;
+
+      details.add({
+        'DepartmentId': department.id,
+        'Systems': systemsForDept,
+      });
+    }
+
+    return details;
+  }
+
+// Emergency Type is single-valued in the API. Using the first
+// selection until/unless this becomes a single-select field.
+  int? _selectedEmergencyTypeId() {
+    final String? name =
+    selectedEmergencyTypes.isNotEmpty ? selectedEmergencyTypes.first : null;
+
+    return _idForName(emergencyTypeList, name);
+  }
+
+  Future<String?> _currentUserId() async {
+    // Mirrors the same lookup used in fetchMasterData().
+    final String? userId= await AuthManager().getUserId();
+
+    return userId;
   }
 }

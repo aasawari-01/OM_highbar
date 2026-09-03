@@ -205,3 +205,33 @@ class StationModel {
     );
   }
 }
+
+
+class OccInstructionSubmitResponse {
+  final bool success;
+  final String message;
+  final int? instructionId;
+
+  OccInstructionSubmitResponse({
+    required this.success,
+    required this.message,
+    this.instructionId,
+  });
+
+  factory OccInstructionSubmitResponse.fromJson(Map<String, dynamic> json) {
+    final dynamic data = json['data'];
+
+    int? id;
+    if (data is Map<String, dynamic>) {
+      id = data['id'] is int
+          ? data['id']
+          : int.tryParse(data['id']?.toString() ?? '');
+    }
+
+    return OccInstructionSubmitResponse(
+      success: json['success'] == true,
+      message: json['message']?.toString() ?? '',
+      instructionId: id,
+    );
+  }
+}

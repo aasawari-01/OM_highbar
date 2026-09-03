@@ -1,95 +1,41 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
+import 'package:intl/intl.dart';
 
 import 'package:om_mobile/constants/colors.dart';
 
 import '../../../constants/app_constants.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
+
+import '../controller/occ_sc_inbox_controller.dart';
+import '../model/occ_sc_list_model.dart';
 import 'instruction_details.dart';
 
-
 class OccScInboxScreen extends StatelessWidget {
-  const OccScInboxScreen({Key? key}) : super(key: key);
+  const OccScInboxScreen({Key? key, required this.isOcc}) : super(key: key);
+
+  final bool isOcc;
+
 
   @override
   Widget build(BuildContext context) {
-    final List<Map<String, dynamic>> instructions = [
-      {
-        'id': 'OCC-INS-2026-00124',
-        'instructionType': 'Technical',
-        'sentBy': 'OCC',
-        'date': '27 Aug 2026',
-        'time': '10:35 AM',
-        'lines': ['Line 1'],
-        'stations': [
-          'Khapari',
-          'New Airport',
-        ],
-        'subject': 'AFC Equipment Inspection',
-        'description':
-        'Please inspect the AFC equipment and confirm the current operating status.',
-        'acknowledgementCount': 2,
-        'status': 'Acknowledged',
-      },
-      {
-        'id': 'OCC-INS-2026-00123',
-        'instructionType': 'General',
-        'sentBy': 'OCC',
-        'date': '27 Aug 2026',
-        'time': '09:15 AM',
-        'lines': ['Line 1', 'Line 2'],
-        'stations': [
-          'Sitaburdi Interchange Station',
-          'Lokmanya Nagar',
-        ],
-        'subject': 'Station Readiness Confirmation',
-        'description':
-        'Confirm station readiness for the upcoming operational activity.',
-        'acknowledgementCount': 1,
-        'status': 'Partially Acknowledged',
-      },
-      {
-        'id': 'OCC-INS-2026-00122',
-        'instructionType': 'Emergency',
-        'sentBy': 'OCC',
-        'date': '26 Aug 2026',
-        'time': '06:42 PM',
-        'lines': ['Line 2'],
-        'stations': [
-          'Prajapati Nagar',
-        ],
-        'subject': 'Emergency Response Instruction',
-        'description':
-        'Immediate action required at the concerned station.',
-        'acknowledgementCount': 3,
-        'status': 'Acknowledged',
-      },
-      {
-        'id': 'OCC-INS-2026-00121',
-        'instructionType': 'Technical',
-        'sentBy': 'OCC',
-        'date': '26 Aug 2026',
-        'time': '03:20 PM',
-        'lines': ['Line 1'],
-        'stations': [
-          'Nagpur Airport',
-        ],
-        'subject': 'Communication System Check',
-        'description':
-        'Verify the communication system and share the inspection remarks.',
-        'acknowledgementCount': 0,
-        'status': 'Pending',
-      },
-    ];
+
+    Get.delete<OccScInboxController>(force: true);
+    final OccScInboxController controller = Get.put(
+      OccScInboxController(isOcc: isOcc),
+    );
+
+    print("isocc is $isOcc");
 
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
         title: 'Inbox',
         showDrawer: false,
-        onLeadingPressed: () => Navigator.pop(context),
+        onLeadingPressed: () =>
+            Navigator.pop(context),
       ),
       body: Container(
         width: double.infinity,
@@ -101,39 +47,89 @@ class OccScInboxScreen extends StatelessWidget {
             topRight: Radius.circular(20),
           ),
         ),
-        child: Column(
-          children: [
-            _buildHeader(),
-            Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(
-                  AppConstants.screenPadding,
-                  4,
-                  AppConstants.screenPadding,
-                  24,
-                ),
-                itemCount: instructions.length,
-                itemBuilder: (context, index) {
-                  final item = instructions[index];
+        child: Obx(
+              () {
+            if (controller.isLoading.value) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
 
-                  return _buildInstructionCard(
-                    context,
-                    item,
-                  );
-                },
-              ),
-            ),
-          ],
+            return Column(
+              children: [
+                _buildTopSection(controller),
+
+                if (controller.isOcc) _buildCategoryTabs(controller),
+
+                _buildDateFilter(context, controller),
+
+                const SizedBox(height: 4)
+
+               ,
+
+                Expanded(
+                  child: controller
+                      .filteredInstructions
+                      .isEmpty
+                      ? _buildEmptyState(
+                    controller,
+                  )
+                      : RefreshIndicator(
+                    onRefresh: () =>
+                        controller.fetchInstructions(
+                          showLoader: false,
+                        ),
+                    child:
+                    ListView.builder(
+                      padding:
+                      const EdgeInsets
+                          .fromLTRB(
+                        AppConstants
+                            .screenPadding,
+                        4,
+                        AppConstants
+                            .screenPadding,
+                        24,
+                      ),
+                      itemCount: controller
+                          .filteredInstructions
+                          .length,
+                      itemBuilder:
+                          (context, index) {
+                        final item =
+                        controller
+                            .filteredInstructions[
+                        index
+                        ];
+
+                        return _buildInstructionCard(
+                          context,
+                          item,
+                            controller
+                        );
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  // ================================================================
+  // TOP SECTION
+  // ================================================================
+
+  Widget _buildTopSection(
+      OccScInboxController controller,
+      ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         AppConstants.screenPadding,
-        18,
+        16,
         AppConstants.screenPadding,
         10,
       ),
@@ -141,45 +137,56 @@ class OccScInboxScreen extends StatelessWidget {
         children: [
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
               children: [
                 CustText(
                   name: 'Instructions',
-                  size: 20,
+                  size: 19,
                   color: Colors.black87,
-
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 CustText(
-                  name: 'Instructions received from OCC',
-                  size: 12,
-                  color: AppColors.textMutedLight,
+                  name:
+                  'Instructions received from OCC',
+                  size: 11,
+                  color:
+                  AppColors.textMutedLight,
                 ),
               ],
             ),
           ),
+
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 8,
+            padding:
+            const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 7,
             ),
             decoration: BoxDecoration(
-              color: AppColors.appBarColor.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(20),
+              color: AppColors.appBarColor
+                  .withOpacity(0.10),
+              borderRadius:
+              BorderRadius.circular(18),
             ),
             child: Row(
-              children: const [
-                Icon(
+              mainAxisSize:
+              MainAxisSize.min,
+              children: [
+                const Icon(
                   TablerIcons.inbox,
-                  size: 16,
-                  color: AppColors.textMutedLight,
+                  size: 15,
+                  color:
+                  AppColors.textMutedLight,
                 ),
-                SizedBox(width: 6),
+                const SizedBox(width: 5),
                 Text(
-                  '4',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
+                  '${controller.expiredCount}',
+                  style:
+                  const TextStyle(
+                    fontSize: 11,
+                    fontWeight:
+                    FontWeight.w700,
                   ),
                 ),
               ],
@@ -190,174 +197,577 @@ class OccScInboxScreen extends StatelessWidget {
     );
   }
 
+  // ================================================================
+  // CATEGORY TABS
+  // ================================================================
+
+  Widget _buildCategoryTabs(
+      OccScInboxController controller,
+      ) {
+    return Container(
+      margin: const EdgeInsets.symmetric(
+        horizontal:
+        AppConstants.screenPadding,
+      ),
+      padding:
+      const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius:
+        BorderRadius.circular(14),
+        border: Border.all(
+          color: Colors.grey.shade200,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildTab(
+              controller: controller,
+              title: 'Active',
+              count:
+              controller.activeCount,
+              index: 0,
+            ),
+          ),
+
+          Expanded(
+            child: _buildTab(
+              controller: controller,
+              title: 'Upcoming',
+              count:
+              controller.upcomingCount,
+              index: 1,
+            ),
+          ),
+
+          Expanded(
+            child: _buildTab(
+              controller: controller,
+              title: 'Expired',
+              count:
+              controller.expiredCount,
+              index: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTab({
+    required OccScInboxController controller,
+    required String title,
+    required int count,
+    required int index,
+  }) {
+    final bool isSelected =
+        controller.selectedTab.value == index;
+
+    return GestureDetector(
+      onTap: () {
+        controller.changeTab(index);
+      },
+      child: AnimatedContainer(
+        duration:
+        const Duration(milliseconds: 180),
+        padding:
+        const EdgeInsets.symmetric(
+          vertical: 10,
+          horizontal: 5,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? AppColors.appBarColor
+              : Colors.transparent,
+          borderRadius:
+          BorderRadius.circular(11),
+          boxShadow: isSelected
+              ? [
+            BoxShadow(
+              color: Colors.black
+                  .withOpacity(0.08),
+              blurRadius: 5,
+              offset:
+              const Offset(0, 2),
+            ),
+          ]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment:
+          MainAxisAlignment.center,
+          children: [
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: isSelected
+                    ? FontWeight.w700
+                    : FontWeight.w500,
+                color: isSelected
+                    ? Colors.white
+                    : Colors.black54,
+              ),
+            ),
+
+            const SizedBox(width: 5),
+
+            // Container(
+            //   padding:
+            //   const EdgeInsets.symmetric(
+            //     horizontal: 6,
+            //     vertical: 2,
+            //   ),
+            //   decoration: BoxDecoration(
+            //     color: isSelected
+            //         ? Colors.white
+            //         .withOpacity(0.18)
+            //         : Colors.grey.shade200,
+            //     borderRadius:
+            //     BorderRadius.circular(10),
+            //   ),
+            //   child: Text(
+            //     '$count',
+            //     style: TextStyle(
+            //       fontSize: 9,
+            //       fontWeight:
+            //       FontWeight.w700,
+            //       color: isSelected
+            //           ? Colors.white
+            //           : Colors.black54,
+            //     ),
+            //   ),
+            // ),
+          ],
+        ),
+      ),
+    );
+  }
+  // ================================================================
+  // DATE FILTER
+  // ================================================================
+
+  Widget _buildDateFilter(
+      BuildContext context,
+      OccScInboxController controller,
+      ) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        AppConstants.screenPadding,
+        10,
+        AppConstants.screenPadding,
+        6,
+      ),
+      child: GestureDetector(
+        onTap: () =>
+            _selectDateRange(
+              context,
+              controller,
+            ),
+        child: Container(
+          height: 48,
+          padding:
+          const EdgeInsets.symmetric(
+            horizontal: 13,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius:
+            BorderRadius.circular(13),
+            border: Border.all(
+              color: Colors.grey.shade200,
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: AppColors
+                      .appBarColor
+                      .withOpacity(0.08),
+                  borderRadius:
+                  BorderRadius.circular(9),
+                ),
+                child: const Icon(
+                  TablerIcons.calendar,
+                  size: 17,
+                  color:
+                  AppColors.appBarColor,
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              Expanded(
+                child: Column(
+                  mainAxisAlignment:
+                  MainAxisAlignment.center,
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      controller
+                          .selectedDateRange
+                          .value ==
+                          null
+                          ? 'Date'
+                          : 'Selected date range',
+                      style:
+                      const TextStyle(
+                        fontSize: 9,
+                        color:
+                        Colors.black45,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      _getDateFilterText(
+                        controller,
+                      ),
+                      style:
+                      const TextStyle(
+                        fontSize: 11,
+                        fontWeight:
+                        FontWeight.w600,
+                        color:
+                        Colors.black87,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              if (controller
+                  .selectedDateRange
+                  .value !=
+                  null)
+                GestureDetector(
+                  onTap: controller
+                      .clearDateRange,
+                  child: const Padding(
+                    padding:
+                    EdgeInsets.all(5),
+                    child: Icon(
+                      TablerIcons.x,
+                      size: 16,
+                      color:
+                      Colors.black45,
+                    ),
+                  ),
+                ),
+
+              const SizedBox(width: 3),
+
+              const Icon(
+                TablerIcons.chevron_down,
+                size: 17,
+                color: Colors.black45,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _getDateFilterText(
+      OccScInboxController controller,
+      ) {
+    final range =
+        controller.selectedDateRange.value;
+
+    if (range == null) {
+      return 'All dates';
+    }
+
+    final start = DateFormat(
+      'dd MMM yyyy',
+    ).format(range.start);
+
+    final end = DateFormat(
+      'dd MMM yyyy',
+    ).format(range.end);
+
+    return '$start - $end';
+  }
+
+  Future<void> _selectDateRange(
+      BuildContext context,
+      OccScInboxController controller,
+      ) async {
+    final DateTimeRange? picked =
+    await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2025),
+      lastDate: DateTime(2030),
+      initialDateRange:
+      controller.selectedDateRange.value,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme:
+            ColorScheme.light(
+              primary:
+              AppColors.appBarColor,
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      controller.setDateRange(
+        picked,
+      );
+    }
+  }
+
+  // ================================================================
+  // INSTRUCTION CARD
+  // ================================================================
+
   Widget _buildInstructionCard(
       BuildContext context,
-      Map<String, dynamic> item,
+      OccInstructionListItem item,
+      OccScInboxController controller,
       ) {
-    final String status = item['status'] ?? '';
-    final String instructionType =
-        item['instructionType'] ?? '';
+    final String instructionType = item.instructionTypeName;
+    final String status = item.acknowledgementStatus;
+    final bool acknowledgedByMe = item.isAcknowledgedByCurrentUser == true;
+
+    final String date = item.issueDate == null
+        ? '-'
+        : DateFormat('dd MMM yyyy').format(item.issueDate!);
 
     return GestureDetector(
       onTap: () {
         Get.to(
               () => InstructionDetailsScreen(
-            instruction: item,
+            instructionId: item.instructionId,
+            isOcc: controller.isOcc, // NOTE: see below re: context
           ),
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.all(15),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
+          color: acknowledgedByMe ? Colors.grey.shade50 : Colors.white,
+          borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: Colors.grey.shade200,
+            color: acknowledgedByMe
+                ? Colors.grey.shade200
+                : AppColors.appBarColor.withOpacity(0.4),
+            width: acknowledgedByMe ? 1 : 1.3,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.035),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
+              color: acknowledgedByMe
+                  ? Colors.black.withOpacity(0.02)
+                  : AppColors.appBarColor.withOpacity(0.10),
+              blurRadius: acknowledgedByMe ? 6 : 10,
+              offset: const Offset(0, 3),
             ),
           ],
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // -------------------------------------------------------
-            // Top row
-            // -------------------------------------------------------
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _buildTypeIcon(instructionType),
-                const SizedBox(width: 11),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                    CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CustText(
-                        name: item['subject'] ?? '',
-                        size: 15,
-                        color: Colors.black87,
-
-                        maxLines: 2,
+                      Text(
+                        item.instructionNumber,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color:
+                          acknowledgedByMe ? Colors.black54 : Colors.black87,
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      CustText(
-                        name: item['id'] ?? '',
-                        size: 11,
-                        color: AppColors.textMutedLight,
+                      const SizedBox(height: 3),
+                      Text(
+                        'By ${item.instructionByName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                        const TextStyle(fontSize: 10, color: Colors.black45),
                       ),
                     ],
                   ),
                 ),
-                _buildStatusChip(status),
+                const SizedBox(width: 7),
+                acknowledgedByMe
+                    ? _buildStatusChip(status)
+                    : _buildActionNeededChip(),
               ],
             ),
 
-            const SizedBox(height: 13),
+            const SizedBox(height: 10),
 
-            // -------------------------------------------------------
-            // Description
-            // -------------------------------------------------------
-            Text(
-              item['description'] ?? '',
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                fontSize: 12,
-                height: 1.45,
-                color: Colors.black54,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                item.instructionContent,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: acknowledgedByMe ? Colors.black54 : Colors.black87,
+                  height: 1.35,
+                ),
               ),
             ),
 
-            const SizedBox(height: 14),
+            const SizedBox(height: 10),
 
-            // -------------------------------------------------------
-            // Line + station
-            // -------------------------------------------------------
             Row(
               children: [
                 Expanded(
-                  child: _buildInfoItem(
-                    icon: TablerIcons.route,
-                    title: 'Line',
-                    value:
-                    (item['lines'] as List)
-                        .join(', '),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _buildInfoItem(
+                  child: _buildCompactInfo(
                     icon: TablerIcons.map_pin,
-                    title: 'Station',
+                    value: item.recipientSummary,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _buildCompactInfo(
+                    icon: TablerIcons.check,
                     value:
-                    (item['stations'] as List)
-                        .join(', '),
+                    '${item.acknowledgedStations}/${item.totalStations} acknowledged',
                   ),
                 ),
               ],
             ),
 
-            const SizedBox(height: 13),
+            const SizedBox(height: 10),
 
-            const Divider(
-              height: 1,
-            ),
-
-            const SizedBox(height: 12),
-
-            // -------------------------------------------------------
-            // Footer
-            // -------------------------------------------------------
-            Row(
-              children: [
-                const Icon(
-                  TablerIcons.clock,
-                  size: 15,
-                  color: AppColors.textMutedLight,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  '${item['date']} • ${item['time']}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.black54,
+            Container(
+              padding: const EdgeInsets.only(top: 9),
+              decoration: BoxDecoration(
+                border: Border(top: BorderSide(color: Colors.grey.shade200)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(TablerIcons.calendar,
+                      size: 13, color: AppColors.textMutedLight),
+                  const SizedBox(width: 5),
+                  Text(
+                    date,
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-                const Spacer(),
-                const Icon(
-                  TablerIcons.users,
-                  size: 15,
-                  color: AppColors.textMutedLight,
-                ),
-                const SizedBox(width: 5),
-                Text(
-                  '${item['acknowledgementCount']} Acknowledgements',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w500,
+                  const SizedBox(width: 8),
+                  const Icon(TablerIcons.clock,
+                      size: 13, color: AppColors.textMutedLight),
+                  const SizedBox(width: 4),
+                  Text(
+                    item.createdDateTime == null
+                        ? '-'
+                        : DateFormat('hh:mm a').format(item.createdDateTime!),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.black54,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 7),
-                const Icon(
-                  TablerIcons.chevron_right,
-                  size: 18,
-                  color: Colors.black38,
-                ),
-              ],
+                  const Spacer(),
+                  if (acknowledgedByMe) ...[
+                    Icon(TablerIcons.circle_check,
+                        size: 13, color: Colors.green.shade600),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Acknowledged',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.green.shade600,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                  ],
+                  const Icon(TablerIcons.chevron_right,
+                      size: 17, color: Colors.black38),
+                ],
+              ),
             ),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildActionNeededChip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+      decoration: BoxDecoration(
+        color: AppColors.appBarColor.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(11),
+      ),
+      child: Text(
+        'Action Needed',
+        style: TextStyle(
+          fontSize: 8.5,
+          fontWeight: FontWeight.w700,
+          color: AppColors.appBarColor,
+        ),
+      ),
+    );
+  }
+
+  // ================================================================
+  // COMPACT INFO
+  // ================================================================
+
+  Widget _buildCompactInfo({
+    required IconData icon,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 14,
+          color:
+          AppColors.textMutedLight,
+        ),
+        const SizedBox(width: 5),
+        Expanded(
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow:
+            TextOverflow.ellipsis,
+            style:
+            const TextStyle(
+              fontSize: 10.5,
+              fontWeight:
+              FontWeight.w600,
+              color:
+              Colors.black87,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ================================================================
+  // TYPE ICON
+  // ================================================================
 
   Widget _buildTypeIcon(String type) {
     IconData icon;
@@ -366,37 +776,49 @@ class OccScInboxScreen extends StatelessWidget {
 
     switch (type) {
       case 'Emergency':
-        icon = TablerIcons.alert_triangle;
-        background = Colors.red.withOpacity(0.10);
-        iconColor = Colors.red;
+        icon =
+            TablerIcons.alert_triangle;
+        background =
+            Colors.red.withOpacity(0.09);
+        iconColor =
+            Colors.red.shade600;
         break;
 
       case 'Technical':
         icon = TablerIcons.settings;
-        background = Colors.orange.withOpacity(0.10);
-        iconColor = Colors.orange.shade800;
+        background =
+            Colors.orange.withOpacity(0.10);
+        iconColor =
+            Colors.orange.shade800;
         break;
 
       default:
         icon = TablerIcons.file_text;
-        background = Colors.blue.withOpacity(0.10);
-        iconColor = Colors.blue;
+        background =
+            Colors.blue.withOpacity(0.09);
+        iconColor =
+            Colors.blue.shade700;
     }
 
     return Container(
-      width: 42,
-      height: 42,
+      width: 40,
+      height: 40,
       decoration: BoxDecoration(
         color: background,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius:
+        BorderRadius.circular(11),
       ),
       child: Icon(
         icon,
-        size: 20,
+        size: 19,
         color: iconColor,
       ),
     );
   }
+
+  // ================================================================
+  // STATUS
+  // ================================================================
 
   Widget _buildStatusChip(String status) {
     Color chipColor;
@@ -404,80 +826,237 @@ class OccScInboxScreen extends StatelessWidget {
 
     switch (status) {
       case 'Acknowledged':
-        chipColor = Colors.green.withOpacity(0.10);
-        textColor = Colors.green.shade700;
+        chipColor =
+            Colors.green.withOpacity(0.09);
+        textColor =
+            Colors.green.shade700;
         break;
 
       case 'Partially Acknowledged':
-        chipColor = Colors.orange.withOpacity(0.10);
-        textColor = Colors.orange.shade800;
+        chipColor =
+            Colors.orange.withOpacity(0.09);
+        textColor =
+            Colors.orange.shade800;
+        break;
+
+      case 'Pending':
+        chipColor =
+            Colors.blue.withOpacity(0.09);
+        textColor =
+            Colors.blue.shade700;
         break;
 
       default:
-        chipColor = Colors.grey.withOpacity(0.12);
-        textColor = Colors.grey.shade700;
+        chipColor =
+            Colors.grey.withOpacity(0.10);
+        textColor =
+            Colors.grey.shade700;
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 9,
-        vertical: 5,
+      padding:
+      const EdgeInsets.symmetric(
+        horizontal: 7,
+        vertical: 4,
       ),
       decoration: BoxDecoration(
         color: chipColor,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius:
+        BorderRadius.circular(11),
       ),
       child: Text(
-        status,
+        status == 'Partially Acknowledged'
+            ? 'Partial'
+            : status.isEmpty
+            ? '-'
+            : status,
         style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontSize: 8.5,
+          fontWeight:
+          FontWeight.w700,
           color: textColor,
         ),
       ),
     );
   }
 
-  Widget _buildInfoItem({
-    required IconData icon,
-    required String title,
-    required String value,
-  }) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(
-          icon,
-          size: 15,
-          color: AppColors.textMutedLight,
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Colors.black45,
-                ),
+  // ================================================================
+  // EMPTY
+  // ================================================================
+
+  Widget _buildEmptyState(
+      OccScInboxController controller,
+      ) {
+    final String title;
+
+    switch (controller.selectedTab.value) {
+      case 0:
+        title = 'No active instructions';
+        break;
+
+      case 1:
+        title = 'No upcoming instructions';
+        break;
+
+      case 2:
+        title = controller
+            .selectedDateRange
+            .value !=
+            null
+            ? 'No expired instructions for selected date'
+            : 'No expired instructions';
+        break;
+
+      default:
+        title = 'No instructions';
+    }
+
+    return Center(
+      child: Padding(
+        padding:
+        const EdgeInsets.all(30),
+        child: Column(
+          mainAxisAlignment:
+          MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: AppColors
+                    .appBarColor
+                    .withOpacity(0.07),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(height: 2),
-              Text(
-                value,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black87,
-                ),
+              child: const Icon(
+                TablerIcons.inbox,
+                size: 28,
+                color:
+                AppColors.textMutedLight,
               ),
-            ],
-          ),
+            ),
+
+            const SizedBox(height: 14),
+
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style:
+              const TextStyle(
+                fontSize: 14,
+                fontWeight:
+                FontWeight.w600,
+                color: Colors.black87,
+              ),
+            ),
+
+            const SizedBox(height: 5),
+
+            Text(
+              controller.selectedTab.value == 0
+                  ? 'No active instructions available.'
+                  : controller.selectedTab.value == 1
+                  ? 'No upcoming instructions available.'
+                  : 'No expired instructions available.',
+              textAlign: TextAlign.center,
+              style:
+              const TextStyle(
+                fontSize: 11,
+                color: Colors.black45,
+              ),
+            ),
+          ],
         ),
-      ],
+      ),
     );
+  }
+
+  // ================================================================
+  // DETAILS MAP
+  // ================================================================
+
+  Map<String, dynamic> _convertToDetailsMap(
+      OccInstructionListItem item,
+      ) {
+    return {
+      'id': item.instructionNumber,
+      'instructionId':
+      item.instructionId,
+
+      'instructionType':
+      item.instructionTypeName,
+
+      'instructionTypeId':
+      item.instructionTypeId,
+
+      'sentBy': 'OCC',
+
+      'instructionBy':
+      item.instructionByName,
+
+      'instructionById':
+      item.instructionById,
+
+      'date': item.issueDate == null
+          ? ''
+          : DateFormat(
+        'dd MMM yyyy',
+      ).format(
+        item.issueDate!,
+      ),
+
+      'dateTime':
+      item.createdDateTime,
+
+      'time':
+      item.createdDateTime == null
+          ? ''
+          : DateFormat(
+        'hh:mm a',
+      ).format(
+        item.createdDateTime!,
+      ),
+
+      'subject':
+      item.instructionNumber,
+
+      'description':
+      item.instructionContent,
+
+      'recipientSummary':
+      item.recipientSummary,
+
+      'totalStations':
+      item.totalStations,
+
+      'acknowledgedStations':
+      item.acknowledgedStations,
+
+      'pendingStations':
+      item.pendingStations,
+
+      'status':
+      item.acknowledgementStatus,
+
+      'instructionStatus':
+      item.instructionStatus,
+
+      'validityUpto':
+      item.validityUpto,
+
+      'isAcknowledgedByCurrentUser':
+      item.isAcknowledgedByCurrentUser,
+
+      'myAcknowledgementDateTime':
+      item.myAcknowledgementDateTime,
+
+      // API currently only returns recipientSummary,
+      // not actual line/station names.
+      'lines': <String>[],
+
+      'stations': <String>[
+        item.recipientSummary,
+      ],
+    };
   }
 }

@@ -43,4 +43,8 @@ class AppUrls {
   static const String updateRSTNotificationCompletion = 'JECorrectivesMaintenance/updateRSTNotificationCompletion';
   static const String insertUserStationDetails = 'AssetRegister/Insert_Users_Station_Details';
   static const String occTOscMasterData = 'OccToScCommunication/GetOCCInstructionPageLoadData';
+  static const String createOccInstruction = 'OccToScCommunication/CreateOCCInstruction';
+  static const String getInstructionList = 'OccToScCommunication/GetInstructionList';
+  static const String getInstructionById = 'OccToScCommunication/GetInstructionById';
+
 }

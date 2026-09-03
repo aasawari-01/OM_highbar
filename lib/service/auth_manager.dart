@@ -220,6 +220,17 @@ class AuthManager {
     return prefs.getString('selectedStationCode');
   }
 
+
+  Future<void> saveSelectedStationID(String code) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selectedStationID', code);
+  }
+
+  Future<String?> getSelectedStationID() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('selectedStationID');
+  }
+
   // Logout and clear data
   Future<void> logout() async {
     EasyLoading.show(status: 'Logging out...');
