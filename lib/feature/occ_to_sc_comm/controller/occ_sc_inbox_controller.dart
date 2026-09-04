@@ -319,6 +319,376 @@
 //   }
 // }
 
+// import 'package:flutter/material.dart';
+// import 'package:get/get.dart';
+// import 'package:shared_preferences/shared_preferences.dart';
+//
+// import '../../../service/auth_manager.dart';
+// import '../model/occ_sc_list_model.dart';
+// import '../model/occ_to_sc_model.dart';
+// import '../service/occ_to_sc_service.dart';
+//
+// class OccScInboxController extends GetxController {
+//   OccScInboxController({
+//     required this.isOcc,
+//
+//     OccToScService? occToScService,
+//
+//   }) : _occToScService = occToScService ?? OccToScService();
+//
+//   // ================================================================
+//   // Role
+//   // ================================================================
+//
+//   final bool isOcc;
+//
+//   String? stationId;
+//
+//
+//   // TODO: confirm this is the exact role string the list API expects
+//   // for Station Controller — swap 'SC' if it's actually something else
+//   // (e.g. 'Station Controller').
+//   String get role => isOcc ? 'OCC' : 'SC';
+//
+//   final OccToScService _occToScService;
+//
+//   // ================================================================
+//   // Loading
+//   // ================================================================
+//
+//   final RxBool isLoading = false.obs;
+//
+//   final RxBool isLoadingMore = false.obs;
+//
+//   // ================================================================
+//   // Data
+//   // ================================================================
+//
+//   final RxList<OccInstructionListItem> instructions =
+//       <OccInstructionListItem>[].obs;
+//
+//   // ================================================================
+//   // Tab
+//   //
+//   // 0 = Active
+//   // 1 = Upcoming
+//   // 2 = Expired
+//   //
+//   // Station Controllers only ever see Active — tabs 1/2 are hidden in
+//   // the UI and changeTab() below refuses to switch away from 0 for them.
+//   // ================================================================
+//
+//   final RxInt selectedTab = 0.obs;
+//
+//   // ================================================================
+//   // Date filter
+//   // ================================================================
+//
+//   final Rx<DateTimeRange?> selectedDateRange =
+//   Rx<DateTimeRange?>(null);
+//
+//   // ================================================================
+//   // Pagination
+//   // ================================================================
+//
+//   int currentPage = 1;
+//
+//   final int pageSize = 20;
+//
+//   int totalRecords = 0;
+//
+//   int totalPages = 0;
+//
+//   // ================================================================
+//   // Current user
+//   // ================================================================
+//
+//   Future<int> get currentUserId async {
+//     // Replace with actual login user id
+//     //
+//     // final dynamic storedUserId =
+//     //     ApiClient.box.read('userId');
+//     final String? userId= await AuthManager().getUserId();
+//
+//     return int.parse(userId??'0');
+//   }
+//
+//   // TODO: for Station Controller, the list/acknowledgement logic likely
+//   // needs the current user's own stationId. Wire this up to wherever
+//   // that's stored (session/login response) once available.
+//   int get currentStationId => 0;
+//
+//   // ================================================================
+//   // Lifecycle
+//   // ================================================================
+//
+//   @override
+//   void onInit() {
+//     super.onInit();
+//
+//     // Default tab = Active (also the only tab SC ever sees)
+//     selectedTab.value = 0;
+//     initializeData();
+//   }
+//
+//   Future<void> initializeData() async {
+//     await loadSelectedStationId();
+//     await fetchInstructions();
+//   }
+//
+//
+//   Future<void> loadSelectedStationId() async {
+//     final prefs = await SharedPreferences.getInstance();
+//
+//     stationId =
+//         prefs.getString('selectedStationID') ?? '';
+//
+//     print("Station ID loaded from SharedPreferences: ${stationId}");
+//   }
+//
+//   // ================================================================
+//   // STATUS
+//   // ================================================================
+//
+//   String get selectedStatus {
+//     // Station Controllers only ever fetch Active instructions.
+//     if (!isOcc) {
+//       return 'Active';
+//     }
+//
+//     switch (selectedTab.value) {
+//       case 0:
+//         return 'Active';
+//
+//       case 1:
+//         return 'Upcoming';
+//
+//       case 2:
+//         return 'Expired';
+//
+//       default:
+//         return 'Active';
+//     }
+//   }
+//
+//   // ================================================================
+//   // FETCH
+//   // ================================================================
+//
+//   Future<void> fetchInstructions({
+//     bool showLoader = true,
+//   }) async {
+//     if (showLoader) {
+//       isLoading.value = true;
+//     }
+//
+//     try {
+//       currentPage = 1;
+//
+//       final String status = selectedStatus;
+//
+//       debugPrint(
+//         'Fetching instructions...',
+//       );
+//
+//       debugPrint(
+//         'Role: $role Status: $status',
+//       );
+//
+//       final response =
+//       await _occToScService.getInstructionList(
+//         userId: await currentUserId,
+//         role: role,
+//         pageNumber: currentPage,
+//         pageSize: pageSize,
+//         instructionStatus: status,
+//         stationId: isOcc ? '0' : (stationId ?? '0'),
+//
+//       );
+//
+//
+//
+//       if (!response.success) {
+//         throw OccToScException(
+//           response.message.isNotEmpty
+//               ? response.message
+//               : 'Unable to fetch instructions.',
+//         );
+//       }
+//
+//       instructions.assignAll(
+//         response.data.items,
+//       );
+//
+//       totalRecords =
+//           response.data.totalRecords;
+//
+//       totalPages =
+//           response.data.totalPages;
+//
+//       debugPrint(
+//         '$status instructions loaded: '
+//             '${instructions.length}',
+//       );
+//     } catch (e, stackTrace) {
+//       debugPrint(
+//         'fetchInstructions error: $e',
+//       );
+//
+//       debugPrint(
+//         stackTrace.toString(),
+//       );
+//
+//       Get.snackbar(
+//         'Error',
+//         e is OccToScException
+//             ? e.message
+//             : 'Unable to load instructions.',
+//         backgroundColor:
+//         Colors.red.withOpacity(0.9),
+//         colorText: Colors.white,
+//         snackPosition:
+//         SnackPosition.BOTTOM,
+//       );
+//     } finally {
+//       if (showLoader) {
+//         isLoading.value = false;
+//       }
+//     }
+//   }
+//
+//   // ================================================================
+//   // TAB CHANGE
+//   // ================================================================
+//
+//   Future<void> changeTab(int index) async {
+//     // Station Controllers only see Active — tabs aren't rendered for
+//     // them, but guard here too in case this is ever called directly.
+//     if (!isOcc) {
+//       return;
+//     }
+//
+//     if (selectedTab.value == index) {
+//       return;
+//     }
+//
+//     selectedTab.value = index;
+//
+//     // Clear date filter when changing status
+//     selectedDateRange.value = null;
+//
+//     // Fetch API according to selected status
+//     await fetchInstructions();
+//   }
+//
+//   // ================================================================
+//   // DATE FILTER
+//   // ================================================================
+//
+//   void setDateRange(
+//       DateTimeRange? range) {
+//     selectedDateRange.value = range;
+//   }
+//
+//   void clearDateRange() {
+//     selectedDateRange.value = null;
+//   }
+//
+//   // ================================================================
+//   // COUNTS
+//   // ================================================================
+//
+//   int get activeCount {
+//     return selectedTab.value == 0
+//         ? totalRecords
+//         : 0;
+//   }
+//
+//   int get upcomingCount {
+//     return selectedTab.value == 1
+//         ? totalRecords
+//         : 0;
+//   }
+//
+//   int get expiredCount {
+//     return selectedTab.value == 2
+//         ? totalRecords
+//         : 0;
+//   }
+//
+//   // ================================================================
+//   // FILTERED DATA
+//   // ================================================================
+//
+//   List<OccInstructionListItem>
+//   get filteredInstructions {
+//     List<OccInstructionListItem> result =
+//     instructions.toList();
+//
+//     final DateTimeRange? range =
+//         selectedDateRange.value;
+//
+//     if (range == null) {
+//       return result;
+//     }
+//
+//     final DateTime start = DateTime(
+//       range.start.year,
+//       range.start.month,
+//       range.start.day,
+//     );
+//
+//     final DateTime end = DateTime(
+//       range.end.year,
+//       range.end.month,
+//       range.end.day,
+//       23,
+//       59,
+//       59,
+//       999,
+//     );
+//
+//     result = result.where((item) {
+//       final DateTime? issueDate =
+//           item.issueDate;
+//
+//       if (issueDate == null) {
+//         return false;
+//       }
+//
+//       return !issueDate.isBefore(start) &&
+//           !issueDate.isAfter(end);
+//     }).toList();
+//
+//     return result;
+//   }
+//
+//   // ================================================================
+//   // TAB TITLE
+//   // ================================================================
+//
+//   String get selectedTabTitle {
+//     if (!isOcc) {
+//       return 'Active';
+//     }
+//
+//     switch (selectedTab.value) {
+//       case 0:
+//         return 'Active';
+//
+//       case 1:
+//         return 'Upcoming';
+//
+//       case 2:
+//         return 'Expired';
+//
+//       default:
+//         return 'Active';
+//     }
+//   }
+// }
+
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -327,13 +697,12 @@ import '../../../service/auth_manager.dart';
 import '../model/occ_sc_list_model.dart';
 import '../model/occ_to_sc_model.dart';
 import '../service/occ_to_sc_service.dart';
+import '../view/create_occ_instruction.dart';
 
 class OccScInboxController extends GetxController {
   OccScInboxController({
     required this.isOcc,
-
     OccToScService? occToScService,
-
   }) : _occToScService = occToScService ?? OccToScService();
 
   // ================================================================
@@ -343,7 +712,6 @@ class OccScInboxController extends GetxController {
   final bool isOcc;
 
   String? stationId;
-
 
   // TODO: confirm this is the exact role string the list API expects
   // for Station Controller — swap 'SC' if it's actually something else
@@ -357,7 +725,6 @@ class OccScInboxController extends GetxController {
   // ================================================================
 
   final RxBool isLoading = false.obs;
-
   final RxBool isLoadingMore = false.obs;
 
   // ================================================================
@@ -384,19 +751,15 @@ class OccScInboxController extends GetxController {
   // Date filter
   // ================================================================
 
-  final Rx<DateTimeRange?> selectedDateRange =
-  Rx<DateTimeRange?>(null);
+  final Rx<DateTimeRange?> selectedDateRange = Rx<DateTimeRange?>(null);
 
   // ================================================================
   // Pagination
   // ================================================================
 
   int currentPage = 1;
-
   final int pageSize = 20;
-
   int totalRecords = 0;
-
   int totalPages = 0;
 
   // ================================================================
@@ -404,13 +767,8 @@ class OccScInboxController extends GetxController {
   // ================================================================
 
   Future<int> get currentUserId async {
-    // Replace with actual login user id
-    //
-    // final dynamic storedUserId =
-    //     ApiClient.box.read('userId');
-    final String? userId= await AuthManager().getUserId();
-
-    return int.parse(userId??'0');
+    final String? userId = await AuthManager().getUserId();
+    return int.parse(userId ?? '0');
   }
 
   // TODO: for Station Controller, the list/acknowledgement logic likely
@@ -436,14 +794,11 @@ class OccScInboxController extends GetxController {
     await fetchInstructions();
   }
 
-
   Future<void> loadSelectedStationId() async {
     final prefs = await SharedPreferences.getInstance();
+    stationId = prefs.getString('selectedStationID') ?? '';
 
-    stationId =
-        prefs.getString('selectedStationID') ?? '';
-
-    print("Station ID loaded from SharedPreferences: ${stationId}");
+    debugPrint('Station ID loaded from SharedPreferences: $stationId');
   }
 
   // ================================================================
@@ -452,20 +807,15 @@ class OccScInboxController extends GetxController {
 
   String get selectedStatus {
     // Station Controllers only ever fetch Active instructions.
-    if (!isOcc) {
-      return 'Active';
-    }
+    if (!isOcc) return 'Active';
 
     switch (selectedTab.value) {
       case 0:
         return 'Active';
-
       case 1:
         return 'Upcoming';
-
       case 2:
         return 'Expired';
-
       default:
         return 'Active';
     }
@@ -475,9 +825,7 @@ class OccScInboxController extends GetxController {
   // FETCH
   // ================================================================
 
-  Future<void> fetchInstructions({
-    bool showLoader = true,
-  }) async {
+  Future<void> fetchInstructions({bool showLoader = true}) async {
     if (showLoader) {
       isLoading.value = true;
     }
@@ -487,26 +835,16 @@ class OccScInboxController extends GetxController {
 
       final String status = selectedStatus;
 
-      debugPrint(
-        'Fetching instructions...',
-      );
+      debugPrint('Fetching instructions... Role: $role Status: $status');
 
-      debugPrint(
-        'Role: $role Status: $status',
-      );
-
-      final response =
-      await _occToScService.getInstructionList(
+      final response = await _occToScService.getInstructionList(
         userId: await currentUserId,
         role: role,
         pageNumber: currentPage,
         pageSize: pageSize,
         instructionStatus: status,
         stationId: isOcc ? '0' : (stationId ?? '0'),
-
       );
-
-
 
       if (!response.success) {
         throw OccToScException(
@@ -516,39 +854,21 @@ class OccScInboxController extends GetxController {
         );
       }
 
-      instructions.assignAll(
-        response.data.items,
-      );
+      instructions.assignAll(response.data.items);
+      totalRecords = response.data.totalRecords;
+      totalPages = response.data.totalPages;
 
-      totalRecords =
-          response.data.totalRecords;
-
-      totalPages =
-          response.data.totalPages;
-
-      debugPrint(
-        '$status instructions loaded: '
-            '${instructions.length}',
-      );
+      debugPrint('$status instructions loaded: ${instructions.length}');
     } catch (e, stackTrace) {
-      debugPrint(
-        'fetchInstructions error: $e',
-      );
-
-      debugPrint(
-        stackTrace.toString(),
-      );
+      debugPrint('fetchInstructions error: $e');
+      debugPrint(stackTrace.toString());
 
       Get.snackbar(
         'Error',
-        e is OccToScException
-            ? e.message
-            : 'Unable to load instructions.',
-        backgroundColor:
-        Colors.red.withOpacity(0.9),
+        e is OccToScException ? e.message : 'Unable to load instructions.',
+        backgroundColor: Colors.red.withOpacity(0.9),
         colorText: Colors.white,
-        snackPosition:
-        SnackPosition.BOTTOM,
+        snackPosition: SnackPosition.BOTTOM,
       );
     } finally {
       if (showLoader) {
@@ -564,13 +884,9 @@ class OccScInboxController extends GetxController {
   Future<void> changeTab(int index) async {
     // Station Controllers only see Active — tabs aren't rendered for
     // them, but guard here too in case this is ever called directly.
-    if (!isOcc) {
-      return;
-    }
+    if (!isOcc) return;
 
-    if (selectedTab.value == index) {
-      return;
-    }
+    if (selectedTab.value == index) return;
 
     selectedTab.value = index;
 
@@ -585,8 +901,7 @@ class OccScInboxController extends GetxController {
   // DATE FILTER
   // ================================================================
 
-  void setDateRange(
-      DateTimeRange? range) {
+  void setDateRange(DateTimeRange? range) {
     selectedDateRange.value = range;
   }
 
@@ -598,46 +913,23 @@ class OccScInboxController extends GetxController {
   // COUNTS
   // ================================================================
 
-  int get activeCount {
-    return selectedTab.value == 0
-        ? totalRecords
-        : 0;
-  }
+  int get activeCount => selectedTab.value == 0 ? totalRecords : 0;
 
-  int get upcomingCount {
-    return selectedTab.value == 1
-        ? totalRecords
-        : 0;
-  }
+  int get upcomingCount => selectedTab.value == 1 ? totalRecords : 0;
 
-  int get expiredCount {
-    return selectedTab.value == 2
-        ? totalRecords
-        : 0;
-  }
+  int get expiredCount => selectedTab.value == 2 ? totalRecords : 0;
 
   // ================================================================
   // FILTERED DATA
   // ================================================================
 
-  List<OccInstructionListItem>
-  get filteredInstructions {
-    List<OccInstructionListItem> result =
-    instructions.toList();
+  List<OccInstructionListItem> get filteredInstructions {
+    List<OccInstructionListItem> result = instructions.toList();
 
-    final DateTimeRange? range =
-        selectedDateRange.value;
+    final DateTimeRange? range = selectedDateRange.value;
+    if (range == null) return result;
 
-    if (range == null) {
-      return result;
-    }
-
-    final DateTime start = DateTime(
-      range.start.year,
-      range.start.month,
-      range.start.day,
-    );
-
+    final DateTime start = DateTime(range.start.year, range.start.month, range.start.day);
     final DateTime end = DateTime(
       range.end.year,
       range.end.month,
@@ -649,15 +941,9 @@ class OccScInboxController extends GetxController {
     );
 
     result = result.where((item) {
-      final DateTime? issueDate =
-          item.issueDate;
-
-      if (issueDate == null) {
-        return false;
-      }
-
-      return !issueDate.isBefore(start) &&
-          !issueDate.isAfter(end);
+      final DateTime? issueDate = item.issueDate;
+      if (issueDate == null) return false;
+      return !issueDate.isBefore(start) && !issueDate.isAfter(end);
     }).toList();
 
     return result;
@@ -668,22 +954,61 @@ class OccScInboxController extends GetxController {
   // ================================================================
 
   String get selectedTabTitle {
-    if (!isOcc) {
-      return 'Active';
-    }
+    if (!isOcc) return 'Active';
 
     switch (selectedTab.value) {
       case 0:
         return 'Active';
-
       case 1:
         return 'Upcoming';
-
       case 2:
         return 'Expired';
-
       default:
         return 'Active';
+    }
+  }
+
+
+  Future<void> recreateInstruction(int instructionId) async {
+    try {
+      isLoading.value = true;
+
+      final String? userId = await AuthManager().getUserId();
+
+      final response = await _occToScService.getInstructionById(
+        userId: userId ?? '',
+        role: 'OCC',
+        instructionId: instructionId,
+        stationId: '0',
+      );
+
+      if (!response.success) {
+        Get.snackbar(
+          'Error',
+          response.message.isNotEmpty
+              ? response.message
+              : 'Unable to load instruction.',
+          snackPosition: SnackPosition.BOTTOM,
+        );
+        return;
+      }
+
+      Get.to(
+            () => CreateOccScCommunicationScreen(
+          recreateInstruction: response.data,
+        ),
+      );
+    } catch (e, stackTrace) {
+      debugPrint('recreateInstruction error: $e');
+      debugPrint(stackTrace.toString());
+
+      Get.snackbar(
+        'Error',
+        'Unable to prepare instruction for re-creation.',
+        snackPosition: SnackPosition.BOTTOM,
+      );
+    } finally {
+      isLoading.value = false;
     }
   }
 }

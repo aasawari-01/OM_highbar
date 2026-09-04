@@ -46,5 +46,6 @@ class AppUrls {
   static const String createOccInstruction = 'OccToScCommunication/CreateOCCInstruction';
   static const String getInstructionList = 'OccToScCommunication/GetInstructionList';
   static const String getInstructionById = 'OccToScCommunication/GetInstructionById';
+  static const String acknowledgeSc = 'OccToScCommunication/AcknowledgeInstruction';
 
 }

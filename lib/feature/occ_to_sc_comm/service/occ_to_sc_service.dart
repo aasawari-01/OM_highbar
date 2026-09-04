@@ -370,13 +370,13 @@ class OccToScService {
     );
 
     final http.Response response = await _apiClient.post(
-      "sdfsf", // TODO: add this constant / confirm path
+      AppUrls.acknowledgeSc, // TODO: add this constant / confirm path
       body: <String, dynamic>{
         'userId': userId,
         'role': role,
         'instructionId': instructionId,
         'stationId': stationId,
-        'remark': remark,
+        'acknowledgementRemark': remark,
       },
     );
 

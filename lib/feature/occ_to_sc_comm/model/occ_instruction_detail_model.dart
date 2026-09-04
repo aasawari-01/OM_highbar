@@ -212,35 +212,67 @@ class InstructionAttachment {
 // response, so these field names are a best guess based on how the
 // dummy data in InstructionDetailsScreen was structured (name/status/
 // remark/date/time). Share a populated sample and I'll match it exactly.
+
+
+
+
 class InstructionAcknowledgement {
   InstructionAcknowledgement({
     this.stationId,
     this.stationName,
-    this.acknowledgedByName,
-    this.status,
-    this.remark,
-    this.acknowledgedDateTime,
+    this.userId,
+    this.userName,
+    this.readStatus,
+    this.readDateTime,
+    this.acknowledgementStatus,
+    this.acknowledgementRemark,
+    this.acknowledgementDateTime,
   });
 
   final int? stationId;
   final String? stationName;
-  final String? acknowledgedByName;
-  final String? status;
-  final String? remark;
-  final DateTime? acknowledgedDateTime;
 
-  factory InstructionAcknowledgement.fromJson(Map<String, dynamic> json) {
+  final int? userId;
+  final String? userName;
+
+  final bool? readStatus;
+  final DateTime? readDateTime;
+
+  final bool? acknowledgementStatus;
+  final String? acknowledgementRemark;
+  final DateTime? acknowledgementDateTime;
+
+  factory InstructionAcknowledgement.fromJson(
+      Map<String, dynamic> json,
+      ) {
     return InstructionAcknowledgement(
-      stationId: json['stationId'],
+      stationId: json['stationId'] is int
+          ? json['stationId']
+          : int.tryParse(json['stationId']?.toString() ?? ''),
+
       stationName: json['stationName']?.toString(),
-      acknowledgedByName: json['acknowledgedByName']?.toString(),
-      status: json['status']?.toString(),
-      remark: json['remark']?.toString(),
-      acknowledgedDateTime:
-      OccInstructionDetail._parseDate(json['acknowledgedDateTime']),
+
+      userId: json['userId'] is int
+          ? json['userId']
+          : int.tryParse(json['userId']?.toString() ?? ''),
+
+      userName: json['userName']?.toString(),
+
+      readStatus: json['readStatus'],
+
+      readDateTime:
+      OccInstructionDetail._parseDate(json['readDateTime']),
+
+      acknowledgementStatus:
+      json['acknowledgementStatus'],
+
+      acknowledgementRemark:
+      json['acknowledgementRemark']?.toString(),
+
+      acknowledgementDateTime:
+      OccInstructionDetail._parseDate(
+        json['acknowledgementDateTime'],
+      ),
     );
   }
-
-
-
 }
