@@ -1095,6 +1095,7 @@ import '../../../constants/app_constants.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../utils/widgets/cust_dropdown.dart';
+import '../../../utils/widgets/cust_grouped_multi_dropdown.dart';
 import '../../../utils/widgets/cust_loader.dart';
 import '../../../utils/widgets/cust_multi_dropdown.dart';
 import '../../../utils/widgets/cust_text.dart';
@@ -1236,7 +1237,7 @@ class _CreateOccScCommunicationScreenState
                     const SizedBox(width: AppConstants.elementSpacing),
                     Expanded(
                       child: CustDateTimePicker(
-                        label: "Valid Upto *",
+                        label: "Valid Upto (Optional)",
                         hint: "Select Valid Upto",
                         selectedDateTime: controller.validUptoDate.value,
                         pickerType: PickerType.date,
@@ -1244,12 +1245,7 @@ class _CreateOccScCommunicationScreenState
                         firstDate: controller.issueDate.value,
                         lastDate: DateTime(2100),
                         onDateTimeSelected: controller.setValidUptoDate,
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return "Valid Upto is required";
-                          }
-                          return null;
-                        },
+                        validator: null
                       ),
                     ),
                   ],
@@ -1311,15 +1307,33 @@ class _CreateOccScCommunicationScreenState
               // ---------------------------------------------------------
               // Station
               // ---------------------------------------------------------
+              // Obx(
+              //       () => CustMultiDropdown(
+              //     label: "Station *",
+              //     hint: controller.selectedLines.isEmpty
+              //         ? "Select Line first"
+              //         : controller.selectedStationTypes.isEmpty
+              //         ? "Select Station Type first"
+              //         : "Select",
+              //     items: controller.stationList.map((e) => e.name).toList(),
+              //     selectedValues: controller.selectedStations,
+              //     enabled: controller.selectedLines.isNotEmpty &&
+              //         controller.selectedStationTypes.isNotEmpty,
+              //     onChanged: controller.setSelectedStations,
+              //     validator: (value) =>
+              //         controller.requiredMultiSelect(value, "Station"),
+              //   ),
+              // ),
+
               Obx(
-                    () => CustMultiDropdown(
+                    () => CustGroupedMultiDropdown(
                   label: "Station *",
                   hint: controller.selectedLines.isEmpty
                       ? "Select Line first"
                       : controller.selectedStationTypes.isEmpty
                       ? "Select Station Type first"
                       : "Select",
-                  items: controller.stationList.map((e) => e.name).toList(),
+                  sections: controller.stationSections,
                   selectedValues: controller.selectedStations,
                   enabled: controller.selectedLines.isNotEmpty &&
                       controller.selectedStationTypes.isNotEmpty,
@@ -1354,13 +1368,28 @@ class _CreateOccScCommunicationScreenState
                       ),
                     ),
                     const SizedBox(height: AppConstants.elementSpacing),
+                    // Obx(
+                    //       () => CustMultiDropdown(
+                    //     label: "System *",
+                    //     hint: controller.selectedDepartments.isEmpty
+                    //         ? "Select Department first"
+                    //         : "Select",
+                    //     items: controller.systemList.map((e) => e.name).toList(),
+                    //     selectedValues: controller.selectedSystems,
+                    //     enabled: controller.selectedDepartments.isNotEmpty,
+                    //     onChanged: controller.setSelectedSystems,
+                    //     validator: (value) =>
+                    //         controller.requiredMultiSelect(value, "System"),
+                    //   ),
+                    // ),
+
                     Obx(
-                          () => CustMultiDropdown(
+                          () => CustGroupedMultiDropdown(
                         label: "System *",
                         hint: controller.selectedDepartments.isEmpty
                             ? "Select Department first"
                             : "Select",
-                        items: controller.systemList.map((e) => e.name).toList(),
+                        sections: controller.systemSections,
                         selectedValues: controller.selectedSystems,
                         enabled: controller.selectedDepartments.isNotEmpty,
                         onChanged: controller.setSelectedSystems,
@@ -1385,15 +1414,17 @@ class _CreateOccScCommunicationScreenState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Obx(
-                          () => CustMultiDropdown(
-                        label: "Emergency Type *",
-                        hint: "Select",
-                        items: controller.emergencyTypeList.map((e) => e.name).toList(),
-                        selectedValues: controller.selectedEmergencyTypes,
-                        onChanged: controller.setSelectedEmergencyTypes,
-                        validator: (value) =>
-                            controller.requiredMultiSelect(value, "Emergency Type"),
-                      ),
+                          () => CustDropdown(
+                            label: "Emergency Type *",
+                            hint: "Select",
+                            items: controller.emergencyTypeList
+                                .map((e) => e.name)
+                                .toList(),
+                            selectedValue: controller.selectedEmergencyType.value,
+                            onChanged: controller.setSelectedEmergencyType,
+                            validator: (value) =>
+                                controller.requiredDropdown(value, "Emergency Type"),
+                          ),
                     ),
                     const SizedBox(height: AppConstants.elementSpacing),
                   ],

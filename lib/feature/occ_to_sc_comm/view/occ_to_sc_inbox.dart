@@ -1275,7 +1275,7 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
         duration: const Duration(milliseconds: 180),
         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 5),
         decoration: BoxDecoration(
-          color: isSelected ? AppColors.appBarColor : Colors.transparent,
+          color: isSelected ? AppColors.orangeColor : Colors.transparent,
           borderRadius: BorderRadius.circular(11),
           boxShadow: isSelected
               ? [
@@ -1496,9 +1496,13 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
                   ),
                 ),
                 const SizedBox(width: 7),
-                acknowledgedByMe
+                controller.isOcc
+                    ? (acknowledgedByMe
                     ? _buildStatusChip(status)
-                    : _buildActionNeededChip(),
+                    : _buildActionNeededChip())
+                    : _buildStatusChip(
+                  acknowledgedByMe ? 'Acknowledged' : 'Pending',
+                ),
               ],
             ),
             const SizedBox(height: 10),
@@ -1518,19 +1522,19 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
             const SizedBox(height: 10),
             Row(
               children: [
-                Expanded(
+                controller.isOcc?Expanded(
                   child: _buildCompactInfo(
                     icon: TablerIcons.map_pin,
                     value: item.recipientSummary,
                   ),
-                ),
+                ):Container(),
                 const Spacer(),
-                Expanded(
+                controller.isOcc? Expanded(
                   child: _buildCompactInfo(
                     icon: TablerIcons.check,
                     value: '${item.acknowledgedStations} acknowledged',
                   ),
-                ),
+                ):Container(),
               ],
             ),
             const SizedBox(height: 10),

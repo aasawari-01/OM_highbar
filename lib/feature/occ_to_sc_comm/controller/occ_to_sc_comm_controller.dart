@@ -929,6 +929,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:om_mobile/service/auth_manager.dart';
 
+import '../../../utils/widgets/cust_grouped_multi_dropdown.dart';
 import '../model/occ_instruction_detail_model.dart';
 import '../model/occ_to_sc_model.dart';
 import '../service/occ_to_sc_service.dart';
@@ -968,6 +969,7 @@ class OccScCommunicationController extends GetxController {
   final RxList<DepartmentModel> departmentList = <DepartmentModel>[].obs;
   final RxList<MasterDataItem> emergencyTypeList = <MasterDataItem>[].obs;
   final RxList<LineModel> lineList = <LineModel>[].obs;
+  final Rx<String?> selectedEmergencyType = Rx<String?>(null);
 
   // ---------------------------------------------------------------------
   // Derived lists
@@ -1009,7 +1011,7 @@ class OccScCommunicationController extends GetxController {
   final RxList<String> selectedStations = <String>[].obs;
   final RxList<String> selectedDepartments = <String>[].obs;
   final RxList<String> selectedSystems = <String>[].obs;
-  final RxList<String> selectedEmergencyTypes = <String>[].obs;
+  // final RxList<String> selectedEmergencyTypes = <String>[].obs;
 
   // ---------------------------------------------------------------------
   // Description
@@ -1072,6 +1074,58 @@ class OccScCommunicationController extends GetxController {
   void onClose() {
     descriptionController.dispose();
     super.onClose();
+  }
+
+
+
+  // ---------------------------------------------------------------------
+// Grouped display helpers (for grouped multi-select pickers)
+// ---------------------------------------------------------------------
+
+  /// Stations for the currently selected lines + station types, grouped by
+  /// line, with each station badged Underground / Elevated.
+  List<GroupedDropdownSection> get stationSections {
+    final List<GroupedDropdownSection> sections = [];
+
+    for (final lineName in selectedLines) {
+      final line = _findLine(lineName);
+      if (line == null) continue;
+
+      final items = line.stations
+          .where((station) => selectedStationTypes
+          .contains(normalizeStationType(station.stationType)))
+          .map((station) => GroupedDropdownItem(
+        station.name,
+        badge: getStationTypeLabel(
+            normalizeStationType(station.stationType)),
+      ))
+          .toList();
+
+      if (items.isNotEmpty) {
+        sections.add(GroupedDropdownSection(title: lineName, items: items));
+      }
+    }
+
+    return sections;
+  }
+
+  /// Systems for the currently selected departments, grouped by department.
+  List<GroupedDropdownSection> get systemSections {
+    final List<GroupedDropdownSection> sections = [];
+
+    for (final deptName in selectedDepartments) {
+      final department = _findDepartment(deptName);
+      if (department == null) continue;
+
+      final items =
+      department.systems.map((s) => GroupedDropdownItem(s.name)).toList();
+
+      if (items.isNotEmpty) {
+        sections.add(GroupedDropdownSection(title: deptName, items: items));
+      }
+    }
+
+    return sections;
   }
 
   // ---------------------------------------------------------------------
@@ -1261,9 +1315,7 @@ class OccScCommunicationController extends GetxController {
     // Emergency
     // ---------------------------------------------------------------
     if ((instruction.emergencyTypeName ?? '').trim().isNotEmpty) {
-      selectedEmergencyTypes.assignAll([
-        instruction.emergencyTypeName!,
-      ]);
+      selectedEmergencyType.value = instruction.emergencyTypeName;
     }
 
     // ---------------------------------------------------------------
@@ -1291,7 +1343,7 @@ class OccScCommunicationController extends GetxController {
     }
 
     if (!isEmergency) {
-      selectedEmergencyTypes.clear();
+      selectedEmergencyType.value = null;
     }
   }
 
@@ -1424,8 +1476,11 @@ class OccScCommunicationController extends GetxController {
   // ---------------------------------------------------------------------
   // Emergency type
   // ---------------------------------------------------------------------
-  void setSelectedEmergencyTypes(List<String> values) {
-    selectedEmergencyTypes.assignAll(values);
+  // void setSelectedEmergencyTypes(List<String> values) {
+  //   selectedEmergencyTypes.assignAll(values);
+  // }
+  void setSelectedEmergencyType(String? value) {
+    selectedEmergencyType.value = value;
   }
 
   // ---------------------------------------------------------------------
@@ -1477,7 +1532,8 @@ class OccScCommunicationController extends GetxController {
     }
 
     if (isEmergency) {
-      conditionalValid = conditionalValid && selectedEmergencyTypes.isNotEmpty;
+      conditionalValid =
+          conditionalValid && selectedEmergencyType.value != null;
     }
 
     final bool stationTypeValid = selectedStationTypes.isNotEmpty;
@@ -1531,7 +1587,10 @@ class OccScCommunicationController extends GetxController {
     int? emergencyTypeId;
 
     if (isEmergency) {
-      emergencyTypeId = _selectedEmergencyTypeId();
+      emergencyTypeId = _idForName(
+        emergencyTypeList,
+        selectedEmergencyType.value,
+      );
 
       if (emergencyTypeId == null) {
         Get.snackbar(
@@ -1551,7 +1610,7 @@ class OccScCommunicationController extends GetxController {
     try {
       final response = await _occToScService.createOccInstruction(
         issueDate: issueDate.value,
-        validityUpto: validUptoDate.value ?? issueDate.value,
+        validityUpto: validUptoDate.value,
         instructionTypeId: instructionTypeId,
         instructionById: instructionById,
         emergencyTypeId: emergencyTypeId,
@@ -1606,7 +1665,9 @@ class OccScCommunicationController extends GetxController {
     selectedStations.clear();
     selectedDepartments.clear();
     selectedSystems.clear();
-    selectedEmergencyTypes.clear();
+
+    selectedEmergencyType.value = null;
+
 
     stationList.clear();
     systemList.clear();
@@ -1685,14 +1746,14 @@ class OccScCommunicationController extends GetxController {
     return details;
   }
 
-  // Emergency Type is single-valued in the API. Using the first
-  // selection until/unless this becomes a single-select field.
-  int? _selectedEmergencyTypeId() {
-    final String? name =
-    selectedEmergencyTypes.isNotEmpty ? selectedEmergencyTypes.first : null;
-
-    return _idForName(emergencyTypeList, name);
-  }
+  // // Emergency Type is single-valued in the API. Using the first
+  // // selection until/unless this becomes a single-select field.
+  // int? _selectedEmergencyTypeId() {
+  //   final String? name =
+  //   selectedEmergencyTypes.isNotEmpty ? selectedEmergencyTypes.first : null;
+  //
+  //   return _idForName(emergencyTypeList, name);
+  // }
 
   Future<String?> _currentUserId() async {
     // Mirrors the same lookup used in fetchMasterData().

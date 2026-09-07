@@ -161,7 +161,7 @@ class OccToScService {
 
   Future<OccInstructionSubmitResponse> createOccInstruction({
     required DateTime issueDate,
-    required DateTime validityUpto,
+    DateTime? validityUpto,
     required int instructionTypeId,
     required int instructionById,
     int? emergencyTypeId,
@@ -174,7 +174,8 @@ class OccToScService {
   }) async {
     final Map<String, String> fields = <String, String>{
       'IssueDate': _formatDate(issueDate),
-      'ValidityUpto': _formatDate(validityUpto),
+      'ValidityUpto':
+      validityUpto != null ? _formatDate(validityUpto) : '',
       'InstructionTypeId': instructionTypeId.toString(),
       'InstructionById': instructionById.toString(),
       'InstructionContent': instructionContent,

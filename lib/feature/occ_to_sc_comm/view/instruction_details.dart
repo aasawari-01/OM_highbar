@@ -1104,7 +1104,7 @@ class _InstructionDetailsScreenState extends State<InstructionDetailsScreen> {
                     ? null
                     : controller.acknowledgeInstruction,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.appBarColor,
+                  backgroundColor: AppColors.orangeColor,
                   padding: const EdgeInsets.symmetric(vertical: 13),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 ),
