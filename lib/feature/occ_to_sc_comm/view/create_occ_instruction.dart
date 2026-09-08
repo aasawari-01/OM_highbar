@@ -1452,9 +1452,45 @@ class _CreateOccScCommunicationScreenState
               // ---------------------------------------------------------
               // Files
               // ---------------------------------------------------------
+              // CustText.body(
+              //   "Uploaded Files (Optional - Maximum 3)",
+              //   fontWeightName: FontWeight.w600,
+              // ),
+              //
+              // const SizedBox(height: AppConstants.elementSpacing),
+              //
+              // _buildUploadArea(),
+              //
+              // Obx(
+              //       () => controller.fileError.value == null
+              //       ? const SizedBox.shrink()
+              //       : Padding(
+              //     padding: const EdgeInsets.only(top: 6),
+              //     child: Text(
+              //       controller.fileError.value!,
+              //       style: const TextStyle(color: Colors.red, fontSize: 12),
+              //     ),
+              //   ),
+              // ),
+              //
+              // const SizedBox(height: AppConstants.sectionSpacing),
+
+              // ---------------------------------------------------------
+              // Attachments
+              // ---------------------------------------------------------
               CustText.body(
-                "Uploaded Files (Optional - Maximum 3)",
+                "Attachments  (Optional - Maximum 3)",
                 fontWeightName: FontWeight.w600,
+              ),
+
+              const SizedBox(height: 4),
+
+              Text(
+                "Supported: Images, PDF, DOC, DOCX • Max 5 MB per file • Up to 3 files",
+                style: TextStyle(
+                  fontSize: 10.5,
+                  color: Colors.grey.shade600,
+                ),
               ),
 
               const SizedBox(height: AppConstants.elementSpacing),
@@ -1481,6 +1517,16 @@ class _CreateOccScCommunicationScreenState
               Obx(
                     () => Row(
                   children: [
+
+                    Expanded(
+                      child: CustOutlineButton(
+                        name: "Cancel",
+                        size: double.infinity,
+                        sHeight: AppConstants.buttonHeight,
+                        onSelected: (_) => Navigator.pop(context),
+                      ),
+                    ),
+                    const SizedBox(width: AppConstants.elementSpacing),
                     Expanded(
                       child: CustButton(
                         name: "Create Instruction",
@@ -1491,15 +1537,7 @@ class _CreateOccScCommunicationScreenState
                             : (_) => controller.submitReportIssue(),
                       ),
                     ),
-                    const SizedBox(width: AppConstants.elementSpacing),
-                    Expanded(
-                      child: CustOutlineButton(
-                        name: "Cancel",
-                        size: double.infinity,
-                        sHeight: AppConstants.buttonHeight,
-                        onSelected: (_) => Navigator.pop(context),
-                      ),
-                    ),
+
                   ],
                 ),
               ),
@@ -1563,16 +1601,71 @@ class _CreateOccScCommunicationScreenState
     );
   }
 
+  // Future<void> _pickFiles() async {
+  //   try {
+  //     final result = await FilePicker.platform.pickFiles(
+  //       allowMultiple: true,
+  //       type: FileType.any,
+  //     );
+  //
+  //     if (result == null) return;
+  //
+  //     for (final file in result.files) {
+  //       final double sizeInKb = file.size / 1024;
+  //
+  //       controller.addUploadedFile({
+  //         'name': file.name,
+  //         'size': '${sizeInKb.toStringAsFixed(1)} kb',
+  //         'path': file.path,
+  //       });
+  //     }
+  //   } catch (e) {
+  //     debugPrint("Error picking file: $e");
+  //
+  //     Get.snackbar(
+  //       "Error",
+  //       "Could not pick file.",
+  //       backgroundColor: AppColors.red,
+  //       colorText: AppColors.white1,
+  //     );
+  //   }
+  // }
+
+  static const List<String> _allowedExtensions = [
+    'jpg', 'jpeg', 'png', 'pdf', 'doc', 'docx',
+  ];
+  static const int _maxFileSizeBytes = 5 * 1024 * 1024; // 5 MB
+  static const int _maxFiles = 3;
+
   Future<void> _pickFiles() async {
     try {
+      if (controller.uploadedFiles.length >= _maxFiles) {
+        controller.fileError.value = "You can upload a maximum of $_maxFiles files.";
+        return;
+      }
+
       final result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
-        type: FileType.any,
+        type: FileType.custom,
+        allowedExtensions: _allowedExtensions,
       );
 
       if (result == null) return;
 
+      String? rejectionReason;
+      int remainingSlots = _maxFiles - controller.uploadedFiles.length;
+
       for (final file in result.files) {
+        if (remainingSlots <= 0) {
+          rejectionReason = "Only $_maxFiles files are allowed in total.";
+          break;
+        }
+
+        if (file.size > _maxFileSizeBytes) {
+          rejectionReason = "${file.name} exceeds the 5 MB limit.";
+          continue;
+        }
+
         final double sizeInKb = file.size / 1024;
 
         controller.addUploadedFile({
@@ -1580,7 +1673,11 @@ class _CreateOccScCommunicationScreenState
           'size': '${sizeInKb.toStringAsFixed(1)} kb',
           'path': file.path,
         });
+
+        remainingSlots--;
       }
+
+      controller.fileError.value = rejectionReason;
     } catch (e) {
       debugPrint("Error picking file: $e");
 

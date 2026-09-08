@@ -1075,6 +1075,7 @@ import '../../../utils/widgets/custom_app_bar.dart';
 
 import '../controller/occ_sc_inbox_controller.dart';
 import '../model/occ_sc_list_model.dart';
+import 'create_occ_instruction.dart';
 import 'instruction_details.dart';
 
 class OccScInboxScreen extends StatefulWidget {
@@ -1117,7 +1118,7 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
         width: double.infinity,
         height: double.infinity,
         decoration: const BoxDecoration(
-          color: AppColors.white1,
+          color: Color(0xFFF5F6F8),
           borderRadius: BorderRadius.only(
             topLeft: Radius.circular(20),
             topRight: Radius.circular(20),
@@ -1159,6 +1160,25 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
           );
         }),
       ),
+      floatingActionButton:
+
+
+
+
+      controller.isOcc
+    ? FloatingActionButton(
+    backgroundColor: AppColors.orangeColor,
+      shape: const CircleBorder(),
+      elevation: 4,
+      child: const Icon(Icons.add, color: Colors.white),
+      onPressed: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => CreateOccScCommunicationScreen()),
+        );
+      },
+    )
+        : null,
     );
   }
 
@@ -1182,11 +1202,11 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
               children: [
                 CustText(name: 'Instructions', size: 19, color: Colors.black87),
                 const SizedBox(height: 3),
-                CustText(
+                !controller.isOcc ?CustText(
                   name: 'Instructions received from OCC',
                   size: 11,
                   color: AppColors.textMutedLight,
-                ),
+                ):Container(),
               ],
             ),
           ),
@@ -1206,7 +1226,7 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
                 ),
                 const SizedBox(width: 5),
                 Text(
-                  '${controller.expiredCount}',
+                  '${controller.filteredInstructions.length}',
                   style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
                 ),
               ],
@@ -1419,7 +1439,6 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
   // ================================================================
   // INSTRUCTION CARD
   // ================================================================
-
   Widget _buildInstructionCard(
       BuildContext context,
       OccInstructionListItem item,
@@ -1431,7 +1450,14 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
 
     final String date = item.issueDate == null
         ? '-'
-        : DateFormat('dd MMM yyyy').format(item.issueDate!);
+        : DateFormat('dd-MM-yyyy').format(item.issueDate!);
+    final String validityDate =
+    item.validityUpto == null
+        ? '-'
+        : DateFormat('dd-MM-yyyy').format(item.validityUpto!);
+
+    final bool showFooter =
+        acknowledgedByMe || item.instructionStatus.toLowerCase() == 'expired';
 
     return GestureDetector(
       onTap: () {
@@ -1443,239 +1469,230 @@ class _OccScInboxScreenState extends State<OccScInboxScreen> {
         );
       },
       child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(12),
+        margin: const EdgeInsets.only(bottom: 12),
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: acknowledgedByMe ? Colors.grey.shade50 : Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: acknowledgedByMe
-                ? Colors.grey.shade200
-                : AppColors.appBarColor.withOpacity(0.4),
-            width: acknowledgedByMe ? 1 : 1.3,
-          ),
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: acknowledgedByMe
-                  ? Colors.black.withOpacity(0.02)
-                  : AppColors.appBarColor.withOpacity(0.10),
-              blurRadius: acknowledgedByMe ? 6 : 10,
-              offset: const Offset(0, 3),
+              color: AppColors.black.withOpacity(0.2),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            // Status row — same OCC vs SC logic as before, just restyled.
+            !controller.isOcc? Row(
               children: [
-                _buildTypeIcon(instructionType),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.instructionNumber,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: acknowledgedByMe ? Colors.black54 : Colors.black87,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'By ${item.instructionByName}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 10, color: Colors.black45),
-                      ),
-                    ],
-                  ),
+                const Text(
+                  'Status ',
+                  style: TextStyle(fontSize: 13, color: Colors.black45),
                 ),
-                const SizedBox(width: 7),
-                controller.isOcc
-                    ? (acknowledgedByMe
-                    ? _buildStatusChip(status)
-                    : _buildActionNeededChip())
-                    : _buildStatusChip(
+                 _buildStatusChip(
                   acknowledgedByMe ? 'Acknowledged' : 'Pending',
                 ),
               ],
-            ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                item.instructionContent,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: acknowledgedByMe ? Colors.black54 : Colors.black87,
-                  height: 1.35,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
+            ):
             Row(
               children: [
-                controller.isOcc?Expanded(
-                  child: _buildCompactInfo(
-                    icon: TablerIcons.map_pin,
-                    value: item.recipientSummary,
+                const Text(
+                  'Instruction Type : ',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.black45,
                   ),
-                ):Container(),
-                const Spacer(),
-                controller.isOcc? Expanded(
-                  child: _buildCompactInfo(
-                    icon: TablerIcons.check,
-                    value: '${item.acknowledgedStations} acknowledged',
+                ),
+                Text(
+                  item.instructionTypeName,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: getInstructionTypeColor(
+                      item.instructionTypeName,
+                    ),
                   ),
-                ):Container(),
+                ),
+              ],
+            )
+,
+            const SizedBox(height: 12),
+            Divider(color: AppColors.lightBlueColor, height: 1),
+            const SizedBox(height: 14),
+
+            // Row 1 — ID / Date
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _buildGridItem(
+                    'Instruction ID:',
+                    item.instructionNumber,
+                  ),
+                ),
+                Expanded(
+                  child: _buildGridItem('Instruction Date:', date),
+                ),
               ],
             ),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.only(top: 9),
-              decoration: BoxDecoration(
-                border: Border(top: BorderSide(color: Colors.grey.shade200)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(TablerIcons.calendar, size: 13, color: AppColors.textMutedLight),
-                  const SizedBox(width: 5),
-                  Text(
-                    date,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.black54,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Icon(TablerIcons.clock, size: 13, color: AppColors.textMutedLight),
-                  const SizedBox(width: 4),
-                  Text(
-                    item.createdDateTime == null
-                        ? '-'
-                        : DateFormat('hh:mm a').format(item.createdDateTime!),
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: Colors.black54,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const Spacer(),
-                  if (acknowledgedByMe) ...[
-                    Icon(TablerIcons.circle_check, size: 13, color: Colors.green.shade600),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Acknowledged',
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.green.shade600,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                  ],
 
-                  if (item.instructionStatus.toLowerCase() == 'expired')
-                    GestureDetector(
-                      onTap: () {
-                        controller.recreateInstruction(
-                          item.instructionId,
-                        );
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: AppColors.appBarColor.withOpacity(0.10),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Icon(
-                              TablerIcons.copy,
-                              size: 14,
-                              color: AppColors.appBarColor,
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              'Re-create',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.appBarColor,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+            const SizedBox(height: 16),
+
+            // Row 2 — Type / By
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _buildGridItem('Valid Upto: ', validityDate),
+                ),
+                !controller.isOcc?Expanded(
+                  child: _buildGridItem(
+                    'Instruction Type:',
+                    item.instructionTypeName,
+                  ),
+                ):Expanded(
+                  child: _buildGridItem(
+                    'Instruction By:',
+                    item.instructionByName,
+                  ),
+                ),
+              ],
+            ),
+
+            // Recipients / acknowledged count — OCC only, same as before.
+            if (controller.isOcc) ...[
+              const SizedBox(height: 16),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _buildGridItem(
+                      'Recipients:',
+                      item.recipientSummary,
                     ),
-                  const Icon(TablerIcons.chevron_right, size: 17, color: Colors.black38),
+                  ),
+                  Expanded(
+                    child: _buildGridItem(
+                      'Acknowledged:',
+                      '${item.acknowledgedStations}',
+                    ),
+                  ),
                 ],
               ),
-            ),
+            ],
+
+            // Footer — acknowledged badge + re-create, same conditions as before.
+            if (showFooter) ...[
+              // const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.only(top: 10),
+                // decoration: BoxDecoration(
+                //   border: Border(top: BorderSide(color: Colors.red.shade200)),
+                // ),
+                child: Row(
+                  children: [
+                    // if (acknowledgedByMe) ...[
+                    //   Icon(TablerIcons.circle_check,
+                    //       size: 13, color: Colors.green.shade600),
+                    //   const SizedBox(width: 4),
+                    //   Text(
+                    //     'Acknowledged',
+                    //     style: TextStyle(
+                    //       fontSize: 9,
+                    //       fontWeight: FontWeight.w600,
+                    //       color: Colors.green.shade600,
+                    //     ),
+                    //   ),
+                    // ],
+                    const Spacer(),
+                    if (item.instructionStatus.toLowerCase() == 'expired')
+                      GestureDetector(
+                        onTap: () {
+                          controller.recreateInstruction(item.instructionId);
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            color: AppColors.appBarColor.withOpacity(0.10),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(
+                                TablerIcons.copy,
+                                size: 14,
+                                color: AppColors.appBarColor,
+                              ),
+                              const SizedBox(width: 5),
+                              Text(
+                                'Re-create',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.appBarColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _buildActionNeededChip() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
-      decoration: BoxDecoration(
-        color: AppColors.appBarColor.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(11),
-      ),
-      child: Text(
-        'Action Needed',
-        style: TextStyle(
-          fontSize: 8.5,
-          fontWeight: FontWeight.w700,
-          color: AppColors.appBarColor,
-        ),
-      ),
-    );
+  Color getInstructionTypeColor(String type) {
+    switch (type.toLowerCase()) {
+      case 'general':
+        return Colors.blue;
+      case 'technical':
+        return Colors.orange;
+      case 'emergency':
+        return Colors.red;
+      default:
+        return Colors.black45;
+    }
   }
 
-  // ================================================================
-  // COMPACT INFO
-  // ================================================================
+// ================================================================
+// GRID ITEM (label above value — used for ID/Date/Type/By rows)
+// ================================================================
 
-  Widget _buildCompactInfo({required IconData icon, required String value}) {
-    return Row(
+  Widget _buildGridItem(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 14, color: AppColors.textMutedLight),
-        const SizedBox(width: 5),
-        Expanded(
-          child: Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              color: Colors.black87,
-            ),
+        Text(
+          label,
+          style: const TextStyle(fontSize: 11.5, color: Colors.black45),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          value.isEmpty ? '-' : value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w700,
+            color: Colors.black87,
           ),
         ),
       ],
     );
   }
 
-  // ================================================================
-  // TYPE ICON
-  // ================================================================
 
   Widget _buildTypeIcon(String type) {
     IconData icon;

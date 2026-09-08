@@ -970,7 +970,7 @@ class _InstructionDetailsScreenState extends State<InstructionDetailsScreen> {
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
-        title: 'Instruction Details',
+        title: 'View Instruction Details',
         showDrawer: false,
         onLeadingPressed: () => Navigator.pop(context),
       ),
@@ -1294,18 +1294,14 @@ class _InstructionDetailsScreenState extends State<InstructionDetailsScreen> {
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
-                color: acknowledged ? Colors.green.withOpacity(0.08) : Colors.grey.shade100,
+                color:  Colors.grey.shade100,
                 borderRadius: BorderRadius.circular(10),
-                border: acknowledged ? Border.all(color: Colors.green.withOpacity(0.3)) : null,
+
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (acknowledged)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 5),
-                      child: Icon(TablerIcons.check, size: 12, color: Colors.green),
-                    ),
+
                   Text(
                     station.stationName ??
                         (station.stationId != null ? 'Station #${station.stationId}' : '-'),

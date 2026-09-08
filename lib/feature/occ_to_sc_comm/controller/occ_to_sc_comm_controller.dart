@@ -930,9 +930,12 @@ import 'package:get/get.dart';
 import 'package:om_mobile/service/auth_manager.dart';
 
 import '../../../utils/widgets/cust_grouped_multi_dropdown.dart';
+import '../../../utils/widgets/cust_popup.dart';
 import '../model/occ_instruction_detail_model.dart';
 import '../model/occ_to_sc_model.dart';
 import '../service/occ_to_sc_service.dart';
+import '../view/occ_to_sc_inbox.dart';
+import 'occ_sc_inbox_controller.dart';
 
 class OccScCommunicationController extends GetxController {
   OccScCommunicationController({
@@ -1024,7 +1027,8 @@ class OccScCommunicationController extends GetxController {
   static const int kMaxFiles = 3;
 
   final Rx<String?> fileError = Rx<String?>(null);
-  final RxList<Map<String, dynamic>> uploadedFiles = <Map<String, dynamic>>[].obs;
+  final RxList<Map<String, dynamic>> uploadedFiles =
+      <Map<String, dynamic>>[].obs;
 
   // ---------------------------------------------------------------------
   // Conditional helpers
@@ -1051,7 +1055,8 @@ class OccScCommunicationController extends GetxController {
     issueDate.value = selected;
 
     // If Valid Upto was already selected and becomes invalid, clear it.
-    if (validUptoDate.value != null && validUptoDate.value!.isBefore(selected)) {
+    if (validUptoDate.value != null &&
+        validUptoDate.value!.isBefore(selected)) {
       validUptoDate.value = null;
     }
   }
@@ -1076,8 +1081,6 @@ class OccScCommunicationController extends GetxController {
     super.onClose();
   }
 
-
-
   // ---------------------------------------------------------------------
 // Grouped display helpers (for grouped multi-select pickers)
 // ---------------------------------------------------------------------
@@ -1093,12 +1096,12 @@ class OccScCommunicationController extends GetxController {
 
       final items = line.stations
           .where((station) => selectedStationTypes
-          .contains(normalizeStationType(station.stationType)))
+              .contains(normalizeStationType(station.stationType)))
           .map((station) => GroupedDropdownItem(
-        station.name,
-        badge: getStationTypeLabel(
-            normalizeStationType(station.stationType)),
-      ))
+                station.name,
+                badge: getStationTypeLabel(
+                    normalizeStationType(station.stationType)),
+              ))
           .toList();
 
       if (items.isNotEmpty) {
@@ -1118,7 +1121,7 @@ class OccScCommunicationController extends GetxController {
       if (department == null) continue;
 
       final items =
-      department.systems.map((s) => GroupedDropdownItem(s.name)).toList();
+          department.systems.map((s) => GroupedDropdownItem(s.name)).toList();
 
       if (items.isNotEmpty) {
         sections.add(GroupedDropdownSection(title: deptName, items: items));
@@ -1139,7 +1142,8 @@ class OccScCommunicationController extends GetxController {
 
       debugPrint('Fetching OCC to SC master data. userId = $userId');
 
-      final response = await _occToScService.getOccToScMasterData(userId: userId ?? '');
+      final response =
+          await _occToScService.getOccToScMasterData(userId: userId ?? '');
 
       if (!response.success) {
         throw OccToScException(
@@ -1188,7 +1192,7 @@ class OccScCommunicationController extends GetxController {
   void _prefillFromInstruction(OccInstructionDetail instruction) {
     debugPrint(
       'Prefilling create screen from expired instruction '
-          '${instruction.instructionNumber}',
+      '${instruction.instructionNumber}',
     );
 
     // ---------------------------------------------------------------
@@ -1236,7 +1240,7 @@ class OccScCommunicationController extends GetxController {
 
     for (final line in lineList) {
       final bool hasSelectedStation = line.stations.any(
-            (station) => stationNames.contains(station.name),
+        (station) => stationNames.contains(station.name),
       );
 
       if (hasSelectedStation) {
@@ -1275,7 +1279,7 @@ class OccScCommunicationController extends GetxController {
     final validStations = stationList.map((e) => e.name).toSet();
 
     selectedStations.removeWhere(
-          (station) => !validStations.contains(station),
+      (station) => !validStations.contains(station),
     );
 
     // ---------------------------------------------------------------
@@ -1289,13 +1293,11 @@ class OccScCommunicationController extends GetxController {
         final String? departmentName = technical.deptName;
         final String? systemName = technical.systemName;
 
-        if (departmentName != null &&
-            departmentName.trim().isNotEmpty) {
+        if (departmentName != null && departmentName.trim().isNotEmpty) {
           departments.add(departmentName);
         }
 
-        if (systemName != null &&
-            systemName.trim().isNotEmpty) {
+        if (systemName != null && systemName.trim().isNotEmpty) {
           systems.add(systemName);
         }
       }
@@ -1528,7 +1530,8 @@ class OccScCommunicationController extends GetxController {
     bool conditionalValid = true;
 
     if (isTechnical) {
-      conditionalValid = selectedDepartments.isNotEmpty && selectedSystems.isNotEmpty;
+      conditionalValid =
+          selectedDepartments.isNotEmpty && selectedSystems.isNotEmpty;
     }
 
     if (isEmergency) {
@@ -1550,21 +1553,22 @@ class OccScCommunicationController extends GetxController {
   // ---------------------------------------------------------------------
   Future<void> submitReportIssue() async {
     if (!validateForm()) {
-      Get.snackbar(
-        'Validation Error',
-        'Please fill all compulsory fields marked with *',
-        backgroundColor: Colors.red.withOpacity(0.9),
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      // Get.snackbar(
+      //   'Validation Error',
+      //   'Please fill all compulsory fields marked with *',
+      //   backgroundColor: Colors.red.withOpacity(0.9),
+      //   colorText: Colors.white,
+      //   snackPosition: SnackPosition.BOTTOM,
+      // );
 
       return;
     }
 
     final int? instructionTypeId =
-    _idForName(instructionTypeList, selectedInstructionType.value);
+        _idForName(instructionTypeList, selectedInstructionType.value);
 
-    final int? instructionById = _idForName(instructedByList, selectedInstructedBy.value);
+    final int? instructionById =
+        _idForName(instructedByList, selectedInstructedBy.value);
 
     if (instructionTypeId == null || instructionById == null) {
       Get.snackbar(
@@ -1630,13 +1634,19 @@ class OccScCommunicationController extends GetxController {
       }
 
       Get.back();
+      if (Get.isRegistered<OccScInboxController>()) {
+        Get.find<OccScInboxController>().fetchInstructions(showLoader: false);
+      }
 
-      Get.snackbar(
-        'Success',
-        'Issue reported successfully.',
-        backgroundColor: Colors.green.withOpacity(0.9),
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
+      Get.dialog(
+        CustPopup(
+          title: "Instruction Created Successfully",
+          message: "The instruction has been created and sent successfully.",
+          icon: Icons.check_circle_outline,
+          iconColor: Colors.green,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
       );
     } catch (e, stacktrace) {
       debugPrint('submitReportIssue error: $e\n$stacktrace');
@@ -1667,7 +1677,6 @@ class OccScCommunicationController extends GetxController {
     selectedSystems.clear();
 
     selectedEmergencyType.value = null;
-
 
     stationList.clear();
     systemList.clear();

@@ -166,8 +166,10 @@ import 'package:get/get.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../service/auth_manager.dart';
+import '../../../utils/widgets/cust_popup.dart';
 import '../model/occ_instruction_detail_model.dart';
 import '../service/occ_to_sc_service.dart';
+import 'occ_sc_inbox_controller.dart';
 
 class InstructionDetailsController extends GetxController {
   InstructionDetailsController({
@@ -311,13 +313,20 @@ class InstructionDetailsController extends GetxController {
               : 'Unable to submit acknowledgement.',
         );
       }
+      if (Get.isRegistered<OccScInboxController>()) {
+        Get.find<OccScInboxController>().fetchInstructions(showLoader: false);
+      }
 
-      Get.snackbar(
-        'Success',
-        'Instruction acknowledged successfully.',
-        backgroundColor: Colors.green.withOpacity(0.9),
-        colorText: Colors.white,
-        snackPosition: SnackPosition.BOTTOM,
+
+      Get.dialog(
+        CustPopup(
+          title: "Acknowledged Successfully!",
+          message: "The instruction has been acknowledged successfully.",
+          icon: Icons.done,
+          iconColor: Colors.green,
+          confirmText: "OK",
+          onConfirm: () => Get.back(),
+        ),
       );
 
       remarkController.clear();

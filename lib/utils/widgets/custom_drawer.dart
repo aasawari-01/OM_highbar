@@ -287,8 +287,9 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   icon: TablerIcons.clipboard_check,
                   children: [
 
-                    _drawerItem('Inbox', 'inbox_occ', OccScInboxScreen(isOcc: isOcc,)),
-                    isOcc?_drawerItem('Create Instructions', 'create_instructions', const CreateOccScCommunicationScreen()):Container(),
+
+                    // isOcc?_drawerItem('Create Instructions', 'create_instructions', const CreateOccScCommunicationScreen()):Container(),
+                    _drawerItem('Instructions', 'inbox_occ', OccScInboxScreen(isOcc: isOcc,)),
                   ],
                 ):Container();
 
