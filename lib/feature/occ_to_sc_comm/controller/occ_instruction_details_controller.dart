@@ -317,7 +317,7 @@ class InstructionDetailsController extends GetxController {
         Get.find<OccScInboxController>().fetchInstructions(showLoader: false);
       }
 
-
+      Get.back();
       Get.dialog(
         CustPopup(
           title: "Acknowledged Successfully!",
@@ -329,10 +329,10 @@ class InstructionDetailsController extends GetxController {
         ),
       );
 
-      remarkController.clear();
-
-      // Refresh so the details screen reflects the new acknowledged state.
-      await fetchInstructionDetails();
+      // remarkController.clear();
+      //
+      // // Refresh so the details screen reflects the new acknowledged state.
+      // await fetchInstructionDetails();
     } catch (e, stackTrace) {
       debugPrint('acknowledgeInstruction error: $e');
       debugPrint(stackTrace.toString());

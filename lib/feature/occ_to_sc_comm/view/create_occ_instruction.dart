@@ -1486,7 +1486,7 @@ class _CreateOccScCommunicationScreenState
               const SizedBox(height: 4),
 
               Text(
-                "Supported: Images, PDF, DOC, DOCX • Max 5 MB per file • Up to 3 files",
+                "Supported: Images, PDF • Max 5 MB per file • Up to 3 files",
                 style: TextStyle(
                   fontSize: 10.5,
                   color: Colors.grey.shade600,
