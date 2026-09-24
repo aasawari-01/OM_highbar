@@ -1,0 +1,312 @@
+Resolving dependencies...
+Downloading packages...
+  async 2.11.0 (2.13.1 available)
+  boolean_selector 2.1.1 (2.1.2 available)
+  characters 1.4.0 (1.4.1 available)
+  charts_flutter 0.12.0 (discontinued)
+  cross_file 0.3.5+1 (0.3.5+4 available)
+  crypto 3.0.6 (3.0.7 available)
+  cupertino_icons 1.0.8 (1.0.9 available)
+  dbus 0.7.11 (0.7.14 available)
+  dropdown_search 6.0.2 (7.0.0 available)
+  equatable 2.0.7 (2.1.0 available)
+  ffi 2.1.3 (2.2.0 available)
+  file_picker 10.3.8 (12.0.0 available)
+  fl_chart 1.1.1 (1.2.0 available)
+  flutter_easyloading 3.0.5 (4.0.2 available)
+  flutter_plugin_android_lifecycle 2.0.34 (2.0.35 available)
+  get 4.7.2 (4.7.3 available)
+  google_fonts 6.2.1 (8.2.1 available)
+  http 1.4.0 (1.6.0 available)
+  http_parser 4.0.2 (4.1.2 available)
+  image_picker 1.2.1 (1.2.3 available)
+  image_picker_android 0.8.13+14 (0.8.13+19 available)
+  image_picker_ios 0.8.13+3 (0.8.13+6 available)
+  intl 0.17.0 (0.20.3 available)
+  lints 6.0.0 (6.1.0 available)
+  matcher 0.12.17 (0.12.20 available)
+  material_color_utilities 0.11.1 (0.13.1 available)
+  meta 1.16.0 (1.19.0 available)
+  path_provider 2.1.5 (2.1.6 available)
+  path_provider_android 2.2.15 (2.3.1 available)
+  path_provider_foundation 2.4.1 (2.6.0 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  permission_handler 12.0.3 (13.0.1 available)
+  permission_handler_android 13.0.1 (14.0.0 available)
+  permission_handler_apple 9.4.10 (9.6.1 available)
+  permission_handler_html 0.1.3+5 (0.1.4+1 available)
+  permission_handler_platform_interface 4.3.0 (4.4.0 available)
+  permission_handler_windows 0.2.1 (0.2.2 available)
+  petitparser 7.0.1 (7.0.2 available)
+  pointycastle 3.9.1 (4.0.0 available)
+  shared_preferences 2.5.4 (2.5.5 available)
+  shared_preferences_android 2.4.20 (2.4.27 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  source_span 1.10.0 (1.10.2 available)
+  sqflite 2.4.2 (2.4.3 available)
+  sqflite_android 2.4.2+2 (2.4.3 available)
+  sqflite_common 2.5.6 (2.5.11 available)
+  sqflite_common_ffi 2.3.7+1 (2.4.2+1 available)
+  sqflite_darwin 2.4.2 (2.4.3+1 available)
+  sqflite_platform_interface 2.4.0 (2.4.1 available)
+  sqlite3 2.9.4 (3.5.1 available)
+  string_scanner 1.2.0 (1.4.1 available)
+  synchronized 3.4.0 (3.4.1+2 available)
+  term_glyph 1.2.1 (1.2.2 available)
+  test_api 0.7.6 (0.7.13 available)
+  vector_math 2.2.0 (2.4.2 available)
+  vm_service 14.2.5 (15.2.0 available)
+  win32 5.10.1 (6.4.0 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+1 package is discontinued.
+58 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing om_mobile...                                          
+
+  error - Target of URI doesn't exist: '../core/models/label_value.dart' - lib\core\controller\global_master_data_controller.dart:3:8 - uri_does_not_exist
+  error - Target of URI doesn't exist: 'local_database_service.dart' - lib\core\controller\global_master_data_controller.dart:4:8 - uri_does_not_exist
+  error - Target of URI doesn't exist: 'auth_manager.dart' - lib\core\controller\global_master_data_controller.dart:5:8 - uri_does_not_exist
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:11:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:11:48 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:12:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:12:48 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:13:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:13:54 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:14:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:14:45 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:15:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:15:46 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:16:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:16:40 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:17:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:17:56 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:18:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:18:51 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:19:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:19:50 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:20:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:20:45 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:21:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:21:46 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:22:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:22:45 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:23:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:23:41 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:24:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:24:42 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:25:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:25:54 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:26:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:26:50 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:27:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:27:49 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:28:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:28:47 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:29:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:29:50 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:30:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:30:54 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:31:16 - non_type_as_type_argument
+  error - The name 'LabelValue' isn't a type, so it can't be used as a type argument - lib\core\controller\global_master_data_controller.dart:31:40 - non_type_as_type_argument
+  error - The method 'LocalDatabaseService' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:74:25 - undefined_method
+  error - The method 'AuthManager' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:77:34 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:86:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:87:33 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:103:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:104:32 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:120:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:121:34 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:131:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:132:34 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:145:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:146:35 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:161:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:162:29 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:172:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:173:34 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:199:53 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:210:52 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:221:54 - undefined_method
+  error - The method 'LocalDatabaseService' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:274:25 - undefined_method
+  error - The method 'AuthManager' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:277:34 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:285:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:286:33 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:302:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:303:32 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:315:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:316:34 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:326:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:327:34 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:340:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:341:35 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:352:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:353:29 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:363:9 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:364:34 - undefined_method
+  error - The method 'LocalDatabaseService' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:400:25 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:407:53 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:418:52 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:429:54 - undefined_method
+  error - The method 'LabelValue' isn't defined for the type 'GlobalMasterDataController' - lib\core\controller\global_master_data_controller.dart:441:72 - undefined_method
+  error - Target of URI doesn't exist: '../feature/auth_login/model/login_response.dart' - lib\core\controller\session_controller.dart:5:8 - uri_does_not_exist
+  error - Target of URI doesn't exist: '../service/auth_manager.dart' - lib\core\controller\session_controller.dart:6:8 - uri_does_not_exist
+  error - Target of URI doesn't exist: '../core/models/master_user.dart' - lib\core\controller\session_controller.dart:7:8 - uri_does_not_exist
+  error - The name 'DeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:10:16 - non_type_as_type_argument
+  error - The name 'DeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:10:43 - non_type_as_type_argument
+  error - The name 'RoleMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:11:16 - non_type_as_type_argument
+  error - The name 'RoleMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:11:37 - non_type_as_type_argument
+  error - The name 'DeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:13:13 - non_type_as_type_argument
+  error - The name 'DeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:13:50 - non_type_as_type_argument
+  error - The name 'RoleMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:14:13 - non_type_as_type_argument
+  error - The name 'RoleMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:14:44 - non_type_as_type_argument
+  error - The name 'MasterUserModel' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:15:16 - non_type_as_type_argument
+  error - The name 'MasterUserModel' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:15:49 - non_type_as_type_argument
+  error - The name 'RoleAndDeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:18:16 - non_type_as_type_argument
+  error - The name 'RoleAndDeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:18:55 - non_type_as_type_argument
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:56:28 - undefined_method
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:57:35 - undefined_method
+  error - The name 'DeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:60:16 - non_type_as_type_argument
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:60:42 - undefined_method
+  error - The name 'RoleMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:61:16 - non_type_as_type_argument
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:61:40 - undefined_method
+  error - The name 'RoleAndDeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:62:16 - non_type_as_type_argument
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:62:52 - undefined_method
+  error - The property 'roleDescr' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:72:47 - unchecked_use_of_nullable_value
+  error - The name 'DeptMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:77:28 - non_type_as_type_argument
+  error - The property 'deptId' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:81:57 - unchecked_use_of_nullable_value
+  error - The method 'DeptMaster' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:82:27 - undefined_method
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:118:39 - undefined_method
+  error - The property 'deptId' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:121:22 - unchecked_use_of_nullable_value
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:132:39 - undefined_method
+  error - The property 'roleId' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:137:22 - unchecked_use_of_nullable_value
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:142:13 - undefined_method
+  error - The property 'deptId' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:155:27 - unchecked_use_of_nullable_value
+  error - The method 'RoleMaster' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:156:22 - undefined_method
+  error - The property 'roleId' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:156:44 - unchecked_use_of_nullable_value
+  error - The property 'roleDescr' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:156:66 - unchecked_use_of_nullable_value
+  error - The name 'RoleMaster' isn't a type, so it can't be used as a type argument - lib\core\controller\session_controller.dart:158:22 - non_type_as_type_argument
+  error - The property 'roleId' can't be unconditionally accessed because the receiver can be 'null' - lib\core\controller\session_controller.dart:160:33 - unchecked_use_of_nullable_value
+  error - Undefined class 'DeptMaster' - lib\core\controller\session_controller.dart:239:33 - undefined_class
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:241:11 - undefined_method
+  error - Undefined class 'RoleMaster' - lib\core\controller\session_controller.dart:246:27 - undefined_class
+  error - The method 'AuthManager' isn't defined for the type 'SessionController' - lib\core\controller\session_controller.dart:248:11 - undefined_method
+warning - Unused import: '../../failure/service/failure_service.dart' - lib\feature\auth_login\controller\login_controller.dart:7:8 - unused_import
+   info - The parameter name 'bool' matches a visible type name - lib\feature\auth_login\view\forgot_password_view.dart:78:36 - avoid_types_as_parameter_names
+   info - The parameter name 'bool' matches a visible type name - lib\feature\auth_login\view\login_view.dart:172:38 - avoid_types_as_parameter_names
+   info - 'WillPopScope' is deprecated and shouldn't be used. Use PopScope instead. The Android predictive back feature will not work with WillPopScope. This feature was deprecated after v3.12.0-1.0.pre - lib\feature\failure\controller\create_failure_controller.dart:310:7 - deprecated_member_use
+  error - The property 'deptName' can't be unconditionally accessed because the receiver can be 'null' - lib\feature\failure\controller\create_failure_controller.dart:1374:51 - unchecked_use_of_nullable_value
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\create_failure_controller.dart:1759:9 - overridden_fields
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3064:33 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3065:60 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3069:74 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3084:66 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3125:33 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3126:60 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3140:37 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3141:65 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3144:69 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:135:40 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:135:58 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:146:37 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:146:52 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:182:32 - dead_null_aware_expression
+  error - The method 'syncStationFailureDropdownMasterData' isn't defined for the type 'MasterDataSyncService' - lib\feature\failure\controller\failure_data_loading_logic.dart:421:41 - undefined_method
+  error - The method 'syncStationFailureDropdownMasterData' isn't defined for the type 'MasterDataSyncService' - lib\feature\failure\controller\failure_data_loading_logic.dart:425:39 - undefined_method
+warning - This method overrides a method annotated as '@mustCallSuper' in 'ListNotifierMixin', but doesn't invoke the overridden method - lib\feature\failure\controller\failure_form_state.dart:203:8 - must_call_super
+  error - The property 'deptName' can't be unconditionally accessed because the receiver can be 'null' - lib\feature\failure\controller\failure_joint_inspection_logic.dart:33:16 - unchecked_use_of_nullable_value
+  error - The property 'deptId' can't be unconditionally accessed because the receiver can be 'null' - lib\feature\failure\controller\failure_joint_inspection_logic.dart:34:16 - unchecked_use_of_nullable_value
+warning - The declaration '_parseJointInspectionHistoryFromResponse' isn't referenced - lib\feature\failure\controller\failure_joint_inspection_logic.dart:60:8 - unused_element
+warning - The declaration '_messageFromResponse' isn't referenced - lib\feature\failure\controller\failure_list_controller.dart:116:10 - unused_element
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:13:9 - overridden_fields
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:15:9 - overridden_fields
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:17:9 - overridden_fields
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:19:9 - overridden_fields
+warning - The value of the local variable 'dt' isn't used - lib\feature\failure\controller\failure_submit_logic.dart:622:33 - unused_local_variable
+   info - The import of 'package:flutter/foundation.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' - lib\feature\failure\controller\rst_failure_controller.dart:1:8 - unnecessary_import
+warning - The declaration '_formatDateIfValid' isn't referenced - lib\feature\failure\controller\rst_failure_controller.dart:1157:11 - unused_element
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\rst_failure_controller.dart:1273:62 - dead_null_aware_expression
+   info - The variable name 'corr_NotificationTypeId' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:240:14 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:246:17 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:304:10 - non_constant_identifier_names
+   info - The variable name 'corr_NotificationTypeId' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:329:10 - non_constant_identifier_names
+   info - The variable name 'assignUserId_SIC' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:157:14 - non_constant_identifier_names
+   info - The variable name 'assignedUserId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:161:14 - non_constant_identifier_names
+   info - The variable name 'deptId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:162:14 - non_constant_identifier_names
+   info - The variable name 'functionLocation_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:163:14 - non_constant_identifier_names
+   info - The variable name 'equipmentId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:164:14 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:166:17 - non_constant_identifier_names
+   info - The variable name 'statusId_IBL' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:191:14 - non_constant_identifier_names
+   info - The variable name 'assignUserId_SIC' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:267:10 - non_constant_identifier_names
+   info - The variable name 'assignedUserId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:271:10 - non_constant_identifier_names
+   info - The variable name 'deptId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:272:10 - non_constant_identifier_names
+   info - The variable name 'functionLocation_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:273:10 - non_constant_identifier_names
+   info - The variable name 'equipmentId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:274:10 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:276:10 - non_constant_identifier_names
+   info - The variable name 'statusId_IBL' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:301:10 - non_constant_identifier_names
+   info - The variable name 'jI_Dept_Id' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:567:13 - non_constant_identifier_names
+   info - The variable name 'jI_Dept_Name' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:568:16 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePersonId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:569:13 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePerson' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:570:16 - non_constant_identifier_names
+   info - The variable name 'jI_Remark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:571:17 - non_constant_identifier_names
+   info - The variable name 'jI_FunctionalLocation' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:573:17 - non_constant_identifier_names
+   info - The variable name 'jI_EquipementName' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:574:17 - non_constant_identifier_names
+   info - The variable name 'jI_Status' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:575:16 - non_constant_identifier_names
+   info - The variable name 'jI_StatusId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:576:13 - non_constant_identifier_names
+   info - The variable name 'jI_UserRemark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:577:17 - non_constant_identifier_names
+   info - The variable name 'jI_Dept_Id' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:581:19 - non_constant_identifier_names
+   info - The variable name 'jI_Dept_Name' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:582:19 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePersonId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:583:19 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePerson' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:584:19 - non_constant_identifier_names
+   info - The variable name 'jI_Remark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:585:19 - non_constant_identifier_names
+   info - The variable name 'jI_FunctionalLocation' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:587:10 - non_constant_identifier_names
+   info - The variable name 'jI_EquipementName' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:588:10 - non_constant_identifier_names
+   info - The variable name 'jI_Status' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:589:19 - non_constant_identifier_names
+   info - The variable name 'jI_StatusId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:590:19 - non_constant_identifier_names
+   info - The variable name 'jI_UserRemark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:591:10 - non_constant_identifier_names
+   info - Invalid use of a private type in a public API - lib\feature\failure\view\create_failure_screen.dart:53:3 - library_private_types_in_public_api
+warning - The value of the field '_ptw' isn't used - lib\feature\failure\view\create_failure_screen.dart:64:9 - unused_field
+warning - The value of the local variable 'dt' isn't used - lib\feature\failure\view\create_failure_screen.dart:159:23 - unused_local_variable
+warning - The declaration '_buildActionCard' isn't referenced - lib\feature\failure\view\create_failure_screen.dart:1423:10 - unused_element
+warning - The declaration '_buildPopupTab' isn't referenced - lib\feature\failure\view\create_failure_screen.dart:1894:10 - unused_element
+  error - The part-of directive must be the only directive in a part - lib\feature\failure\view\create_failure_screen_je.dart:2:1 - non_part_of_directive_in_part
+   info - Invalid use of a private type in a public API - lib\feature\failure\view\create_failure_screen_je.dart:4:42 - library_private_types_in_public_api
+  error - The property 'deptName' can't be unconditionally accessed because the receiver can be 'null' - lib\feature\failure\view\create_failure_screen_je.dart:105:59 - unchecked_use_of_nullable_value
+   info - Invalid use of a private type in a public API - lib\feature\failure\view\create_failure_screen_station.dart:3:35 - library_private_types_in_public_api
+   info - 'WillPopScope' is deprecated and shouldn't be used. Use PopScope instead. The Android predictive back feature will not work with WillPopScope. This feature was deprecated after v3.12.0-1.0.pre - lib\feature\failure\view\failure_list_screen.dart:81:7 - deprecated_member_use
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\common_inspection_checklist_screen.dart:153:10 - unused_element
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\inspection_list_screen.dart:115:10 - unused_element
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\top_management\top_management_create_inspection_screen.dart:170:10 - unused_element
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\top_management\top_management_inspection_observation_screen.dart:218:10 - unused_element
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\ptw\view\ptw_form_screen.dart:201:55 - dead_null_aware_expression
+warning - The value of the local variable 'failedCount' isn't used - lib\service\master_data_sync_service.dart:140:11 - unused_local_variable
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\cust_date_time_picker.dart:102:9 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\custom_drawer.dart:77:21 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\custom_drawer.dart:79:9 - use_build_context_synchronously
+   info - Unnecessary instance of 'Container' - lib\utils\widgets\custom_drawer.dart:356:12 - avoid_unnecessary_containers
+  error - The property 'deptName' can't be unconditionally accessed because the receiver can be 'null' - lib\utils\widgets\custom_drawer.dart:430:69 - unchecked_use_of_nullable_value
+  error - The property 'deptName' can't be unconditionally accessed because the receiver can be 'null' - lib\utils\widgets\custom_drawer.dart:433:84 - unchecked_use_of_nullable_value
+  error - The property 'roleDescr' can't be unconditionally accessed because the receiver can be 'null' - lib\utils\widgets\custom_drawer.dart:457:62 - unchecked_use_of_nullable_value
+  error - The property 'roleDescr' can't be unconditionally accessed because the receiver can be 'null' - lib\utils\widgets\custom_drawer.dart:463:80 - unchecked_use_of_nullable_value
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\custom_drawer.dart:498:41 - use_build_context_synchronously
+   info - Invalid use of a private type in a public API - lib\utils\widgets\horizontal_paginated_view.dart:10:3 - library_private_types_in_public_api
+   info - Don't invoke 'print' in production code - scripts\db_schema.dart:10:5 - avoid_print
+   info - Don't invoke 'print' in production code - scripts\db_schema.dart:13:7 - avoid_print
+   info - Use interpolation to compose strings and values - scripts\replace_print.dart:21:23 - prefer_interpolation_to_compose_strings
+   info - Don't invoke 'print' in production code - scripts\replace_print.dart:27:11 - avoid_print
+   info - Don't invoke 'print' in production code - scripts\replace_print.dart:32:3 - avoid_print
+   info - Don't invoke 'print' in production code - scripts\test_db.dart:15:7 - avoid_print
+   info - Don't invoke 'print' in production code - scripts\test_db.dart:18:7 - avoid_print
+   info - Don't invoke 'print' in production code - scripts\test_db.dart:23:9 - avoid_print
+   info - Don't invoke 'print' in production code - scripts\test_db.dart:25:9 - avoid_print
+   info - Don't invoke 'print' in production code - scripts\test_db.dart:29:7 - avoid_print
+
+flutter : 236 issues found. (ran in 3.4s)
+At line:1 char:1
++ flutter analyze 2>&1 | Out-String | Set-Content analyze_results.txt;  ...
++ ~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (236 issues found. (ran in 3.4s):String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+
