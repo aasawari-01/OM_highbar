@@ -117,6 +117,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   final _formKey = GlobalKey<FormState>();
   final _stationFormKey = GlobalKey<FormState>();
   final _formBottomKey = GlobalKey<FormState>();
+  final _rcaFormKey = GlobalKey<FormState>();
 
   final _jointInspectionFormKey = GlobalKey<FormState>();
   final _jointInspectionOherDeptFormKey = GlobalKey<FormState>();
@@ -1127,7 +1128,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 !_isJointInspectionFlow,
                             validator: (v) => controller.isJE &&
                                 !_isJointInspectionFlow
-                                ? _requiredDropdown(
+                                ? FormValidators.requiredDropdown(
                                 controller.selectedNotificationType.value,
                                 'Notification Type')
                                 : null,
@@ -1182,7 +1183,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 enabled: controller.isJE && !_isJointInspectionFlow,
                                 validator: (val) =>
                                 controller.isServiceAffected.value
-                                    ? _requiredText(val, 'Train Delay In Min.')
+                                    ? FormValidators.requiredText(val, 'Train Delay In Min.')
                                     : null,
                               )),
                           const SizedBox(width: AppConstants.elementSpacing),
@@ -1194,7 +1195,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 enabled: controller.isJE && !_isJointInspectionFlow,
                                 validator: (val) =>
                                 controller.isServiceAffected.value
-                                    ? _requiredText(val, 'Train Delay (NOS)')
+                                    ? FormValidators.requiredText(val, 'Train Delay (NOS)')
                                     : null,
                               )),
                         ],
@@ -1210,7 +1211,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 enabled: controller.isJE && !_isJointInspectionFlow,
                                 validator: (val) =>
                                 controller.isServiceAffected.value
-                                    ? _requiredText(val, 'Train Cancel (NOS)')
+                                    ? FormValidators.requiredText(val, 'Train Cancel (NOS)')
                                     : null,
                               )),
                           const SizedBox(width: AppConstants.elementSpacing),
@@ -1222,7 +1223,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 enabled: controller.isJE && !_isJointInspectionFlow,
                                 validator: (val) => controller
                                     .isServiceAffected.value
-                                    ? _requiredText(val, 'Train Withdrawal (NOS)')
+                                    ? FormValidators.requiredText(val, 'Train Withdrawal (NOS)')
                                     : null,
                               )),
                         ],
@@ -1236,7 +1237,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             controller.isJE &&
                             !_isJointInspectionFlow,
                         validator: (val) => controller.isServiceAffected.value
-                            ? _requiredText(val, 'Train Replace (NOS)')
+                            ? FormValidators.requiredText(val, 'Train Replace (NOS)')
                             : null,
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
@@ -1276,7 +1277,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               !_isJointInspectionFlow,
                           validator: (val) =>
                           controller.isPassengerDeboarding.value
-                              ? _requiredText(val, 'Train Deboarded (NOS)')
+                              ? FormValidators.requiredText(val, 'Train Deboarded (NOS)')
                               : null,
                         );
                       }),
@@ -1321,7 +1322,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           hintText: "Enter number of Passenger Affected",
                           validator: (val) =>
                           controller.isPassengerAffected.value
-                              ? _requiredText(
+                              ? FormValidators.requiredText(
                               val, 'Number Of Passenger Affected')
                               : null,
                         ),
@@ -1419,7 +1420,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             enabled: !controller.isFormDisabled &&
                                 (controller.isJE ||
                                     controller.isTechnician),
-                            validator: (v) => _requiredDropdown(
+                            validator: (v) => FormValidators.requiredDropdown(
                               controller.selectedRcaFailureCategory.value,
                               'Failure Category',
                             ),
