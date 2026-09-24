@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../core/models/label_value.dart';
-import '../../../service/session_controller.dart';
+import '../../../core/controller/session_controller.dart';
 import '../model/joint_inspection_history.dart';
 import '../model/failure_detail_response.dart';
 
@@ -21,12 +21,20 @@ mixin FailureFormState on GetxController {
 
   final isFaultLoading = false.obs;
   final isEquipmentLoading = false.obs;
+  final isFunctionalLocationLoading = false.obs;
+  final isUsersLoaded = false.obs;
+  final isFunctionalLocationsLoaded = false.obs;
+  final isUserListLoading = false.obs;
   final showMeasurementButton = false.obs;
   final errorMessage = "".obs;
   final encryptedId = "".obs;
   final notificationId = 0.obs;
   final jointInspectionFailureNo = "".obs;
   final notificationCode = "".obs;
+
+  // Backs the read-only "Observation Detail" panel shown when the form is
+  // opened from an Inspection "Not Okay" flow (via QR / nav arguments).
+  final inspectionObservation = <String, dynamic>{}.obs;
 
   // Dropdown lists
   final notificationTypeList = <LabelValue>[].obs;
@@ -45,9 +53,30 @@ mixin FailureFormState on GetxController {
   final faultTypeList = <LabelValue>[].obs;
   final rootCauseList = <LabelValue>[].obs;
   final actionTakenList = <LabelValue>[].obs;
+  final causeList = <LabelValue>[].obs;
+  final actionList = <LabelValue>[].obs;
   final corrNotificationTypeList = <LabelValue>[].obs;
   final jointUserList = <LabelValue>[].obs;
   final masterJointInspectionDepartments = <LabelValue>[].obs;
+
+  // NEW: JE View dropdowns from asset DB
+  final corrFailureTypeList = <LabelValue>[].obs;
+  final userStatusJeList = <LabelValue>[].obs;
+  final materialMasterList = <LabelValue>[].obs;
+
+  // NEW: RST View dropdowns from asset DB
+  final rstFaultMasterList = <LabelValue>[].obs;
+  final rstOldRootCauseList = <LabelValue>[].obs;
+  final rstStoreLocationList = <LabelValue>[].obs;
+
+  // FMECA fields for Section Incharge
+  final fmecaSystemList = <LabelValue>[].obs;
+  final fmecaSubsystemList = <LabelValue>[].obs;
+  final selectedFmecaSystem = RxnString();
+  final selectedFmecaSubsystem = RxnString();
+  final fmecaFrequency = RxnInt();
+  final fmecaSystemReadOnly = false.obs;
+  final fmecaSubsystemReadOnly = false.obs;
 
   // Form selections
   final selectedPriority = RxnString();
@@ -65,6 +94,19 @@ mixin FailureFormState on GetxController {
   final selectedNatureOfWork = RxnString();
   final selectedFailureCategoryType = RxnString();
   final selectedFailureReportedBy = RxnString();
+  final selectedCause = RxnString();
+  final selectedAction = RxnString();
+  final selectedRcaFailureCategory = RxnString();
+  final rcaFailureCategoryList = <LabelValue>[].obs;
+  final masterRcaFailureCategories = <Map<String, dynamic>>[].obs;
+  final masterRootCauses = <Map<String, dynamic>>[].obs;
+  final masterCauseOfFailures = <Map<String, dynamic>>[].obs;
+
+  // RCA popup selections
+  final selectedPopupCause = RxnString();
+  final selectedPopupAction = RxnString();
+  final popupRootCauseList = <LabelValue>[].obs;
+
   final selectedJointDept = RxnString();
   final selectedJointAssignTo = RxnString();
   final jiDepartment = RxnString();
@@ -92,6 +134,7 @@ mixin FailureFormState on GetxController {
   final isServiceAffected = false.obs;
   final isPassengerDeboarding = false.obs;
   final isPowerBlockRequired = false.obs;
+  final isOheRequired = false.obs;
   final isSicRequired = false.obs;
   final isPassengerAffected = false.obs;
   final isPtwRequired = false.obs;
@@ -115,10 +158,15 @@ mixin FailureFormState on GetxController {
   final jiRemarkDisplayController = TextEditingController();
   final ptwNumberController = TextEditingController();
   final systemController = TextEditingController();
+  final subsystemController = TextEditingController();
+  final fmecaSystemController = TextEditingController();
+  final fmecaSubsystemController = TextEditingController();
+  final fmecaFrequencyController = TextEditingController();
   final trainIdController = TextEditingController();
   final tripDelayUplineController = TextEditingController();
   final tripDelayDownlineController = TextEditingController();
   final passengersAffectedCountController = TextEditingController();
+  final numberOfPassengerAffectedController = TextEditingController();
   final trappedDurationController = TextEditingController();
   final rescuedDurationController = TextEditingController();
   final objectPartTextController = TextEditingController();
@@ -130,6 +178,8 @@ mixin FailureFormState on GetxController {
   final failureRectificationDetailsController = TextEditingController();
   final popupRootCauseTextController = TextEditingController();
   final popupActionTakenTextController = TextEditingController();
+  final popupCauseTextController = TextEditingController();
+  final popupActionTextController = TextEditingController();
   final trainDelayMinController = TextEditingController();
   final trainDelayNosController = TextEditingController();
   final trainCancelNosController = TextEditingController();
@@ -169,11 +219,19 @@ mixin FailureFormState on GetxController {
   final notificationDescriptionHistoryList = <NotificationHistory>[].obs;
   final jointInspectionHistoryList = <JointInspectionHistory>[].obs;
 
+  // Inline "history at this Functional Location" (from getFunctionEqDetailsById
+  // response's functionalHistory / functionalHistoryPrev). Distinct from the
+  // standalone MaintenanceHistoryScreen, which is a separate asset-level browser.
+  final maintenanceHistoryList = <Map<String, dynamic>>[].obs;
+  final maintenanceHistoryListPrev = <Map<String, dynamic>>[].obs;
+  final selectedHistoryTab = 'current'.obs;
+
   // Master data lists
   final masterLocations = <Map<String, dynamic>>[].obs;
   final masterFunctionalLocations = <Map<String, dynamic>>[].obs;
   final masterEquipments = <Map<String, dynamic>>[].obs;
   final masterDepartments = <Map<String, dynamic>>[].obs;
+  final masterUsers = <Map<String, dynamic>>[].obs;
 
   // Popup state
   final selectedPopupRootCause = RxnString();
@@ -186,7 +244,9 @@ mixin FailureFormState on GetxController {
   final selectedReasonForDelay = RxnString();
   final reasonForDelayId = 0.obs;
 
-  void dispose() {
+  @override
+  void onClose() {
+    super.onClose();
     failureDescriptionController.dispose();
     priorityDisplayController.dispose();
     departmentDisplayController.dispose();
@@ -198,10 +258,15 @@ mixin FailureFormState on GetxController {
     jiAssignToDisplayController.dispose();
     jiRemarkDisplayController.dispose();
     systemController.dispose();
+    subsystemController.dispose();
+    fmecaSystemController.dispose();
+    fmecaSubsystemController.dispose();
+    fmecaFrequencyController.dispose();
     trainIdController.dispose();
     tripDelayUplineController.dispose();
     tripDelayDownlineController.dispose();
     passengersAffectedCountController.dispose();
+    numberOfPassengerAffectedController.dispose();
     trappedDurationController.dispose();
     rescuedDurationController.dispose();
     ptwNumberController.dispose();
@@ -255,8 +320,17 @@ mixin FailureFormState on GetxController {
           ?.contains("Station Controller") ??
           false;
 
+  bool get isSectionIncharge =>
+      Get.find<SessionController>()
+          .selectedRole
+          .value
+          ?.roleDescr
+          ?.contains("Section Incharge") ??
+          false;
+
   bool get isStation => failureCategory.value.toLowerCase() == 'station';
-  bool get isMaintenance => failureCategory.value.toLowerCase() == 'maintenance';
+  bool get isMaintenance =>
+      failureCategory.value.toLowerCase() == 'maintenance';
   bool get isOCC => failureCategory.value.toLowerCase() == 'occ';
   bool get isDepot => failureCategory.value.toLowerCase() == 'depot';
 
@@ -272,4 +346,9 @@ mixin FailureFormState on GetxController {
   }
 
   bool get isCloseUserStatusBlocked => isJE && isJointInspectionPending;
+
+  bool get isJointInspectionPendingStatus =>
+      _isPendingJointInspectionStatus(mainStatusName.value);
+
+  bool get isFormDisabled => isJointInspectionPendingStatus;
 }

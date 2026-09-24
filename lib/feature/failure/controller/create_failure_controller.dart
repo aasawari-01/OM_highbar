@@ -1,7 +1,5 @@
 import 'package:dart_des/dart_des.dart';
-import 'package:flutter/foundation.dart';
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
@@ -11,11 +9,17 @@ import 'package:flutter_easyloading/flutter_easyloading.dart';
 import '../../../constants/app_constants.dart';
 import '../../../constants/colors.dart';
 import '../../../constants/strings.dart';
+import '../../../core/models/cause_of_failure.dart';
 import '../../../core/models/label_value.dart';
+import '../../../core/models/measurement_point.dart';
+import '../../../core/models/root_cause.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
 import '../../../service/master_data_sync_service.dart';
-import '../../../service/session_controller.dart';
+import '../../../service/network_service/app_urls.dart';
+import '../../../service/network_service/api_client.dart';
+import '../../../core/controller/session_controller.dart';
+import '../../../core/controller/global_master_data_controller.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_loader.dart';
 import '../../../utils/widgets/cust_text.dart';
@@ -26,12 +30,11 @@ import '../../auth_login/model/login_response.dart';
 import '../model/failure_detail_response.dart';
 import '../model/joint_inspection_history.dart';
 import '../model/failure_list_response.dart';
+import '../view/maintenance_history_screen.dart';
 import 'failure_list_controller.dart';
 import '../../../core/models/functional_location.dart';
 import '../../../core/models/equipment.dart';
 import '../service/failure_service.dart';
-import '../../../service/network_service/api_client.dart';
-import '../../../service/network_service/app_urls.dart';
 import 'failure_form_state.dart';
 import 'failure_rca_logic.dart';
 import 'failure_material_logic.dart';
@@ -42,8 +45,6 @@ import 'failure_ui_helper_logic.dart';
 
 class CreateFailureController extends GetxController with FailureFormState, FailureRcaLogic, FailureMaterialLogic, FailureSubmitLogic, FailureJointInspectionLogic, FailureDataLoadingLogic, FailureUIHelperLogic {
   final FailureService _failureService = FailureService();
-  final ApiClient _apiClient = ApiClient();
-  late final MasterDataSyncService _syncService;
 
   /// Shows a validation error snackbar with the first error.
   void _showErrorDialog(String message) {
@@ -52,8 +53,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     Get.snackbar(
       'Validation Error',
       lines.first,
-      backgroundColor: Colors.red.withOpacity(0.9),
-      colorText: Colors.white,
+      backgroundColor: AppColors.red.withValues(alpha: 0.9),
+      colorText: AppColors.white1,
       snackPosition: SnackPosition.BOTTOM,
       duration: const Duration(seconds: 3),
     );
@@ -64,6 +65,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     _showErrorDialog(message);
   }
 
+  @override
   void showPendingJointInspectionPopup() {
     Get.dialog(
       CustPopup(
@@ -87,18 +89,25 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   }
 
   /// Refreshes the appropriate failure list controller based on user role and failure type
-  void _refreshFailureListAfterSubmission(bool isStation) {
+  @override
+  void refreshFailureListAfterSubmission(bool isStation) {
     final session = Get.find<SessionController>();
     final role = session.selectedRole.value?.roleDescr ?? '';
     final isJE = role.contains('Junior Engineer');
     final isStationController = role.contains('Station Controller');
-    
+
     if (isStationController) {
-      // For Station Controller, sync Station failures to local DB and refresh
+      // For Station Controller, call API to get updated station failure list
       if (Get.isRegistered<MasterDataSyncService>()) {
         Future.microtask(() async {
           try {
-            await Get.find<MasterDataSyncService>().syncFailureList('Station');
+            // Call API to sync station failure list with latest data from server
+            await Get.find<MasterDataSyncService>().syncFailureList('Station', forceFullSync: true);
+            // Refresh the UI controller to show the updated list
+            if (Get.isRegistered<FailureListController>(tag: 'Station')) {
+              await Get.find<FailureListController>(tag: 'Station').fetchFailures();
+            }
+            debugPrint("refreshFailureListAfterSubmission: Successfully synced station failure list from API");
           } catch (e) {
             debugPrint("Error syncing failure list after creation: $e");
           }
@@ -210,25 +219,117 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   @override
   void onInit() {
     super.onInit();
-    _syncService = Get.find<MasterDataSyncService>();
+    _globalData = Get.find<GlobalMasterDataController>();
     _initializeAllData();
   }
 
   Future<void> _initializeAllData() async {
-    pushLoading();
     try {
-      await Future.wait([
-        fetchMasterJointInspectionDepartments(),
-        loadMasterDataFromDb(),
-        loadMasterDropdownsFromDb(refreshIfEmpty: true),
-        loadDepartments(),
-      ]);
+      // Ensure global data is loaded
+      if (!_globalData.isLoaded) {
+        await _globalData.loadMasterData();
+      }
+
+      // Copy global data to local lists
+      _copyGlobalDataToLocal(_globalData);
+
+      debugPrint("_initializeAllData: userList count after load = ${userList.length}");
+
+      // Auto-select logged-in user in "Failure Reported By" field
+      await _autoSelectFailureReportedBy();
+
+      await fetchMasterJointInspectionDepartments();
     } catch (e) {
       debugPrint("Error in _initializeAllData: $e");
-    } finally {
-      popLoading();
     }
   }
+
+  void _copyGlobalDataToLocal(GlobalMasterDataController globalData) {
+    priorityTypeList.assignAll(globalData.priorityTypeList);
+    locationTypeList.assignAll(globalData.locationTypeList);
+    functionalLocationList.assignAll(globalData.functionalLocationList);
+    equipmentList.assignAll(globalData.equipmentList);
+    departmentList.assignAll(globalData.departmentList);
+    userList.assignAll(globalData.userList);
+    corrNotificationTypeList.assignAll(globalData.corrNotificationTypeList);
+    storageLocationList.assignAll(globalData.storageLocationList);
+    reasonForDelayList.assignAll(globalData.reasonForDelayList);
+    objectDataList.assignAll(globalData.objectDataList);
+    rootCauseList.assignAll(globalData.rootCauseList);
+    causeList.assignAll(globalData.causeList);
+    actionList.assignAll(globalData.actionList);
+    rcaFailureCategoryList.assignAll(globalData.rcaFailureCategoryList);
+
+    // NEW: Copy JE view data from asset DB
+    corrFailureTypeList.assignAll(globalData.corrFailureTypeList);
+    userStatusJeList.assignAll(globalData.userStatusJeList);
+    materialMasterList.assignAll(globalData.materialMasterList);
+
+    // NEW: Copy RST view data from asset DB
+    rstFaultMasterList.assignAll(globalData.rstFaultMasterList);
+    rstOldRootCauseList.assignAll(globalData.rstOldRootCauseList);
+    rstStoreLocationList.assignAll(globalData.rstStoreLocationList);
+
+    masterLocations.assignAll(globalData.masterLocations);
+    masterFunctionalLocations.assignAll(globalData.masterFunctionalLocations);
+    masterEquipments.assignAll(globalData.masterEquipments);
+    masterDepartments.assignAll(globalData.masterDepartments);
+    masterRootCauses.assignAll(globalData.masterRootCauses);
+    masterCauseOfFailures.assignAll(globalData.masterCauseOfFailures);
+    masterRcaFailureCategories.assignAll(globalData.masterRcaFailureCategories);
+
+    // Debug logging for masterDepartments
+    debugPrint("_copyGlobalDataToLocal: masterDepartments count = ${masterDepartments.length}");
+    if (masterDepartments.isNotEmpty) {
+      debugPrint("_copyGlobalDataToLocal: Sample masterDepartments data:");
+      for (int i = 0; i < masterDepartments.length && i < 3; i++) {
+        final dept = masterDepartments[i];
+        debugPrint("  [$i] DeptName: ${dept['DeptName']}, DeptId: ${dept['DeptId']}");
+      }
+    }
+
+    // Load master users on-demand if not already loaded
+    if (masterUsers.isEmpty) {
+      _loadMasterUsersOnDemand();
+    } else {
+      masterUsers.assignAll(globalData.masterUsers);
+    }
+  }
+
+  Future<void> _loadMasterUsersOnDemand() async {
+    // Only load if not already loaded
+    if (isUsersLoaded.value && masterUsers.isNotEmpty) {
+      debugPrint('_loadMasterUsersOnDemand: Users already loaded, skipping');
+      return;
+    }
+
+    debugPrint('_loadMasterUsersOnDemand: Loading master users from SQLite');
+    final dbService = LocalDatabaseService();
+    final users = await dbService.getMasterUsers();
+
+    // Convert users to Map with consistent key names (PascalCase as in MasterUserModel.toJson())
+    masterUsers.assignAll(users.map((e) => e.toJson()).toList());
+    isUsersLoaded.value = true;
+    debugPrint('_loadMasterUsersOnDemand: Loaded ${users.length} master users');
+
+    // Show sample data for debugging - show both PascalCase and camelCase keys
+    if (masterUsers.isNotEmpty) {
+      debugPrint('_loadMasterUsersOnDemand: Sample user data:');
+      for (int i = 0; i < masterUsers.length && i < 3; i++) {
+        final user = masterUsers[i];
+        debugPrint('  [$i] UserId: ${user['UserId']}, UserName: ${user['UserName']}, DeptId: ${user['DeptId']}, RoleDescr: ${user['RoleDescr']}');
+        debugPrint('      camelCase: userName: ${user['userName']}, deptId: ${user['deptId']}, roleDescr: ${user['roleDescr']}');
+      }
+    }
+
+    // Force UI update
+    masterUsers.refresh();
+  }
+
+
+
+  // Reference to global master data to avoid redundant DB calls
+  late final GlobalMasterDataController _globalData;
 
   @override
   void onClose() {
@@ -236,6 +337,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     super.onClose();
   }
 
+  @override
   int resolveNotificationId() {
     if (notificationId.value > 0) return notificationId.value;
     return int.tryParse(encryptedId.value) ?? 0;
@@ -250,8 +352,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     isPopupStationLoading.value = true;
 
     Get.dialog(
-      WillPopScope(
-        onWillPop: () async => false,
+      PopScope(
+        canPop: false,
         child: Dialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           elevation: 8,
@@ -336,9 +438,9 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
                             if (session.selectedStationName.value != null && session.selectedStationName.value!.isNotEmpty) {
                               Get.back();
                             } else {
-                              Get.snackbar("Error", "Please select a station",
-                                backgroundColor: Colors.red.withOpacity(0.9),
-                                colorText: Colors.white,
+                              Get.snackbar(AppStrings.error, "Please select a station",
+                                backgroundColor: AppColors.red.withValues(alpha: 0.9),
+                                colorText: AppColors.white1,
                                 snackPosition: SnackPosition.BOTTOM,
                               );
                             }
@@ -374,363 +476,15 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       isLoading.value = true;
       errorMessage.value = "";
 
-      final String? userIdStr = await AuthManager().getUserId();
-      final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
+      // Joint Inspection API disabled - manage from frontend
+      // Load from local data or use existing failure details
+      debugPrint("loadJointInspectionDetails: API disabled, loading from local data");
+      errorMessage.value = "Joint Inspection details loaded from local data";
 
-      final apiClient = ApiClient();
-      final response = await apiClient.get(
-        '${AppUrls.getJointInspectionJEScreenDetails}?notificationID=$failureNo&userId=$userId',
-      );
+      // Load master data from DB
+      await loadMasterDataFromDb();
+      await loadFunctionalLocationsOnDemand();
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonBody = jsonDecode(response.body);
-        final responseOutput = jsonBody['responseOutput'];
-
-        debugPrint("GetJointInspectionJEScreenDetails responseCode: ${jsonBody['responseCode']}");
-        debugPrint("GetJointInspectionJEScreenDetails responseOutput keys: ${responseOutput?.keys.toList()}");
-
-        if (jsonBody['responseCode'] == 200 && responseOutput != null) {
-          final List<dynamic>? deptListJson =
-          responseOutput['department'] as List?;
-          if (deptListJson != null) {
-            departmentList.assignAll(deptListJson
-                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                .toList());
-            debugPrint("JI departmentList populated with ${departmentList.length} items");
-            debugPrint("JI departmentList first 3: ${departmentList.take(3).toList()}");
-          }
-          final List<dynamic>? userListJson =
-          responseOutput['personResponsible'] as List?;
-          if (userListJson != null) {
-            userList.assignAll(userListJson
-                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                .toList());
-            debugPrint("JI userList populated with ${userList.length} items");
-            debugPrint("JI userList first 3: ${userList.take(3).toList()}");
-          }
-          final List<dynamic>? funcLocJson =
-          responseOutput['functionalLocation'] as List?;
-          if (funcLocJson != null) {
-            final filtered = funcLocJson
-                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                .where((e) => e.label?.toLowerCase() != 'select')
-                .map((e) => LabelValue(label: e.label ?? '', value: e.value ?? ''))
-                .toList();
-            functionalLocationList.assignAll(filtered);
-            debugPrint("JI functionalLocationList populated with ${functionalLocationList.length} items");
-          }
-          final List<dynamic>? equipJson = responseOutput['equipment'] as List?;
-          if (equipJson != null) {
-            final filtered = equipJson
-                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                .where((e) => e.label?.toLowerCase() != 'select')
-                .map((e) => LabelValue(label: e.label ?? '', value: e.value ?? ''))
-                .toList();
-            equipmentList.assignAll(filtered);
-            debugPrint("JI equipmentList populated with ${equipmentList.length} items");
-          }
-          final List<dynamic>? objPartJson =
-          responseOutput['objectPart'] as List?;
-          if (objPartJson != null) {
-            objectDataList.assignAll(objPartJson
-                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                .toList());
-          }
-          final List<dynamic>? matCodeJson =
-          responseOutput['materialCode'] as List?;
-          if (matCodeJson != null) {
-            materialDataList.assignAll(matCodeJson
-                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                .toList());
-          }
-          final List<dynamic>? statusJson = responseOutput['status'] as List?;
-          if (statusJson != null) {
-            userStatusList.assignAll((statusJson
-                .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-                .toList())
-                .where((status) {
-              final val = int.tryParse(status.value ?? "999") ?? 999;
-              return val == 0 || val <= 29;
-            }).toList());
-          }
-
-          final List<dynamic>? historyJson =
-          responseOutput['notificationHistory'] as List?;
-          if (historyJson != null) {
-            notificationDescriptionHistoryList.assignAll(historyJson
-                .map((e) => NotificationHistory.fromJson(
-                e as Map<String, dynamic>))
-                .toList());
-          }
-
-          final List<dynamic>? actionHistoryJson =
-              responseOutput['notificationActionHistory'] as List? ??
-                  responseOutput['getNotificationActionUserHistory'] as List?;
-          if (actionHistoryJson != null) {
-            notificationHistoryList.assignAll(actionHistoryJson
-                .map((e) => NotificationActionHistory.fromJson(
-                e as Map<String, dynamic>))
-                .toList());
-            debugPrint("JI notificationHistoryList populated with ${notificationHistoryList.length} items");
-          }
-
-          final Map<String, dynamic>? je = responseOutput['jeScreenDetails'];
-          debugPrint("GetJointInspectionJEScreenDetails jeScreenDetails: $je");
-          if (je == null) {
-            debugPrint("ERROR: jeScreenDetails is null in API response");
-            errorMessage.value = "jeScreenDetails is null in API response";
-          } else {
-            debugPrint("jeScreenDetails keys: ${je.keys.toList()}");
-            debugPrint("jeScreenDetails deptId_JI: ${je['deptId_JI']}");
-            debugPrint("jeScreenDetails assignedUserId_JI: ${je['assignedUserId_JI']}");
-            debugPrint("jeScreenDetails functionLocation_JI: ${je['functionLocation_JI']}");
-            debugPrint("jeScreenDetails equipmentId_JI: ${je['equipmentId_JI']}");
-          }
-          if (je != null) {
-            final detailFailureNo = je['Id']?.toString().trim();
-            final detailNotificationId =
-            je['notificationId']?.toString().trim();
-            notificationId.value =
-                int.tryParse(detailNotificationId ?? "") ?? 0;
-            jointInspectionFailureNo.value =
-            je['failureNo']?.toString().trim().isNotEmpty == true
-                ? je['failureNo'].toString().trim()
-                : detailFailureNo?.isNotEmpty == true
-                ? detailFailureNo!
-                : detailNotificationId?.isNotEmpty == true
-                ? detailNotificationId!
-                : "";
-            notificationCode.value = je['notificationCode'] ?? "";
-            mainStatusName.value = je['status'];
-            selectedPriority.value = je['priorityType'];
-            priorityDisplayController.text = je['priorityType']?.toString() ?? "";
-            failureDescriptionController.text = je['failureDescriptions'] ?? "";
-
-            selectedDepartment.value = departmentList
-                .firstWhere((e) => e.value == je['deptId']?.toString(),
-                orElse: () => LabelValue(label: ""))
-                .label;
-            departmentDisplayController.text =
-                selectedDepartment.value ?? je['deptId']?.toString() ?? "";
-
-            debugPrint("JE: selectedDepartment.value=${selectedDepartment.value}");
-            debugPrint("JE: departmentList sample: ${departmentList.take(3).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
-            
-            // Filter functional locations based on department's workCenter
-            _updateFunctionalLocationAndEquipmentOptions();
-
-            selectedLocation.value = je['locationTypeName']?.toString();
-            final funcLocName = (textOrNull(je['functionalLocationName']) ??
-                labelForValue(functionalLocationList, je['functionLocationId']));
-            selectedFunctionalLocation.value = funcLocName;
-            final equipName = (textOrNull(je['equipmentName']) ??
-                labelForValue(equipmentList, je['equipmentId']));
-            selectedEquipmentNumber.value = equipName;
-            locationDisplayController.text = selectedLocation.value ?? "";
-            functionalLocationDisplayController.text =
-                selectedFunctionalLocation.value ?? "";
-            equipmentDisplayController.text = selectedEquipmentNumber.value ?? "";
-
-            debugPrint('Joint Inspection: actualFailureOccuranceOn from API = ${je['actualFailureOccuranceOn']}');
-            selectedFailureOccurrenceDate.value =
-            je['actualFailureOccuranceOn'] != null
-                ? _parseDate(je['actualFailureOccuranceOn']!)
-                : null;
-            debugPrint('Joint Inspection: selectedFailureOccurrenceDate = ${selectedFailureOccurrenceDate.value}');
-
-            selectedPersonResponsible.value =
-                labelForValue(userList, je['personResponsible']);
-            personResponsibleDisplayController.text =
-                selectedPersonResponsible.value ??
-                    je['personResponsible']?.toString() ??
-                    "";
-
-            isPtwRequired.value = je['isPTWReq'] ?? false;
-            if (isPtwRequired.value) {
-              ptwNumberController.text = je['ptwNo'] ?? "";
-            }
-
-            selectedFailureAttendedDate.value = je['failureAttendedOn'] != null
-                ? _parseDate(je['failureAttendedOn']!)
-                : null;
-            selectedActualFailureRectifiedDate.value =
-            je['actualFailureRectifiedOn'] != null
-                ? _parseDate(je['actualFailureRectifiedOn']!)
-                : null;
-
-            isServiceAffected.value = je['isServiceAffected'] ?? false;
-            if (isServiceAffected.value) {
-              trainDelayMinController.text =
-                  je['trainDelayInMin']?.toString() ?? "0";
-              trainDelayNosController.text =
-                  je['trainDelayInNo']?.toString() ?? "0";
-              trainCancelNosController.text =
-                  je['noOfTranCancel']?.toString() ?? "0";
-              trainWithdrawalNosController.text =
-                  je['noOfTranWithdrawal']?.toString() ?? "0";
-              trainReplaceNosController.text =
-                  je['noOfTrainReplace']?.toString() ?? "0";
-            }
-
-            isPassengerDeboarding.value = je['isPassengerDeboarding'] ?? false;
-            if (isPassengerDeboarding.value) {
-              trainDeboardedNosController.text =
-                  je['noofTrainDeboarded']?.toString() ?? "0";
-            }
-
-            isJointInspection.value = je['isJointInspectionReq'] ?? false;
-            isSparePartReplaced.value = je['isHardwareReplaced'] ?? false;
-            isSicRequired.value = je['isSICReq'] ?? false;
-
-            isPassengerAffected.value = je['isPassengerAffected'] ?? false;
-            if (isPassengerAffected.value) {
-              passengersAffectedCountController.text =
-                  je['noOfPassengerAffected']?.toString() ?? "";
-              trappedDurationController.text =
-                  je['trappedDuration']?.toString() ?? "";
-              rescuedDurationController.text =
-                  je['rescuedDuration']?.toString() ?? "";
-            }
-
-            debugPrint("JI deptId_JI: ${je['deptId_JI']}, assignedUserId_JI: ${je['assignedUserId_JI']}");
-            debugPrint("JI departmentList length: ${departmentList.length}, userList length: ${userList.length}");
-            jiDepartment.value = labelForValue(departmentList, je['deptId_JI']);
-            jiAssignTo.value =
-                labelForValue(userList, je['assignedUserId_JI']);
-            debugPrint("JI jiDepartment.value: ${jiDepartment.value}, jiAssignTo.value: ${jiAssignTo.value}");
-            if (jiDepartment.value == null || jiDepartment.value!.isEmpty) {
-              jiDepartment.value = je['deptId_JI']?.toString() ?? je['DeptId_JI']?.toString() ?? je['departmentName_JI']?.toString();
-              debugPrint("JI jiDepartment fallback: ${jiDepartment.value}");
-            }
-            if (jiAssignTo.value == null || jiAssignTo.value!.isEmpty) {
-              jiAssignTo.value = je['assignedUserId_JI']?.toString() ?? je['AssignedUserId_JI']?.toString() ?? je['assignedUserName_JI']?.toString();
-              debugPrint("JI jiAssignTo fallback: ${jiAssignTo.value}");
-            }
-            jiDepartmentDisplayController.text = jiDepartment.value ?? "";
-            jiAssignToDisplayController.text = jiAssignTo.value ?? "";
-            
-            // Filter functional locations based on JI department's workCenter
-            _filterJiFunctionalLocations();
-            
-            jiFunctionalLocation.value =
-                textOrNull(je['functionalLocationName_JI']) ??
-                    labelForValue(
-                        functionalLocationList, je['functionLocation_JI']);
-            jiRemark.value = je['remark_JI']?.toString();
-            jiRemarkDisplayController.text = jiRemark.value ?? "";
-            jiEquipmentId.value = je['equipmentId_JI'] is int
-                ? je['equipmentId_JI']
-                : int.tryParse(je['equipmentId_JI']?.toString() ?? "0");
-            jiFunctionalLocationId.value =
-                je['functionLocation_JI']?.toString();
-            selectedJiFunctionalLocation.value = jiFunctionalLocation.value;
-            jiEquipmentNumber.value =
-                labelForValue(equipmentList, je['equipmentId_JI']);
-            selectedJiEquipmentNumber.value = jiEquipmentNumber.value;
-          }
-
-          final List<dynamic>? rcaJson =
-          responseOutput['failureRectificationDetails'] as List?;
-          if (rcaJson != null && rcaJson.isNotEmpty) {
-            rcaDetailsList.clear();
-            for (var fault in rcaJson) {
-              final rectId = fault['RectId'];
-
-              final List<Map<String, dynamic>> matchedRootCauses = [];
-              final List<dynamic>? rootCauseJson =
-              responseOutput['failureRootCauseDetails'] as List?;
-              if (rootCauseJson != null) {
-                for (var rc
-                in rootCauseJson.where((r) => r['RectId'] == rectId)) {
-                  matchedRootCauses.add({
-                    'rootCauseId': rc['RectId']?.toString() ?? "0",
-                    'rootCause': rc['RCADescs'] ?? "N/A",
-                    'rootCauseText': rc['RCAText'] ?? "",
-                    'imagePath': null,
-                  });
-                }
-              }
-
-              final List<Map<String, dynamic>> matchedActions = [];
-              final List<dynamic>? actionJson =
-              responseOutput['failureActionDetails'] as List?;
-              if (actionJson != null) {
-                for (var ac in actionJson.where((a) => a['RectId'] == rectId)) {
-                  matchedActions.add({
-                    'actionTakenId': ac['RectId']?.toString() ?? "0",
-                    'actionTaken': ac['ActionDescs'] ?? "N/A",
-                    'actionTakenText': ac['ActionText'] ?? "",
-                    'imagePath': null,
-                  });
-                }
-              }
-
-              rcaDetailsList.add({
-                'ObjectPartId': "0",
-                'objectPart': fault['ObjectPart'] ?? "",
-                'objectPartText': fault['ObjectPartText'] ?? "",
-                'FaultId': "0",
-                'fault': fault['Fault'] ?? "",
-                'faultText': fault['FaultText'] ?? "",
-                'rootCauses': matchedRootCauses,
-                'actionTakens': matchedActions,
-              });
-            }
-          }
-
-          beforeImagesList.clear();
-          afterImagesList.clear();
-          rcaImagesList.clear();
-          final List<dynamic>? beforeImgs =
-          responseOutput['beforeImageDetails'] as List?;
-          if (beforeImgs != null) {
-            for (var img in beforeImgs) {
-              final fileName = img['FileName']?.toString() ?? '';
-              if (fileName.isNotEmpty) {
-                beforeImagesList.add({
-                  'name': fileName.split('/').last,
-                  'path': fileName,
-                  'isNetwork': true
-                });
-              }
-            }
-          }
-          final List<dynamic>? afterImgs =
-          responseOutput['afterImageDetails'] as List?;
-          if (afterImgs != null) {
-            for (var img in afterImgs) {
-              final fileName = img['FileName']?.toString() ?? '';
-              if (fileName.isNotEmpty) {
-                afterImagesList.add({
-                  'name': fileName.split('/').last,
-                  'path': fileName,
-                  'isNetwork': true
-                });
-              }
-            }
-          }
-          final List<dynamic>? rcaImgs =
-          responseOutput['rcaImageDetails'] as List?;
-          if (rcaImgs != null) {
-            for (var img in rcaImgs) {
-              final fileName = img['FileName']?.toString() ?? '';
-              if (fileName.isNotEmpty) {
-                rcaImagesList.add({
-                  'name': fileName.split('/').last,
-                  'path': fileName,
-                  'isNetwork': true
-                });
-              }
-            }
-          }
-        } else {
-          errorMessage.value =
-              jsonBody['responseMessage'] ?? "Failed to load details";
-        }
-      } else {
-        errorMessage.value =
-        "Failed to load data. Status code: ${response.statusCode}";
-      }
     } catch (e) {
       errorMessage.value = "An error occurred: $e";
       debugPrint("loadJointInspectionDetails error: $e");
@@ -742,20 +496,20 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   Future<void> submitJointInspection() async {
     if (selectedJiFunctionalLocation.value == null || selectedJiFunctionalLocation.value!.isEmpty) {
       Get.snackbar(
-        "Validation Error",
+        AppStrings.validationError,
         "Please select Functional Location.",
-        backgroundColor: Colors.red.withOpacity(0.9),
-        colorText: Colors.white,
+        backgroundColor: AppColors.red.withValues(alpha: 0.9),
+        colorText: AppColors.white1,
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
     }
     if (jiUserRemarkController.text.trim().isEmpty) {
       Get.snackbar(
-        "Validation Error",
+        AppStrings.validationError,
         "Please enter User's Remark.",
-        backgroundColor: Colors.red.withOpacity(0.9),
-        colorText: Colors.white,
+        backgroundColor: AppColors.red.withValues(alpha: 0.9),
+        colorText: AppColors.white1,
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -763,36 +517,31 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
     try {
       EasyLoading.show(status: 'Submitting...');
+
+      // Joint Inspection API disabled - manage from frontend
+      // Add to local history and return success
+      debugPrint("submitJointInspection: API disabled, managing from frontend");
+
+      // Add to joint inspection history list
       final String? userIdStr = await AuthManager().getUserId();
       final String? userName = await AuthManager().getUserName();
       final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
-      final failureNo = jointInspectionFailureNo.value.trim();
-      if (failureNo.isEmpty) {
-        EasyLoading.dismiss();
-        Get.snackbar(
-          "Validation Error",
-          "Unable to resolve Failure No. Please reload the details and try again.",
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
-          snackPosition: SnackPosition.BOTTOM,
-        );
-        return;
-      }
 
-      final payload = {
-        "FailureNo": failureNo,
-        "FunctionLocation_JI": jiFunctionalLocationId.value ?? "",
-        "EquipmentId_JI": jiEquipmentId.value ?? 0,
-        "UserRemark_JI": jiUserRemarkController.text.trim(),
-        "CreatedBy": userId,
-        "CreatedByName": userName ?? ""
-      };
+      jointInspectionHistoryList.add(JointInspectionHistory(
+        jiId: DateTime.now().millisecondsSinceEpoch,
+        remark: jiUserRemarkController.text.trim(),
+        assignedTo: int.tryParse(jiAssignTo.value ?? "0"),
+        deptId: int.tryParse(jiDepartment.value ?? "0") ?? 0,
+        notificationId: resolveNotificationId(),
+        createdBy: userId,
+        createdByName: userName ?? "",
+        type: "AddNewJointInspection",
+      ));
 
-      final message = await _failureService.submitJIScreenData(payload);
       Get.back(result: true);
-      Get.snackbar(AppStrings.success, message,
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
+      Get.snackbar(AppStrings.success, "Joint Inspection added successfully",
+          backgroundColor: AppColors.green,
+          colorText: AppColors.white1,
           snackPosition: SnackPosition.BOTTOM);
     } catch (e) {
       Get.snackbar(AppStrings.error, e.toString());
@@ -800,11 +549,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       EasyLoading.dismiss();
     }
   }
-  List<JointInspectionHistory> _newestFirst(List<JointInspectionHistory> list) {
-    final sorted = List<JointInspectionHistory>.from(list);
-    sorted.sort((a, b) => (b.jiId ?? 0).compareTo(a.jiId ?? 0));
-    return sorted;
-  }
+
 
   Future<void> loadFailureDetails(String failureNo) async {
     encryptedId.value = failureNo;
@@ -814,33 +559,44 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     try {
       isLoading.value = true;
       errorMessage.value = "";
+
+      // Clear only specific lists that need to be refreshed
       locationTypeList.clear();
       functionalLocationList.clear();
       equipmentList.clear();
+
+      // Load master data (small tables only - large tables loaded on-demand)
       await loadMasterDataFromDb();
 
+      // Skip loading functional locations during screen init - load lazily when dropdown opens
+      // This prevents UI blocking with 84,609 functional locations
+
+      // JE change notification API call for online flow
       final result = await _failureService.getFailureDetails(failureNo);
 
       if (result.responseCode == 200 && result.responseOutput != null) {
         final output = result.responseOutput!;
+        final failureDetailResponse = result;
 
-        notificationTypeList
-            .assignAll(output.getCorrNotificationTypeList ?? []);
-        natureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
-        departmentList.assignAll(output.getDepartmentList ?? []);
-        userList.assignAll(output.getUserList ?? []);
-        objectDataList.assignAll(output.getObjectData ?? []);
-        materialDataList.assignAll(output.getMaterialData ?? []);
-        reasonForDelayList.assignAll(output.getReasonForDelayList ?? []);
-        final statuses = output.getUserStatus ?? [];
-        userStatusList.assignAll(statuses.where((status) {
-          final val = int.tryParse(status.value ?? "999") ?? 999;
-          return val == 0 || val <= 29;
-        }).toList());
-        storageLocationList.assignAll(output.getStorageLocation ?? []);
-        faultTypeList.assignAll(output.getFaultData ?? []);
-        _mergeLocationDropdownsFromOutput(output);
+        // Skip dropdowns from API - use local data instead (much faster, no memory issues)
+        // All dropdowns are already loaded from local DB in _copyGlobalDataToLocal()
+        // notificationTypeList.assignAll(corrNotificationTypeList);
+        // natureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
+        // departmentList.assignAll(output.getDepartmentList ?? []);
+        // userList.assignAll(output.getUserList ?? []);
+        // objectDataList.assignAll(output.getObjectData ?? []);
+        // materialDataList.assignAll(output.getMaterialData ?? []);
+        // reasonForDelayList.assignAll(output.getReasonForDelayList ?? []);
+        // final statuses = output.getUserStatus ?? [];
+        // userStatusList.assignAll(statuses.where((status) {
+        //   final val = int.tryParse(status.value ?? "999") ?? 999;
+        //   return val == 0 || val <= 29;
+        // }).toList());
+        // storageLocationList.assignAll(output.getStorageLocation ?? []);
+        // faultTypeList.assignAll(output.getFaultData ?? []);
+        // _mergeLocationDropdownsFromOutput(output);
 
+        // Keep only essential API data that's not available locally
         notificationHistoryList.assignAll(
             output.getNotificationActionUserHistory ?? []);
 
@@ -855,6 +611,19 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
           );
         }
 
+        // Parse FailureRectificationJson from top-level response if available
+        bool rcaLoadedFromOutput = false;
+        String? rcaJsonSource = failureDetailResponse.failureRectificationJson ??
+            output.getCreateVMModel?.failureRectificationJson;
+
+        debugPrint("=== RCA JSON SOURCE CHECK ===");
+        debugPrint("failureDetailResponse.failureRectificationJson: ${failureDetailResponse.failureRectificationJson?.length ?? 0} chars");
+        debugPrint("failureDetailResponse.failureRectificationJson value: '${failureDetailResponse.failureRectificationJson}'");
+        debugPrint("output.getCreateVMModel?.failureRectificationJson: ${output.getCreateVMModel?.failureRectificationJson?.length ?? 0} chars");
+        debugPrint("output.getCreateVMModel?.failureRectificationJson value: '${output.getCreateVMModel?.failureRectificationJson}'");
+        debugPrint("Final rcaJsonSource: ${rcaJsonSource?.length ?? 0} chars");
+        debugPrint("Final rcaJsonSource value: '${rcaJsonSource}'");
+
         if (output.getCreateVMModel != null) {
           final model = output.getCreateVMModel!;
           encryptedId.value = (model.id != null && model.id!.isNotEmpty)
@@ -866,7 +635,130 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
             failureCategory.value = model.category!.trim();
           }
 
-          _applyLocationSelectionsFromModel(model, output: output);
+          // Populate system and subsystem from API response if available
+          if (model.systems != null && model.systems!.isNotEmpty) {
+            systemController.text = model.systems!;
+            debugPrint("System set from model: '${model.systems}'");
+          }
+          if (model.subSystems != null && model.subSystems!.isNotEmpty) {
+            subsystemController.text = model.subSystems!;
+            debugPrint("Subsystem set from model: '${model.subSystems}'");
+          } else {
+            debugPrint("Subsystem is null or empty in model");
+          }
+
+          // Parse FailureRectificationJson after system/subsystem are populated
+          if (rcaJsonSource != null && rcaJsonSource.isNotEmpty) {
+            try {
+              debugPrint("=== RCA LOADING START ===");
+              debugPrint("failureRectificationJson source: ${rcaJsonSource.length} chars");
+
+              dynamic decoded;
+              if (rcaJsonSource.startsWith('[')) {
+                decoded = jsonDecode(rcaJsonSource);
+              } else {
+                // Fallback: try to parse as-is in case it's already a list
+                decoded = rcaJsonSource;
+              }
+              debugPrint("Decoded FailureRectificationJson type: ${decoded.runtimeType}");
+              if (decoded is List) {
+                final parsedRca = List<Map<String, dynamic>>.from(decoded);
+                debugPrint("RCA Data Check - Parsed FailureRectificationJson: ${parsedRca.length} items");
+                debugPrint("First RCA item: ${parsedRca.isNotEmpty ? parsedRca[0] : 'empty'}");
+
+                // Parse JE format RCA data
+                rcaDetailsList.clear();
+
+                // Get system and subsystem from parent model if available
+                final parentSystem = model.systems ?? "";
+                final parentSubsystem = model.subSystems ?? "";
+                debugPrint("Parent system: '$parentSystem', subsystem: '$parentSubsystem'");
+                debugPrint("Parent subsystem length: ${parentSubsystem.length}");
+                debugPrint("Controller subsystemController.text: '${subsystemController.text}'");
+
+                for (var fault in parsedRca) {
+                  debugPrint("Processing fault item: $fault");
+                  final List<Map<String, dynamic>> rootCauses = [];
+                  // Support both PascalCase and camelCase field names
+                  final rootCauseId = fault['rootCauseId'] ?? fault['RootCauseId'];
+                  final causeOfFailureId = fault['causeOfFailureId'] ?? fault['CauseOfFailureId'];
+                  debugPrint("rootCauseId: $rootCauseId, causeOfFailureId: $causeOfFailureId");
+                  if (rootCauseId != null && int.tryParse(rootCauseId.toString()) != 0) {
+                    rootCauses.add({
+                      'causeId': causeOfFailureId?.toString() ?? "0",
+                      'cause': fault['cause'] ?? fault['Cause'] ?? "",
+                      'rootCauseId': rootCauseId?.toString() ?? "0",
+                      'rootCause': fault['rootCause'] ?? fault['RootCause'] ?? "",
+                      'causeText': fault['rootCauseText'] ?? fault['RootCauseText'] ?? "",
+                      'imagePath': null
+                    });
+                    debugPrint("Added root cause: ${rootCauses.last}");
+                  }
+
+                  final List<Map<String, dynamic>> actionTakens = [];
+                  // Support both PascalCase and camelCase field names
+                  final actionTakenId = fault['actionTakenId'] ?? fault['ActionTakenId'];
+                  debugPrint("actionTakenId: $actionTakenId");
+                  if (actionTakenId != null && int.tryParse(actionTakenId.toString()) != 0) {
+                    actionTakens.add({
+                      'actionTakenId': actionTakenId?.toString() ?? "0",
+                      'actionTaken': fault['actionTaken'] ?? fault['ActionTaken'] ?? "",
+                      'actionTakenText': fault['actionTakenText'] ?? fault['ActionTakenText'] ?? "",
+                      'imagePath': null
+                    });
+                    debugPrint("Added action taken: ${actionTakens.last}");
+                  }
+
+                  // Use system/subsystem from fault item if available, otherwise use parent values
+                  // If parent values are empty, use the controller's text fields as fallback
+                  final systemValue = fault['system'] ?? fault['System'] ?? parentSystem ?? systemController.text;
+                  final subsystemValue = fault['subsystem'] ?? fault['SubSystem'] ?? parentSubsystem ?? subsystemController.text;
+
+                  // Look up failure category name from master data if not provided in the item
+                  final failureCategoryId = (fault['failureCategoryId'] ?? fault['FailureCategoryId'])?.toString() ?? "0";
+                  String failureCategoryName = fault['failureCategoryText'] ?? fault['FailureCategoryText'] ?? "";
+                  if (failureCategoryName.isEmpty && failureCategoryId != "0") {
+                    // Look up from rcaFailureCategoryList (List<LabelValue>)
+                    final categoryMatch = rcaFailureCategoryList.firstWhere(
+                          (cat) => cat.value?.toString() == failureCategoryId,
+                      orElse: () => LabelValue(label: "", value: ""),
+                    );
+                    if (categoryMatch.label != null && categoryMatch.label!.isNotEmpty) {
+                      failureCategoryName = categoryMatch.label!;
+                      debugPrint("Looked up failure category name: '$failureCategoryName' for ID: $failureCategoryId");
+                    }
+                  }
+
+                  final rcaItem = {
+                    'system': systemValue,
+                    'subsystem': subsystemValue,
+                    'FailureCategoryId': failureCategoryId,
+                    'failureCategory': failureCategoryName,
+                    'rootCauses': rootCauses,
+                    'actionTakens': actionTakens,
+                    // RST fields (empty for JE format)
+                    'ObjectPartId': "0",
+                    'objectPart': "",
+                    'objectPartText': "",
+                    'FaultId': "0",
+                    'fault': "",
+                    'faultText': "",
+                  };
+                  debugPrint("Adding RCA item to list: $rcaItem");
+                  rcaDetailsList.add(rcaItem);
+                }
+                debugPrint("RCA data loaded from FailureRectificationJson: ${rcaDetailsList.length} items");
+                rcaLoadedFromOutput = true;
+                debugPrint("=== RCA LOADING END ===");
+              }
+            } catch (e) {
+              debugPrint("RCA Data Check - Failed to parse FailureRectificationJson: $e");
+            }
+          } else {
+            debugPrint("FailureRectificationJson is null or empty in all sources");
+          }
+
+          await _applyLocationSelectionsFromModel(model, output: output);
           selectedDepartment.value = departmentList
               .firstWhere(
                   (e) =>
@@ -875,11 +767,9 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
               orElse: () => LabelValue(label: model.deptCode))
               .label;
 
-          debugPrint("Main Failure: selectedDepartment.value=${selectedDepartment.value}");
-          debugPrint("Main Failure: departmentList sample: ${departmentList.take(3).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
-
           _refilterFunctionalLocationForCurrentSelections();
           _refilterEquipmentForCurrentSelections();
+          await filterRcaFailureCategoriesBySystem();
           final funcLocEntry = masterFunctionalLocations.firstWhere(
                 (e) =>
             e['funcLocId']?.toString() == model.functionLocationId?.toString() ||
@@ -887,12 +777,10 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
             orElse: () => <String, dynamic>{},
           );
           if (funcLocEntry.isNotEmpty) {
-            await _checkMeasurementPoints(funcLocEntry['objectNumber']?.toString());
-          } else {
-            debugPrint(
-              "Measurement check: no masterFunctionalLocations entry found for "
-                  "functionLocationId=${model.functionLocationId}, funcLocation=${model.funcLocation}",
-            );
+            final objectNumber = funcLocEntry['objectNumber']?.toString();
+            final objectKey = funcLocEntry['objectKey']?.toString();
+            final valueToUse = (objectNumber != null && objectNumber.isNotEmpty) ? objectNumber : objectKey;
+            await _checkMeasurementPoints(valueToUse);
           }
           subLocationController.text = model.locationFailure ?? "";
 
@@ -904,11 +792,13 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
                   e.label == model.deptCode,
               orElse: () => LabelValue(label: model.deptCode))
               .label;
+          await filterRcaFailureCategoriesBySystem();
 
-          selectedNotificationType.value = notificationTypeList
+          // Use corrNotificationTypeList from local DB for selection
+          selectedNotificationType.value = corrNotificationTypeList
               .firstWhere(
-                  (e) => e.value == model.corr_NotificationTypeId.toString(),
-              orElse: () => LabelValue(label: null))
+                  (e) => e.value == model.corrNotificationTypeId.toString(),
+              orElse: () => corrNotificationTypeList.isNotEmpty ? corrNotificationTypeList.first : LabelValue(label: null))
               .label;
 
           mainStatusName.value = model.mainStatusName;
@@ -924,99 +814,274 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
                     model.assignedUserId.toString().trim(),
                 orElse: () => LabelValue(label: null));
             selectedPersonResponsible.value = matchedUser.label;
-            debugPrint(
-                "personnnn matched====${selectedPersonResponsible.value} for ID: ${model.assignedUserId}");
           } else {
             selectedPersonResponsible.value = null;
           }
-          if (output.getObjectANDFaultList != null) {
-            rcaDetailsList.clear();
-            for (var fault in output.getObjectANDFaultList!) {
-              final rectId = fault['rectId'];
 
-              final List<Map<String, dynamic>> matchedRootCauses = [];
-              if (output.getObjectANDFaultRootCauseList != null) {
-                for (var rc in output.getObjectANDFaultRootCauseList!
-                    .where((r) => r['rectId'] == rectId)) {
-                  matchedRootCauses.add({
-                    'rootCauseId': rc['rcaId'].toString(),
-                    'rootCause': rc['rootCasueName'] ?? "N/A",
-                    'rootCauseText': rc['rcaText'] ?? "",
-                    'imagePath': null
-                  });
+          // Only load RCA from model if not already loaded from output
+          if (!rcaLoadedFromOutput) {
+            debugPrint("RCA Data Check - getObjectANDFaultList: ${output.getObjectANDFaultList?.length ?? 0} items");
+            debugPrint("RCA Data Check - getObjectANDFaultRootCauseList: ${output.getObjectANDFaultRootCauseList?.length ?? 0} items");
+            debugPrint("RCA Data Check - getObjectANDFaultActionList: ${output.getObjectANDFaultActionList?.length ?? 0} items");
+            debugPrint("RCA Data Check - model.getObjectANDFaultList: ${model.getObjectANDFaultList?.length ?? 0} items");
+            debugPrint("RCA Data Check - model.failureRectificationDetails: ${model.failureRectificationDetails?.length ?? 0} chars");
+            debugPrint("RCA Data Check - model.failureRectificationDetails value: '${model.failureRectificationDetails}'");
+            debugPrint("RCA Data Check - model.failureRectificationJson: ${model.failureRectificationJson?.length ?? 0} chars");
+            debugPrint("RCA Data Check - model.failureRectificationJson value: '${model.failureRectificationJson}'");
+            debugPrint("RCA Data Check - failureDetailResponse.failureRectificationJson: ${failureDetailResponse.failureRectificationJson?.length ?? 0} chars");
+            debugPrint("RCA Data Check - failureDetailResponse.failureRectificationJson value: '${failureDetailResponse.failureRectificationJson}'");
+
+            // Try to parse failureRectificationDetails as JSON if it's not empty
+            List<Map<String, dynamic>>? parsedFailureRectification;
+            if (model.failureRectificationDetails != null &&
+                model.failureRectificationDetails!.isNotEmpty &&
+                model.failureRectificationDetails!.length > 5) {
+              try {
+                final decoded = jsonDecode(model.failureRectificationDetails!);
+                if (decoded is List) {
+                  parsedFailureRectification = List<Map<String, dynamic>>.from(decoded);
+                  debugPrint("RCA Data Check - Parsed failureRectificationDetails as list: ${parsedFailureRectification.length} items");
+                } else if (decoded is Map) {
+                  debugPrint("RCA Data Check - failureRectificationDetails is a Map, keys: ${decoded.keys}");
                 }
+              } catch (e) {
+                debugPrint("RCA Data Check - Failed to parse failureRectificationDetails: $e");
               }
-
-              final List<Map<String, dynamic>> matchedActions = [];
-              if (output.getObjectANDFaultActionList != null) {
-                for (var ac in output.getObjectANDFaultActionList!
-                    .where((a) => a['rectId'] == rectId)) {
-                  matchedActions.add({
-                    'actionTakenId': ac['actionId'].toString(),
-                    'actionTaken': ac['actionName'] ?? "N/A",
-                    'actionTakenText': ac['actionText'] ?? "",
-                    'imagePath': null
-                  });
-                }
-              }
-
-              rcaDetailsList.add({
-                'ObjectPartId': fault['objectPartId']?.toString() ?? "0",
-                'objectPart': fault['objectName'] ?? "",
-                'objectPartText': fault['objectPartText'] ?? "",
-                'FaultId': fault['faultId']?.toString() ?? "0",
-                'fault': fault['faultName'] ?? "",
-                'faultText': fault['faultText'] ?? "",
-                'rootCauses': matchedRootCauses,
-                'actionTakens': matchedActions,
-              });
             }
-          }
 
-          if (output.getMaterialReqDetails != null) {
+            // Try to load from model.getObjectANDFaultList if output doesn't have it
+            final faultList = output.getObjectANDFaultList ?? model.getObjectANDFaultList ?? parsedFailureRectification;
+            final rootCauseList = output.getObjectANDFaultRootCauseList ?? model.getObjectANDFaultRootCauseList;
+            final actionList = output.getObjectANDFaultActionList ?? model.getObjectANDFaultActionList;
+
+            // Try to parse FailureRectificationJson from top-level response or model
+            debugPrint("=== MODEL RCA LOADING START ===");
+            List<Map<String, dynamic>>? parsedFailureRectificationJson;
+            final failureRectificationJsonSource = failureDetailResponse.failureRectificationJson ?? model.failureRectificationJson;
+            debugPrint("failureRectificationJsonSource from model: $failureRectificationJsonSource");
+            if (failureRectificationJsonSource != null && failureRectificationJsonSource!.isNotEmpty) {
+              try {
+                final decoded = jsonDecode(failureRectificationJsonSource!);
+                debugPrint("Decoded model FailureRectificationJson type: ${decoded.runtimeType}");
+                if (decoded is List) {
+                  parsedFailureRectificationJson = List<Map<String, dynamic>>.from(decoded);
+                  debugPrint("RCA Data Check - Parsed FailureRectificationJson as list: ${parsedFailureRectificationJson.length} items");
+                  if (parsedFailureRectificationJson.isNotEmpty) {
+                    debugPrint("First model RCA item: ${parsedFailureRectificationJson[0]}");
+                  }
+                }
+              } catch (e) {
+                debugPrint("RCA Data Check - Failed to parse FailureRectificationJson: $e");
+              }
+            } else {
+              debugPrint("failureRectificationJsonSource is null or empty");
+            }
+
+            // Use FailureRectificationJson if available, otherwise use the other lists
+            final finalFaultList = parsedFailureRectificationJson ?? faultList;
+            debugPrint("finalFaultList type: ${finalFaultList?.runtimeType}, length: ${finalFaultList?.length ?? 0}");
+            debugPrint("=== MODEL RCA LOADING END ===");
+
+            if (finalFaultList != null) {
+              debugPrint("=== FINAL RCA LOADING START ===");
+              debugPrint("Loading RCA data from API: ${finalFaultList.length} items");
+              if (finalFaultList.isNotEmpty) {
+                debugPrint("First item keys: ${finalFaultList[0].keys}");
+                debugPrint("First item: ${finalFaultList[0]}");
+              }
+              rcaDetailsList.clear();
+
+              // Check if this is JE format (from FailureRectificationJson) or RST format (from getObjectANDFaultList)
+              final isJEFormat = finalFaultList.isNotEmpty &&
+                  (finalFaultList[0].containsKey('System') ||
+                      finalFaultList[0].containsKey('SubSystem') ||
+                      finalFaultList[0].containsKey('FailureCategoryId'));
+
+              debugPrint("RCA Data Check - isJEFormat: $isJEFormat");
+
+              if (isJEFormat) {
+                // Handle JE format from FailureRectificationJson
+                for (var fault in finalFaultList) {
+                  debugPrint("Processing JE RCA item: $fault");
+
+                  final List<Map<String, dynamic>> rootCauses = [];
+                  // Support both PascalCase and camelCase field names
+                  final rootCauseId = fault['rootCauseId'] ?? fault['RootCauseId'];
+                  final causeOfFailureId = fault['causeOfFailureId'] ?? fault['CauseOfFailureId'];
+                  final rootCauseLabel = fault['rootCause'] ?? fault['RootCause'] ?? "";
+                  final causeLabel = fault['cause'] ?? fault['Cause'] ?? "";
+
+                  debugPrint("JE RCA - rootCauseId: $rootCauseId, causeOfFailureId: $causeOfFailureId, rootCause: $rootCauseLabel, cause: $causeLabel");
+
+                  // Add root cause if ID exists (allow text to be empty)
+                  if (rootCauseId != null && int.tryParse(rootCauseId.toString()) != null && int.tryParse(rootCauseId.toString())! > 0) {
+                    rootCauses.add({
+                      'causeId': causeOfFailureId?.toString() ?? "0",
+                      'cause': causeLabel,
+                      'rootCauseId': rootCauseId?.toString() ?? "0",
+                      'rootCause': rootCauseLabel,
+                      'causeText': fault['rootCauseText'] ?? fault['RootCauseText'] ?? "",
+                      'imagePath': null
+                    });
+                    debugPrint("Added root cause: ID=$rootCauseId, label=$rootCauseLabel, causeText=${fault['rootCauseText']}");
+                  }
+
+                  final List<Map<String, dynamic>> actionTakens = [];
+                  // Support both PascalCase and camelCase field names
+                  final actionTakenId = fault['actionTakenId'] ?? fault['ActionTakenId'];
+                  final actionTakenLabel = fault['actionTaken'] ?? fault['ActionTaken'] ?? "";
+
+                  debugPrint("JE RCA - actionTakenId: $actionTakenId, actionTaken: $actionTakenLabel");
+
+                  // Add action if ID exists (allow text to be empty)
+                  if (actionTakenId != null && int.tryParse(actionTakenId.toString()) != null && int.tryParse(actionTakenId.toString())! > 0) {
+                    actionTakens.add({
+                      'actionTakenId': actionTakenId?.toString() ?? "0",
+                      'actionTaken': actionTakenLabel,
+                      'actionTakenText': fault['actionTakenText'] ?? fault['ActionTakenText'] ?? "",
+                      'imagePath': null
+                    });
+                    debugPrint("Added action taken: ID=$actionTakenId, label=$actionTakenLabel, actionTakenText=${fault['actionTakenText']}");
+                  }
+
+                  rcaDetailsList.add({
+                    'system': fault['system'] ?? fault['System'] ?? "",
+                    'subsystem': fault['subsystem'] ?? fault['SubSystem'] ?? "",
+                    'FailureCategoryId': (fault['failureCategoryId'] ?? fault['FailureCategoryId'])?.toString() ?? "0",
+                    'failureCategory': fault['failureCategoryText'] ?? fault['FailureCategoryText'] ?? "",
+                    'rootCauses': rootCauses,
+                    'actionTakens': actionTakens,
+                    // RST fields (empty for JE format)
+                    'ObjectPartId': "0",
+                    'objectPart': "",
+                    'objectPartText': "",
+                    'FaultId': "0",
+                    'fault': "",
+                    'faultText': "",
+                  });
+                }
+              } else {
+                // Handle RST format from getObjectANDFaultList
+                for (var fault in finalFaultList) {
+                  final rectId = fault['rectId'];
+
+                  final List<Map<String, dynamic>> matchedRootCauses = [];
+                  if (rootCauseList != null) {
+                    for (var rc in rootCauseList
+                        .where((r) => r['rectId'] == rectId)) {
+                      matchedRootCauses.add({
+                        'causeId': "0", // API doesn't provide cause ID
+                        'cause': rc['rootCasueName'] ?? "N/A", // Map root cause name to cause field
+                        'rootCauseId': rc['rcaId'].toString(),
+                        'rootCause': rc['rootCasueName'] ?? "N/A",
+                        'causeText': rc['rcaText'] ?? "", // Map rcaText to causeText
+                        'imagePath': null
+                      });
+                    }
+                  }
+
+                  final List<Map<String, dynamic>> matchedActions = [];
+                  if (actionList != null) {
+                    for (var ac in actionList
+                        .where((a) => a['rectId'] == rectId)) {
+                      matchedActions.add({
+                        'actionTakenId': ac['actionId'].toString(),
+                        'actionTaken': ac['actionName'] ?? "N/A",
+                        'actionTakenText': ac['actionText'] ?? "",
+                        'imagePath': null
+                      });
+                    }
+                  }
+
+                  rcaDetailsList.add({
+                    'ObjectPartId': fault['objectPartId']?.toString() ?? "0",
+                    'objectPart': fault['objectName'] ?? "",
+                    'objectPartText': fault['objectPartText'] ?? "",
+                    'FaultId': fault['faultId']?.toString() ?? "0",
+                    'fault': fault['faultName'] ?? "",
+                    'faultText': fault['faultText'] ?? "",
+                    'rootCauses': matchedRootCauses,
+                    'actionTakens': matchedActions,
+                    // JE-specific fields - add from fault data if available
+                    'system': fault['system'] ?? systemController.text,
+                    'subsystem': fault['subsystem'] ?? subsystemController.text,
+                    'failureCategory': fault['failureCategory'] ?? "",
+                    'FailureCategoryId': fault['FailureCategoryId']?.toString() ?? "0",
+                  });
+                }
+              }
+              debugPrint("RCA data loaded from API: ${rcaDetailsList.length} items");
+              if (rcaDetailsList.isNotEmpty) {
+                debugPrint("rcaDetailsList[0]: ${rcaDetailsList[0]}");
+              }
+              debugPrint("=== FINAL RCA LOADING END ===");
+            } else {
+              debugPrint("No RCA data in API response - finalFaultList is null");
+            }
+          } // End of if (!rcaLoadedFromOutput)
+
+          // Load Material Requirement Details from API
+          if (output.getMaterialReqDetails != null && output.getMaterialReqDetails!.isNotEmpty) {
+            debugPrint("=== Loading Material Requirement Details ===");
             replacedMaterialsList.clear();
-            for (var mat in output.getMaterialReqDetails!) {
+            for (var item in output.getMaterialReqDetails!) {
+              final materialId = item['materialid'] ?? item['MaterialId'];
+              final materialValue = item['materialValue'] ?? item['MaterialValue'];
+              final quantity = item['quantity'] ?? item['Quantity'];
+              final issuedQty = item['issuedQty'] ?? item['IssuedQty'];
+              final balanceQty = item['balanceQty'] ?? item['BalanceQty'];
+              final storageLocation = item['storageLocation'] ?? item['StorageLocation'];
+              final storageLocationValue = item['storageLocationValue'] ?? item['StorageLocationValue'];
+              final uom = item['unitOfMeasurement'] ?? item['UnitOfMeasurement'];
+              final usedQty = item['usedQty'] ?? item['UsedQty'];
+              final id = item['id'];
+
               replacedMaterialsList.add({
-                'id': mat['id'] ??
-                    mat['Id'] ??
-                    mat['materialReqId'] ??
-                    mat['MaterialReqId'] ??
-                    0,
-                'Materialid': mat['materialid'] ??
-                    mat['materialId'] ??
-                    mat['Materialid'],
-                'materialCode': mat['materialValue'] ?? "",
-                'requiredQty': mat['quantity']?.toString() ?? "0",
-                'uom': mat['unitOfMeasurement'] ?? "",
-                'issuedQty': mat['issuedQty']?.toString() ?? "0",
-                'usedQty': mat['usedQty']?.toString() ?? "0",
-                'balanceQty': mat['balanceQty']?.toString() ?? "0",
-                'RemainingBalanceQTY': mat['remainingBalanceQTY'] ?? 0,
-                'StorageLocation': mat['storageLocation'],
-                'storeLocation': mat['storageLocationValue'] ?? "",
+                'id': id,
+                'materialId': materialId,
+                'materialCode': materialValue,
+                'materialName': materialValue,
+                'requiredQty': quantity?.toString(),
+                'issuedQty': issuedQty?.toString(),
+                'usedQty': usedQty?.toString(),
+                'balanceQty': balanceQty?.toString(),
+                'storeLocation': storageLocationValue,
+                'storageLocation': storageLocation,
+                'uom': uom,
+                'RemainingBalanceQTY': item['remainingBalanceQTY'] ?? item['RemainingBalanceQTY'],
               });
             }
+            debugPrint("Loaded ${replacedMaterialsList.length} material requirement details");
           }
 
-          if (output.getMaterialDismantleDetails != null) {
+          // Load Material Dismantle Details from API
+          if (output.getMaterialDismantleDetails != null && output.getMaterialDismantleDetails!.isNotEmpty) {
+            debugPrint("=== Loading Material Dismantle Details ===");
             dismantleMaterialsList.clear();
-            deletedDismantleMaterialsList.clear();
-            for (var dis in output.getMaterialDismantleDetails!) {
+            for (var item in output.getMaterialDismantleDetails!) {
+              final materialId = item['materialId'] ?? item['MaterialId'];
+              final materialValue = item['materialValue'] ?? item['MaterialValue'];
+              final oldSerialNumber = item['oldSerialNumber'] ?? item['OldSerialNumber'];
+              final newSerialNumber = item['newSerialNumber'] ?? item['NewSerialNumber'];
+              final oldSerialDismantleDate = item['oldSerialNoDismantleDate'] ?? item['OldSerialNoDismantleDate'];
+              final newSerialInstallationDate = item['newSerialNoInstallationDate'] ?? item['NewSerialNoInstallationDate'];
+              final id = item['id'];
+
               dismantleMaterialsList.add({
-                'id': dis['id'],
-                'materialId': dis['materialId'],
-                'materialCode': dis['materialValue'] ?? "",
-                'oldSerialNumber': dis['oldSerialNumber'] ?? "",
-                'newSerialNumber': dis['newSerialNumber'] ?? "",
-                'oldSerialDismantleDate': dis['oldSerialNoDismantleDate'],
-                'newSerialInstallationDate': dis['newSerialNoInstallationDate'],
+                'id': id,
+                'materialId': materialId,
+                'materialCode': materialValue,
+                'materialName': materialValue,
+                'oldSerialNumber': oldSerialNumber,
+                'newSerialNumber': newSerialNumber,
+                'oldSerialDismantleDate': oldSerialDismantleDate,
+                'newSerialInstallationDate': newSerialInstallationDate,
               });
             }
+            debugPrint("Loaded ${dismantleMaterialsList.length} material dismantle details");
+            isMaterialDismantle.value = true;
           }
 
-          if (replacedMaterialsList.isNotEmpty) {
-            isSparePartReplaced.value = true;
-          }
           if (dismantleMaterialsList.isNotEmpty) {
             isMaterialDismantle.value = true;
           }
@@ -1046,6 +1111,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
               }
             }
           }
+
           selectedMaterialType.value = mapFailureTypeIdToMaterialType(model.failureTypeId);
           isServiceAffected.value = model.isServiceAffected ?? false;
           isJointInspection.value = model.isJointInspectionReq ?? false;
@@ -1086,57 +1152,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
               ? _parseDate(model.underObservationDate!)
               : null;
 
-          if (model.getObjectANDFaultList != null &&
-              model.getObjectANDFaultList!.isNotEmpty) {
-            rcaDetailsList.clear();
-            for (var objFault in model.getObjectANDFaultList!) {
-              final rcaId = objFault['rectId'];
-              final objectPartId = objFault['objectPartId']?.toString();
-              final faultId = objFault['faultId']?.toString();
-
-              final rootCauses = (model.getObjectANDFaultRootCauseList ?? [])
-                  .where((rc) =>
-              rc['rectId'] == rcaId &&
-                  rc['objectPartId'] == objFault['objectPartId'] &&
-                  rc['faultId'] == objFault['faultId'])
-                  .map((rc) => {
-                'rootCauseId': rc['rcaId']?.toString() ?? "0",
-                'rootCause': rc['rootCasueName'] ?? "N/A",
-                'rootCauseText': rc['rcaText'] ?? "",
-                'imagePath': null,
-              })
-                  .toList();
-
-              final actions = (model.getObjectANDFaultActionList ?? [])
-                  .where((act) =>
-              act['rectId'] == rcaId &&
-                  act['objectPartId'] == objFault['objectPartId'] &&
-                  act['faultId'] == objFault['faultId'])
-                  .map((act) => {
-                'actionTakenId': act['actionId']?.toString() ?? "0",
-                'actionTaken': act['actionName'] ?? "N/A",
-                'actionTakenText': act['actionText'] ?? "",
-                'imagePath': null,
-              })
-                  .toList();
-
-              rcaDetailsList.add({
-                'ObjectPartId': objFault['objectPartId']?.toString() ?? "0",
-                'objectPart': objFault['objectName'] ?? "",
-                'objectPartText': objFault['objectPartText'] ?? "",
-                'FaultId': objFault['faultId']?.toString() ?? "0",
-                'fault': objFault['faultName'] ?? "",
-                'faultText': objFault['faultText'] ?? "",
-                'rootCauses': rootCauses,
-                'actionTakens': actions,
-              });
-            }
-          }
-
-          debugPrint("RCA DETAILS LIST LENGTH: ${rcaDetailsList.length}");
-          if (rcaDetailsList.isNotEmpty) {
-            debugPrint("FIRST RCA ITEM: ${rcaDetailsList.first}");
-          }
+          // RCA data loading from API disabled - manage from frontend
+          // RCA data is managed through failure_rca_logic.dart (addRcaDetail, removeRcaDetail, etc.)
 
           selectedActualFailureRectified.value = model.failureType;
           failureRectificationDetailsController.text =
@@ -1183,6 +1200,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       }
     } catch (e) {
       errorMessage.value = 'Error: $e';
+      debugPrint("loadFailureDetails error: $e");
     } finally {
       popLoading();
     }
@@ -1209,9 +1227,11 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         selectedLocation.value = details['location'];
         originalLocationId.value = details['locationId'];
         selectedFunctionalLocation.value = details['funcationLocation'];
+        debugPrint("loadFailureDetails: funcationLocation set to: ${selectedFunctionalLocation.value}");
         subLocationController.text = details['subLocation'] ?? '';
         systemController.text = details['system'] ?? '';
         trainIdController.text = details['trainId'] ?? '';
+        await filterRcaFailureCategoriesBySystem();
 
         if (details['actualFailureOccuranceDate'] != null) {
           selectedFailureOccurrenceDate.value = DateFormat('dd-MM-yyyy HH:mm')
@@ -1246,7 +1266,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
             details['trainDeboarded']?.toString() ?? '';
 
         isPassengerAffected.value = details['isPassengerAffected'] ?? false;
-        passengersAffectedCountController.text =
+        numberOfPassengerAffectedController.text =
             details['numberOfPassengerAffected']?.toString() ?? '';
         trappedDurationController.text =
             details['trappedDuration']?.toString() ?? '';
@@ -1348,8 +1368,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         Get.snackbar(
           'Validation Error',
           errors.first,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
+          backgroundColor: AppColors.red.withValues(alpha: 0.9),
+          colorText: AppColors.white1,
           snackPosition: SnackPosition.BOTTOM,
           duration: const Duration(seconds: 3),
         );
@@ -1426,8 +1446,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
             : null,
         "IsPassengerAffected": isPassengerAffected.value,
         "NumberOfPassengerAffected":
-        passengersAffectedCountController.text.isNotEmpty
-            ? int.tryParse(passengersAffectedCountController.text)
+        numberOfPassengerAffectedController.text.isNotEmpty
+            ? int.tryParse(numberOfPassengerAffectedController.text)
             : null,
         "TrappedDuration": trappedDurationController.text.isNotEmpty
             ? int.tryParse(trappedDurationController.text)
@@ -1443,14 +1463,14 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         debugPrint("steppppp");
         Get.back(result: true);
         Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
-            backgroundColor: Colors.green, colorText: Colors.white);
+            backgroundColor: AppColors.green, colorText: AppColors.white1);
 
       } catch (e, s) {
         debugPrint("UPDATE ERROR: $e");
         debugPrint(s.toString());
         errorMessage.value = e.toString();
         Get.snackbar(AppStrings.error, errorMessage.value,
-            backgroundColor: Colors.red, colorText: Colors.white);
+            backgroundColor: AppColors.red, colorText: AppColors.white1);
       } finally {
         isLoading.value = false;
       }
@@ -1459,17 +1479,88 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       debugPrint(s.toString());
       errorMessage.value = 'Error: $e';
       Get.snackbar(AppStrings.error, errorMessage.value,
-          backgroundColor: Colors.red, colorText: Colors.white);
+          backgroundColor: AppColors.red, colorText: AppColors.white1);
     }
   }
 
+  @override
   Future<void> fetchJointInspectionUsers(String deptId) async {
     try {
       isJointUserLoading.value = true;
       jointUserList.clear();
-      selectedJointAssignTo.value = null;
-      final users = await _failureService.getJIUsers(deptId);
-      jointUserList.assignAll(users);
+
+      // Joint Inspection Users API disabled - manage from frontend
+      // Load users from local master data
+      debugPrint("fetchJointInspectionUsers: API disabled, loading from local master data for deptId=$deptId");
+      debugPrint("fetchJointInspectionUsers: masterUsers count = ${masterUsers.length}");
+
+      // Show sample user data for debugging
+      if (masterUsers.isNotEmpty) {
+        debugPrint("fetchJointInspectionUsers: Sample user data:");
+        for (int i = 0; i < masterUsers.length && i < 5; i++) {
+          final user = masterUsers[i];
+          debugPrint("  [$i] UserId: ${user['UserId']}, UserName: ${user['UserName']}, DeptId: ${user['DeptId']}, RoleDescr: ${user['RoleDescr']}");
+        }
+
+        // Show users in the target department
+        debugPrint("fetchJointInspectionUsers: Users in department $deptId:");
+        final deptUsers = masterUsers.where((user) => user['DeptId']?.toString() == deptId).toList();
+        debugPrint("fetchJointInspectionUsers: Found ${deptUsers.length} users in department $deptId");
+        for (int i = 0; i < deptUsers.length && i < 5; i++) {
+          final user = deptUsers[i];
+          debugPrint("  [$i] UserId: ${user['UserId']}, UserName: ${user['UserName']}, RoleDescr: ${user['RoleDescr']}");
+        }
+      }
+
+      // Filter users from masterUsers based on department only
+      final filteredUsers = masterUsers.where((user) {
+        final userDeptId = user['DeptId']?.toString() ?? '';
+        final userId = user['UserId']?.toString() ?? '';
+
+        // Construct userName from FirstName and LastName (since UserName column is null in DB)
+        final firstName = user['FirstName']?.toString() ?? '';
+        final lastName = user['LastName']?.toString() ?? '';
+        final userName = (firstName + ' ' + lastName).trim();
+
+        // Filter by department ID (handle both string and int comparisons)
+        final deptMatch = userDeptId == deptId ||
+            int.tryParse(userDeptId) == int.tryParse(deptId);
+
+        // Exclude invalid users
+        final isValidUser = userId.isNotEmpty && userId != '0' &&
+            userName.isNotEmpty && userName.toLowerCase() != 'select user';
+
+        return deptMatch && isValidUser;
+      }).toList();
+
+      // Print filtered user list for verification
+      debugPrint("fetchJointInspectionUsers: Filtered user list for department $deptId:");
+      for (int i = 0; i < filteredUsers.length && i < 10; i++) {
+        final user = filteredUsers[i];
+        final roleDescr = user['RoleDescr']?.toString() ?? '';
+        final firstName = user['FirstName']?.toString() ?? '';
+        final lastName = user['LastName']?.toString() ?? '';
+        final userName = (firstName + ' ' + lastName).trim();
+        debugPrint("  [$i] UserId: ${user['UserId']}, UserName: $userName, DeptId: ${user['DeptId']}, RoleDescr: $roleDescr");
+      }
+      if (filteredUsers.length > 10) {
+        debugPrint("  ... and ${filteredUsers.length - 10} more users");
+      }
+      debugPrint("fetchJointInspectionUsers: Found ${filteredUsers.length} users for department $deptId");
+
+      // Convert to LabelValue
+      final labelValueUsers = filteredUsers.map((user) {
+        // Construct userName from FirstName and LastName (since UserName column is null in DB)
+        final firstName = user['FirstName']?.toString() ?? '';
+        final lastName = user['LastName']?.toString() ?? '';
+        final userName = (firstName + ' ' + lastName).trim();
+        return LabelValue(
+          label: userName,
+          value: user['UserId']?.toString() ?? '',
+        );
+      }).toList();
+
+      jointUserList.assignAll(labelValueUsers);
     } catch (e) {
       debugPrint('fetchJointInspectionUsers error: $e');
     } finally {
@@ -1608,15 +1699,17 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     return null;
   }
 
-  void _applyLocationSelectionsFromModel(
+  Future<void> _applyLocationSelectionsFromModel(
       CreateVMModel model, {
         FailureDetailOutput? output,
-      }) {
+      }) async {
+    debugPrint("_applyLocationSelectionsFromModel: Starting - funcLocation=${model.funcLocation}, functionLocationId=${model.functionLocationId}");
     String? locationName = model.locationName?.trim();
     locationName ??= _masterLocationName(model.locationTypeId);   // ADD THIS LINE
 
     String? funcLocation = model.funcLocation?.trim();
     funcLocation ??= _masterFunctionalLocationName(model.functionLocationId);
+    debugPrint("_applyLocationSelectionsFromModel: After lookup - funcLocation=$funcLocation");
     String? equipmentName = model.equipmentName?.trim();
 
     equipmentName ??= _labelFromValueList(equipmentList, model.equipmentId);
@@ -1640,6 +1733,43 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       );
       selectedFunctionalLocation.value = funcLocation;
       functionalLocationDisplayController.text = funcLocation;
+
+      // Populate system and subsystem from functional location data
+      debugPrint("_applyLocationSelectionsFromModel: Looking for functional location - funcLocId: ${model.functionLocationId}, funcLocation: ${model.funcLocation}");
+      debugPrint("_applyLocationSelectionsFromModel: masterFunctionalLocations count: ${masterFunctionalLocations.length}");
+      debugPrint("_applyLocationSelectionsFromModel: Current systemController.text: '${systemController.text}', subsystemController.text: '${subsystemController.text}'");
+      if (masterFunctionalLocations.isNotEmpty) {
+        debugPrint("_applyLocationSelectionsFromModel: Sample functional locations: ${masterFunctionalLocations.take(3).map((e) => {'funcLocId': e['funcLocId'], 'funcLocation': e['funcLocation'], 'techObjectType': e['techObjectType'], 'subSystem': e['subSystem']}).toList()}");
+      }
+      final funcLocEntry = masterFunctionalLocations.firstWhere(
+            (e) =>
+        e['funcLocId']?.toString() == model.functionLocationId?.toString() ||
+            (model.funcLocation != null && e['funcLocation']?.toString() == model.funcLocation?.toString()),
+        orElse: () => <String, dynamic>{},
+      );
+
+      debugPrint("_applyLocationSelectionsFromModel: Found functional location entry: ${funcLocEntry.isNotEmpty}");
+      if (funcLocEntry.isNotEmpty) {
+        debugPrint("_applyLocationSelectionsFromModel: funcLocEntry data: $funcLocEntry");
+        // Only populate from functional location if API didn't provide system/subsystem
+        final techObjectType = funcLocEntry['techObjectType']?.toString() ?? funcLocEntry['objectKey']?.toString() ?? '';
+        final subSystem = funcLocEntry['subSystem']?.toString() ?? '';
+
+        debugPrint("_applyLocationSelectionsFromModel: techObjectType='$techObjectType', subSystem='$subSystem'");
+
+        if (systemController.text.isEmpty && techObjectType.isNotEmpty) {
+          systemController.text = techObjectType;
+          debugPrint("_applyLocationSelectionsFromModel: Set system from functional location");
+        }
+        if (subsystemController.text.isEmpty && subSystem.isNotEmpty) {
+          subsystemController.text = subSystem;
+          debugPrint("_applyLocationSelectionsFromModel: Set subsystem from functional location");
+        }
+        debugPrint("Populated system: ${systemController.text}, subsystem: ${subsystemController.text}");
+        await filterRcaFailureCategoriesBySystem();
+      } else {
+        debugPrint("_applyLocationSelectionsFromModel: Functional location not found in master data");
+      }
     }
 
     if (equipmentName != null && equipmentName.isNotEmpty) {
@@ -1653,23 +1783,6 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     }
   }
 
-  final masterDepartments = <Map<String, dynamic>>[].obs;
-
-  Future<void> _reloadEquipmentsFromDb() async {
-    final dbService = LocalDatabaseService();
-    final equips = (await dbService.getEquipments()).map((e) => e.toJson()).toList();
-    
-    final uniqueEquips = {
-      for (var e in equips) e['equipmentName']?.toString() ?? '': e
-    }
-        .values
-        .where((e) => (e['equipmentName']?.toString() ?? '').isNotEmpty && (e['equipmentName']?.toString().toLowerCase() != 'select'))
-        .toList();
-    
-    masterEquipments.assignAll(uniqueEquips);
-    debugPrint("_reloadEquipmentsFromDb: Reloaded ${masterEquipments.length} equipment from DB");
-  }
-
   /// Returns the raw `funcLocation` code (not funcLocId) for a given funcLocationName label.
   /// Needed because equipment.functionalLocation stores the funcLocation CODE, not the id or display name.
   String? _funcLocationCodeForLabel(String? funcLocationLabel) {
@@ -1681,15 +1794,12 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       orElse: () => <String, dynamic>{},
     );
     final code = func['funcLocation']?.toString();
-    debugPrint("_funcLocationCodeForLabel: label=$funcLocationLabel, code=$code");
     return (code != null && code.isNotEmpty) ? code : null;
   }
 
   /// Direct filter: equipment.location == Location.locationTypeCode (if provided)
   /// AND equipment.functionalLocation == FunctionalLocation.funcLocation (if provided).
   List<Map<String, dynamic>> _filterEquipments({String? locCode, String? funcLocCode}) {
-    debugPrint("_filterEquipments: locCode=$locCode, funcLocCode=$funcLocCode, total=${masterEquipments.length}");
-
     Iterable<Map<String, dynamic>> filtered = masterEquipments;
 
     if (locCode != null && locCode.isNotEmpty) {
@@ -1704,37 +1814,33 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
           funcLocCode.trim().toUpperCase());
     }
 
-    final result = filtered.toList();
-    debugPrint("_filterEquipments: Filtered to ${result.length} equipment");
-    return result;
+    return filtered.toList();
   }
-  void onDepartmentChanged(String? departmentLabel) {
+  Future<void> onDepartmentChanged(String? departmentLabel) async {
     selectedDepartment.value = (departmentLabel == null || departmentLabel == 'Select') ? null : departmentLabel;
     resetFunctionalAndEquipmentSelections();
+
+    // Load functional locations on-demand when department changes
+    await loadFunctionalLocationsOnDemand();
+
     _updateFunctionalLocationAndEquipmentOptions();
+    await filterRcaFailureCategoriesBySystem();
   }
 
-  void onLocationChanged(String? locationLabel) {
-    debugPrint("onLocationChanged: locationLabel=$locationLabel");
+  Future<void> onLocationChanged(String? locationLabel) async {
     selectedLocation.value = (locationLabel == null || locationLabel == 'Select') ? null : locationLabel;
     resetFunctionalAndEquipmentSelections();
+
+    // Load functional locations on-demand when location changes
+    await loadFunctionalLocationsOnDemand();
+
     _updateFunctionalLocationAndEquipmentOptions();
   }
 
   void _updateFunctionalLocationAndEquipmentOptions() async {
-    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Called, masterEquipments.length=${masterEquipments.length}");
-    
-    // Reload equipment from DB if empty (sync may have completed after controller init)
-    if (masterEquipments.isEmpty) {
-      debugPrint("_updateFunctionalLocationAndEquipmentOptions: masterEquipments empty, reloading from DB");
-      await _reloadEquipmentsFromDb();
-    } else {
-      debugPrint("_updateFunctionalLocationAndEquipmentOptions: masterEquipments not empty, skipping reload");
-    }
-
     // Safety check: if masterFunctionalLocations is empty, don't crash
     if (masterFunctionalLocations.isEmpty) {
-      debugPrint("_updateFunctionalLocationAndEquipmentOptions: masterFunctionalLocations is empty, skipping filter");
+      debugPrint('_updateFunctionalLocationAndEquipmentOptions: masterFunctionalLocations is empty, skipping');
       return;
     }
 
@@ -1748,52 +1854,32 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
     String? workCenter;
     if (hasDept) {
-      final dept = departmentList.firstWhere(
-            (e) => e.label == selectedDepartment.value,
-        orElse: () => LabelValue(),
-      );
-      debugPrint("_updateFunctionalLocationAndEquipmentOptions: Selected department label=${selectedDepartment.value}, deptId=${dept.value}");
-      debugPrint("_updateFunctionalLocationAndEquipmentOptions: departmentList sample: ${departmentList.take(3).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
-      
-      // Use workCenter from departmentList uniqueId if available (from API)
-      // Otherwise fall back to looking up in masterDepartments
-      if (dept.uniqueId != null && dept.uniqueId.toString().trim().isNotEmpty) {
-        workCenter = dept.uniqueId.toString();
-        debugPrint("_updateFunctionalLocationAndEquipmentOptions: Using workCenter from departmentList uniqueId: $workCenter");
-      } else {
-        workCenter = getWorkCenterForDept(dept.value, deptLabel: selectedDepartment.value);
-        debugPrint("_updateFunctionalLocationAndEquipmentOptions: Using workCenter from masterDepartments lookup: $workCenter");
-      }
+      workCenter = getCurrentWorkCenterFromDept();
     }
-    
-    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Filtering params - hasLocation=$hasLocation, locCode=$locCode, hasDept=$hasDept, workCenter=$workCenter");
-    
-    // Check if functional locations have workCenter populated
-    final funcLocsWithWorkCenter = masterFunctionalLocations.where((e) => e['workCenter']?.toString().trim().isNotEmpty == true).toList();
-    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Functional locations with workCenter populated: ${funcLocsWithWorkCenter.length}/${masterFunctionalLocations.length}");
-    if (funcLocsWithWorkCenter.isNotEmpty) {
-      final uniqueWorkCenters = funcLocsWithWorkCenter.map((e) => e['workCenter']?.toString().trim()).toSet().toList();
-      debugPrint("_updateFunctionalLocationAndEquipmentOptions: Unique workCenter values in functional locations: $uniqueWorkCenters");
-    }
+
+    debugPrint('_updateFunctionalLocationAndEquipmentOptions: hasLocation=$hasLocation, locCode=$locCode, hasDept=$hasDept, workCenter=$workCenter');
 
     final filteredFuncs = masterFunctionalLocations.where((e) {
       bool match = true;
 
       if (hasLocation && locCode != null && locCode.isNotEmpty) {
-        match = match && (e['location']?.toString().trim().toUpperCase() == locCode.trim().toUpperCase());
+        final funcLoc = e['location']?.toString().trim().toUpperCase();
+        if (funcLoc != null && funcLoc.isNotEmpty) { // Only filter if funcLoc is not empty
+          match = match && (funcLoc == locCode.trim().toUpperCase());
+        }
       }
 
       if (hasDept && workCenter != null && workCenter.isNotEmpty) {
         final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
-        match = match && (funcWorkCenter == workCenter.trim().toUpperCase());
-        // debugPrint("Filtering funcLoc: workCenter filter - funcWorkCenter=$funcWorkCenter, filterWorkCenter=$workCenter, match=$match");
+        if (funcWorkCenter != null && funcWorkCenter.isNotEmpty) { // Only filter if funcWorkCenter is not empty
+          match = match && (funcWorkCenter == workCenter.trim().toUpperCase());
+        }
       }
 
       return match;
     }).toList();
-    
-    debugPrint("_updateFunctionalLocationAndEquipmentOptions: Filtered ${masterFunctionalLocations.length} funcLocs to ${filteredFuncs.length} (hasLocation=$hasLocation, locCode=$locCode, hasDept=$hasDept, workCenter=$workCenter)");
 
+    debugPrint('_updateFunctionalLocationAndEquipmentOptions: Filtered to ${filteredFuncs.length} functional locations');
     setFunctionalLocationOptions(filteredFuncs);
 
     // Equipment is only populated once a Functional Location is selected.
@@ -1811,7 +1897,6 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   }
 
   void onJiFunctionalLocationChanged(String? label) {
-    debugPrint("onJiFunctionalLocationChanged: label=$label");
     selectedJiFunctionalLocation.value = label;
     if (label == null || label.isEmpty) {
       jiFunctionalLocationId.value = null;
@@ -1824,59 +1909,70 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     );
     jiFunctionalLocationId.value = matched.value;
     jiFunctionalLocation.value = label;
-  }
 
-  /// Filter functional locations for Joint Inspection based on JI department's workCenter
-  void _filterJiFunctionalLocations() {
-    debugPrint("=== _filterJiFunctionalLocations START ===");
-    debugPrint("jiDepartment.value: ${jiDepartment.value}");
-    
-    if (jiDepartment.value == null || jiDepartment.value == 'Select') {
-      // No department selected, show all functional locations
-      debugPrint("No department selected, showing all functional locations");
-      setFunctionalLocationOptions(masterFunctionalLocations);
-      return;
-    }
-
-    debugPrint("departmentList: ${departmentList.map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
-    
-    final dept = departmentList.firstWhere(
-          (e) => e.label == jiDepartment.value,
-        orElse: () => LabelValue(),
+    // Auto-select location based on functional location
+    final func = masterFunctionalLocations.firstWhere(
+          (e) {
+        final name = e['funcLocationName']?.toString() ?? '';
+        final loc = e['funcLocation']?.toString() ?? '';
+        return (name.isNotEmpty ? name : loc) == label;
+      },
+      orElse: () => <String, dynamic>{},
     );
-    
-    debugPrint("Matched dept: label=${dept.label}, value=${dept.value}, uniqueId=${dept.uniqueId}");
 
-    String? workCenter;
-    if (dept.uniqueId != null && dept.uniqueId.toString().trim().isNotEmpty) {
-      workCenter = dept.uniqueId.toString();
-      debugPrint("_filterJiFunctionalLocations: Using workCenter from departmentList uniqueId: $workCenter");
-    } else {
-      workCenter = getWorkCenterForDept(dept.value, deptLabel: jiDepartment.value);
-      debugPrint("_filterJiFunctionalLocations: Using workCenter from masterDepartments lookup: $workCenter");
-    }
-
-    if (workCenter == null || workCenter.isEmpty) {
-      debugPrint("_filterJiFunctionalLocations: No workCenter found for department ${jiDepartment.value}, showing all functional locations");
-      setFunctionalLocationOptions(masterFunctionalLocations);
+    if (func.isEmpty) {
       return;
     }
 
-    debugPrint("Filtering functional locations by workCenter: $workCenter");
-    debugPrint("Sample functional locations (first 5): ${masterFunctionalLocations.take(5).map((e) => {'funcLocation': e['funcLocation'], 'workCenter': e['workCenter']}).toList()}");
-    
-    final filteredFuncs = masterFunctionalLocations.where((e) {
-      final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
-      final match = funcWorkCenter == workCenter?.trim().toUpperCase();
-      if (match) {
-        debugPrint("MATCH: funcLocation=${e['funcLocation']}, funcWorkCenter=$funcWorkCenter");
-      }
-      return match;
-    }).toList();
+    final funcLocationCode = func['location']?.toString();
 
-    debugPrint("_filterJiFunctionalLocations: Filtered ${masterFunctionalLocations.length} funcLocs to ${filteredFuncs.length} for workCenter=$workCenter");
-    setFunctionalLocationOptions(filteredFuncs);
-    debugPrint("=== _filterJiFunctionalLocations END ===");
+    if (funcLocationCode != null && funcLocationCode.isNotEmpty) {
+      final locationMatch = locationTypeList.firstWhere(
+            (e) => e.uniqueId == funcLocationCode,
+        orElse: () => LabelValue(),
+      );
+
+      if (locationMatch.label?.isEmpty == true) {
+        final locationMatchByName = locationTypeList.firstWhere(
+              (e) => e.label == funcLocationCode,
+          orElse: () => LabelValue(),
+        );
+
+        if (locationMatchByName.label?.isNotEmpty == true) {
+          selectedLocation.value = locationMatchByName.label;
+          locationDisplayController.text = locationMatchByName.label ?? '';
+        }
+      } else {
+        selectedLocation.value = locationMatch.label;
+        locationDisplayController.text = locationMatch.label ?? '';
+      }
+    }
+
+    // Auto-select department based on functional location's workCenter
+    final funcWorkCenter = func['workCenter']?.toString();
+
+    if (funcWorkCenter != null && funcWorkCenter.isNotEmpty) {
+      LabelValue? deptMatch;
+      for (var dept in departmentList) {
+        if (dept.uniqueId?.toString() == funcWorkCenter) {
+          deptMatch = dept;
+          break;
+        }
+      }
+      if (deptMatch == null) {
+        for (var dept in departmentList) {
+          final wc = getWorkCenterForDept(dept.value, deptLabel: dept.label);
+          if (wc == funcWorkCenter) {
+            deptMatch = dept;
+            break;
+          }
+        }
+      }
+      if (deptMatch != null && deptMatch.label?.isNotEmpty == true) {
+        selectedDepartment.value = deptMatch.label;
+        departmentDisplayController.text = deptMatch.label ?? '';
+      }
+    }
   }
 
   void onJiEquipmentChanged(String? label) {
@@ -1894,21 +1990,15 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     jiEquipmentNumber.value = label;
   }
 
-  void onFunctionalLocationChanged(String? funcLabel) async {
-    debugPrint("=== onFunctionalLocationChanged START ===");
-    debugPrint("funcLabel: $funcLabel");
-    if (masterEquipments.isEmpty) {
-      debugPrint("onFunctionalLocationChanged: masterEquipments empty, reloading from DB");
-      await _reloadEquipmentsFromDb();
-    }
-
+  Future<void> onFunctionalLocationChanged(String? funcLabel) async {
+    debugPrint('onFunctionalLocationChanged: funcLabel=$funcLabel');
     if (funcLabel == null || funcLabel == 'Select') {
       selectedFunctionalLocation.value = funcLabel == 'Select' ? 'Select' : null;
       selectedEquipmentNumber.value = 'Select';
       showMeasurementButton.value = false;
-
-      // Functional Location cleared — equipment must be empty until it's picked again.
       setEquipmentOptions([]);
+      systemController.clear();
+      subsystemController.clear();
       return;
     }
 
@@ -1916,44 +2006,52 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     selectedEquipmentNumber.value = 'Select';
 
     final func = masterFunctionalLocations.firstWhere(
-          (e) => e['funcLocationName']?.toString() == funcLabel,
+          (e) {
+        final name = e['funcLocationName']?.toString() ?? '';
+        final loc = e['funcLocation']?.toString() ?? '';
+        return (name.isNotEmpty ? name : loc) == funcLabel;
+      },
       orElse: () => <String, dynamic>{},
     );
-    debugPrint("Found functional location: ${func['funcLocationName']}, location: ${func['location']}, workCenter: ${func['workCenter']}");
+
+    if (func.isEmpty) {
+      return;
+    }
+
+    debugPrint("onFunctionalLocationChanged: Functional location data keys: ${func.keys.toList()}");
+    debugPrint("onFunctionalLocationChanged: Functional location full data: $func");
+    final funcObjectNumber = func['objectNumber']?.toString();
+    debugPrint("onFunctionalLocationChanged: Functional location objectNumber: $funcObjectNumber");
+
+    // Populate System and Subsystem fields from functional location
+    systemController.text = func['techObjectType']?.toString() ?? func['objectKey']?.toString() ?? '';
+    subsystemController.text = func['subSystem']?.toString() ?? '';
+    // Don't filter RCA categories for station - use failure_category.db static list
+    debugPrint('onFunctionalLocationChanged: corrNotificationTypeList count before: ${corrNotificationTypeList.length}');
+    debugPrint('onFunctionalLocationChanged: corrNotificationTypeList items: ${corrNotificationTypeList.map((e) => e.label).toList()}');
 
     // Auto-select location based on functional location
     final funcLocationCode = func['location']?.toString();
-    debugPrint("Auto-select location: funcLocationCode=$funcLocationCode");
-    debugPrint("Auto-select location: locationTypeList count=${locationTypeList.length}");
-    debugPrint("Auto-select location: locationTypeList sample=${locationTypeList.take(5).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}");
-    
+
     if (funcLocationCode != null && funcLocationCode.isNotEmpty) {
-      // First try to match by uniqueId (location code) - since we now store location code in uniqueId
       final locationMatch = locationTypeList.firstWhere(
-        (e) => e.uniqueId == funcLocationCode,
+            (e) => e.uniqueId == funcLocationCode,
         orElse: () => LabelValue(),
       );
-      debugPrint("Auto-select location: First attempt by uniqueId - locationMatch.label=${locationMatch.label}, locationMatch.uniqueId=${locationMatch.uniqueId}");
-      
-      // If not found by uniqueId, try to match by label (location name)
+
       if (locationMatch.label?.isEmpty == true) {
         final locationMatchByName = locationTypeList.firstWhere(
-          (e) => e.label == funcLocationCode,
+              (e) => e.label == funcLocationCode,
           orElse: () => LabelValue(),
         );
-        debugPrint("Auto-select location: Second attempt by label - locationMatchByName.label=${locationMatchByName.label}, locationMatchByName.value=${locationMatchByName.value}");
-        
+
         if (locationMatchByName.label?.isNotEmpty == true) {
           selectedLocation.value = locationMatchByName.label;
           locationDisplayController.text = locationMatchByName.label ?? '';
-          debugPrint("Auto-selected location (by label): ${locationMatchByName.label}");
-        } else {
-          debugPrint("Auto-select location: No match found for funcLocationCode=$funcLocationCode (tried both uniqueId and label)");
         }
       } else {
         selectedLocation.value = locationMatch.label;
         locationDisplayController.text = locationMatch.label ?? '';
-        debugPrint("Auto-selected location (by uniqueId): ${locationMatch.label}");
       }
     }
 
@@ -1961,14 +2059,12 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     final funcWorkCenter = func['workCenter']?.toString();
     if (funcWorkCenter != null && funcWorkCenter.isNotEmpty) {
       LabelValue? deptMatch;
-      // Try matching by workCenter in uniqueId
       for (var dept in departmentList) {
         if (dept.uniqueId?.toString() == funcWorkCenter) {
           deptMatch = dept;
           break;
         }
       }
-      // If not found, try matching by workCenter lookup
       if (deptMatch == null) {
         for (var dept in departmentList) {
           final wc = getWorkCenterForDept(dept.value, deptLabel: dept.label);
@@ -1981,14 +2077,10 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       if (deptMatch != null && deptMatch.label?.isNotEmpty == true) {
         selectedDepartment.value = deptMatch.label;
         departmentDisplayController.text = deptMatch.label ?? '';
-        debugPrint("Auto-selected department: ${deptMatch.label}");
       }
     }
 
-    // Re-filter functional locations based on newly selected department/location
     _updateFunctionalLocationAndEquipmentOptions();
-
-    // Ensure the selected functional location remains in the list after filtering
     ensureDropdownOption(
       functionalLocationList,
       funcLabel,
@@ -1996,16 +2088,41 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     );
     selectedFunctionalLocation.value = funcLabel;
 
-    final locCode = (selectedLocation.value != null && selectedLocation.value != 'Select')
-        ? locationCodeForLabel(selectedLocation.value)
-        : null;
-
     final funcCode = func['funcLocation']?.toString();
-    debugPrint("onFunctionalLocationChanged: funcCode=$funcCode, objectNumber=${func['objectNumber']}");
+    debugPrint('onFunctionalLocationChanged: funcCode=$funcCode, funcLocId=${func['funcLocId']}');
     if (funcCode != null && funcCode.isNotEmpty) {
-      final filteredEquipments = _filterEquipments(locCode: locCode, funcLocCode: funcCode);
+      // Load equipment on-demand when functional location is selected
+      // Pass funcLocation CODE (not ID) because equipment table stores the code
+      debugPrint('onFunctionalLocationChanged: Calling loadEquipmentsOnDemand with funcCode=$funcCode');
+      await loadEquipmentsOnDemand(functionalLocationId: funcCode);
+
+      // Filter equipment ONLY by functional location (not by location code)
+      final filteredEquipments = _filterEquipments(funcLocCode: funcCode);
+      debugPrint('onFunctionalLocationChanged: Filtered ${filteredEquipments.length} equipments');
       setEquipmentOptions(filteredEquipments);
-      _checkMeasurementPoints(func['objectNumber']?.toString());
+
+      // Use functional location's objectNumber to find measurement points
+      final funcObjectNumber = func['objectNumber']?.toString();
+      debugPrint("onFunctionalLocationChanged: Functional location objectNumber: $funcObjectNumber");
+      _checkMeasurementPoints(funcObjectNumber);
+
+      // FMECA: Load System/Subsystem for Section Incharge
+      if (isSectionIncharge) {
+        final locationTypeId = selectedLocation.value != null
+            ? locationCodeForLabel(selectedLocation.value)
+            : '';
+        final funcLocId = func['funcLocId']?.toString() ?? func['funcLocation']?.toString() ?? '';
+
+        if (locationTypeId != null && locationTypeId.isNotEmpty && funcLocId.isNotEmpty) {
+          debugPrint('onFunctionalLocationChanged: Loading FMECA data for Section Incharge');
+          await fetchFmecaSystemSubsystemByFuncLoc(locationTypeId, funcLocId);
+
+          // Set frequency from functional location data
+          final frequency = func['frequency'] ?? 0;
+          fmecaFrequency.value = frequency is int ? frequency : int.tryParse(frequency.toString()) ?? 0;
+          fmecaFrequencyController.text = fmecaFrequency.value.toString();
+        }
+      }
     }
   }
 
@@ -2034,7 +2151,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   /// location even if it falls outside the filter, so server-loaded data doesn't disappear.
   void _refilterFunctionalLocationForCurrentSelections() {
 
-    
+
     final hasLocation = selectedLocation.value != null && selectedLocation.value != 'Select';
     final hasDept = selectedDepartment.value != null && selectedDepartment.value != 'Select';
 
@@ -2069,7 +2186,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       }
       return match;
     }).toList();
-    
+
 
     setFunctionalLocationOptions(filteredFuncs);
 
@@ -2092,22 +2209,15 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
             (e) => e['equipmentName'] == equipLabel,
         orElse: () => <String, dynamic>{});
 
-    // Auto-select location based on equipment
-    final locCode = eq['location']?.toString();
-    if (locCode != null && locCode.isNotEmpty) {
-      final loc = masterLocations.firstWhere(
-            (e) => e['locationTypeCode']?.toString() == locCode ||
-            e['locationTypeId']?.toString() == locCode,
-        orElse: () => <String, dynamic>{},
-      );
-      if (loc.isNotEmpty) {
-        final locName = loc['locationName']?.toString();
-        if (locName != null && locName.isNotEmpty) {
-          selectedLocation.value = locName;
-          locationDisplayController.text = locName;
-        }
-      }
-    }
+    // Check measurement points using equipment's object number
+    // This should match the functional location's ObjectNumber
+    final equipObjectNumber = eq['objectNumber']?.toString();
+    debugPrint("onEquipmentChanged: Equipment object number: $equipObjectNumber");
+    _checkMeasurementPoints(equipObjectNumber);
+
+    // Note: Removed auto-selection of location and functional location based on equipment
+    // to prevent overriding user's manual selections. Equipment is filtered based on
+    // the already-selected location and functional location, so it shouldn't change them.
 
     final funcCode = eq['functionalLocation']?.toString();
     if (funcCode != null && funcCode.isNotEmpty) {
@@ -2116,25 +2226,25 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
           orElse: () => <String, dynamic>{});
 
       if (func.isNotEmpty) {
-        // Display funcLocation CODE as the selected value (matching the dropdown label)
-        selectedFunctionalLocation.value = funcCode;
-        functionalLocationDisplayController.text = funcCode;
-        // Also ensure the dropdown list includes this func loc
-        ensureDropdownOption(
-          functionalLocationList,
-          funcCode,
-          func['funcLocId']?.toString() ?? '',
-        );
-        _checkMeasurementPoints(func['objectNumber']?.toString());
+        // Only update functional location if it's not already selected
+        if (selectedFunctionalLocation.value == null ||
+            selectedFunctionalLocation.value!.isEmpty ||
+            selectedFunctionalLocation.value == 'Select') {
+          final funcName = func['funcLocationName']?.toString() ?? funcCode;
+          selectedFunctionalLocation.value = funcName;
+          functionalLocationDisplayController.text = funcName;
+          ensureDropdownOption(
+            functionalLocationList,
+            funcName,
+            func['funcLocId']?.toString() ?? '',
+          );
+        }
       }
     }
   }
 
   Future<void> _checkMeasurementPoints(String? objectNumber) async {
-    debugPrint("=== _checkMeasurementPoints START ===");
-    debugPrint("Checking Measurement Points for objectNumber: $objectNumber");
     if (objectNumber == null || objectNumber.isEmpty) {
-      debugPrint("objectNumber is null or empty, hiding button");
       showMeasurementButton.value = false;
       measurementPointsList.clear();
       return;
@@ -2142,60 +2252,49 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
     try {
       final dbService = LocalDatabaseService();
-      debugPrint("Calling getMeasurementPoints...");
-      List<Map<String, dynamic>> allMeasurements =
-      (await dbService.getMeasurementPoints()).map((e) => e.toJson()).toList();
-      debugPrint("Total Measurement Points in DB: ${allMeasurements.length}");
 
-      if (allMeasurements.isEmpty) {
-        debugPrint("Measurement Points empty in local DB - sync should have happened at login");
+      // First try local database with filter
+      List<MeasurementPointModel> matchingMeasurements =
+      await dbService.getMeasurementPointsFromLocal(objectNumber: objectNumber);
+
+      // If local DB has no results, query assets database directly with filter
+      if (matchingMeasurements.isEmpty) {
+        debugPrint("_checkMeasurementPoints: No results from local DB, querying assets database with filter");
+        matchingMeasurements = await dbService.getMeasurementPointsFromAssetsFiltered(objectNumber);
+
+        // Insert matching results into local DB for future use
+        if (matchingMeasurements.isNotEmpty) {
+          await dbService.insertMeasurementPoints(matchingMeasurements);
+          debugPrint("_checkMeasurementPoints: Inserted ${matchingMeasurements.length} measurement points into local DB");
+        }
+      }
+
+      if (matchingMeasurements.isNotEmpty) {
+        measurementPointsList.assignAll(matchingMeasurements
+            .map((m) => {
+          "measPoint": m.measPoint,
+          "measPointDesc": m.measPointDesc,
+          "measRangeUnit": m.measRangeUnit,
+          "internalCharNo": m.internalCharNo,
+          "targetValue": m.targetValue,
+          "measId": m.measId,
+          "reading": "",
+          "readingDescr": "",
+          "uom": m.measRangeUnit,
+          "UnitMeasurement": m.measRangeUnit
+        })
+            .toList());
+        showMeasurementButton.value = true;
+        debugPrint("_checkMeasurementPoints: Found ${matchingMeasurements.length} measurement points for objectNumber: $objectNumber");
+      } else {
         measurementPointsList.clear();
         showMeasurementButton.value = false;
-        return;
+        debugPrint("_checkMeasurementPoints: No matching measurement points for objectNumber: $objectNumber");
       }
-
-      debugPrint("First 3 measurement points for debugging:");
-      for (int i = 0; i < (allMeasurements.length > 3 ? 3 : allMeasurements.length); i++) {
-        debugPrint("  [$i] objectNo: '${allMeasurements[i]['objectNo']}', measPoint: '${allMeasurements[i]['measPoint']}'");
-      }
-
-      final matchingMeasurements = allMeasurements
-          .where((m) =>
-      m['objectNo']?.toString().trim() == objectNumber.toString().trim())
-          .toList();
-      debugPrint(
-          "Matching Measurement Points found: ${matchingMeasurements.length}");
-      debugPrint("Looking for objectNo: '${objectNumber.toString().trim()}'");
-      if (allMeasurements.isNotEmpty) {
-        debugPrint("Sample measurement objectNo: '${allMeasurements.first['objectNo']}'");
-      }
-
-    if (matchingMeasurements.isNotEmpty) {
-      measurementPointsList.assignAll(matchingMeasurements
-          .map((m) => {
-        "measPoint": m['measPoint'],
-        "measPointDesc": m['measPointDesc'],
-        "measRangeUnit": m['measRangeUnit'],
-        "internalCharNo": m['internalCharNo'],
-        "targetValue": m['targetValue'],
-        "measId": m['measId'],
-        "reading": "",
-        "readingDescr": "",
-        "uom": m['measRangeUnit'],
-        "UnitMeasurement": m['measRangeUnit']
-      })
-          .toList());
-      debugPrint("Setting showMeasurementButton to true");
-      showMeasurementButton.value = true;
-    } else {
-      debugPrint("No matching measurements, hiding button");
-      measurementPointsList.clear();
-      showMeasurementButton.value = false;
-    }
     } catch (e) {
-      debugPrint("Error in _checkMeasurementPoints: $e");
       measurementPointsList.clear();
       showMeasurementButton.value = false;
+      debugPrint("_checkMeasurementPoints error: $e");
     }
   }
 
@@ -2212,64 +2311,493 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Private helpers — single source of truth for cause / root-cause filtering
+  // ---------------------------------------------------------------------------
+
+  /// Returns a [LabelValue] list of causes filtered by [workCenter],
+  /// [businessArea], [failureCategoryId] and the current system text.
+  List<LabelValue> _buildCauseList({
+    required String workCenter,
+    required String businessArea,
+    String? failureCategoryId,
+  }) {
+    final currentSystem = systemController.text.trim();
+    final globalMasterData = Get.find<GlobalMasterDataController>();
+
+    return globalMasterData.masterCauseOfFailures
+        .map(CauseOfFailureModel.fromJson)
+        .where((c) {
+      final wcMatch   = workCenter.isEmpty        || (c.workCenter   ?? '').isEmpty || (c.workCenter   ?? '').toLowerCase().contains(workCenter.toLowerCase());
+      final baMatch   = businessArea.isEmpty      || (c.businessArea == null) || c.businessArea.toString() == businessArea;
+      final catMatch  = failureCategoryId == null || failureCategoryId.isEmpty ||
+          c.failureCategoryId?.toString().trim() == failureCategoryId.trim();
+      final sysMatch  = currentSystem.isEmpty     || (c.systems      ?? '').isEmpty || (c.systems      ?? '').toLowerCase().contains(currentSystem.toLowerCase());
+      return wcMatch && baMatch && catMatch && sysMatch;
+    })
+        .map((c) => LabelValue(
+      label: c.cause,
+      value: c.causeOfFailureId?.toString() ?? '',
+    ))
+        .toList();
+  }
+
+  /// Resolves the numeric ID for the currently selected RCA failure category.
+  /// [selectedRcaFailureCategory] holds the **label** (display text), so we
+  /// must look up by label, not by value.
+  String? _resolveRcaCategoryId() {
+    final label = selectedRcaFailureCategory.value;
+    debugPrint('_resolveRcaCategoryId: selectedRcaFailureCategory.value=$label');
+    if (label == null || label.isEmpty || label == 'Select') {
+      debugPrint('_resolveRcaCategoryId: Returning null (label is null/empty/Select)');
+      return null;
+    }
+    final matched = rcaFailureCategoryList
+        .firstWhereOrNull((e) => e.label == label);
+    debugPrint('_resolveRcaCategoryId: Matched category: ${matched?.label}, value: ${matched?.value}');
+    return matched?.value;
+  }
+
+  /// Returns a [LabelValue] list of root causes filtered by context.
+  List<LabelValue> _buildRootCauseList({
+    required String causeId,
+    String? failureCategoryId,
+    String? workCenter,
+    String? businessArea,
+    String? currentSystem,
+  }) {
+    final globalMasterData = Get.find<GlobalMasterDataController>();
+
+    return globalMasterData.masterRootCauses
+        .map(RootCauseModel.fromJson)
+        .where((rc) {
+      final wcMatch   = workCenter == null || workCenter.isEmpty        || (rc.workCenter   ?? '').isEmpty || (rc.workCenter   ?? '').toLowerCase().contains(workCenter.toLowerCase());
+      final baMatch   = businessArea == null || businessArea.isEmpty      || (rc.businessArea == null) || rc.businessArea.toString() == businessArea;
+      final sysMatch  = currentSystem == null || currentSystem.isEmpty     || (rc.systems      ?? '').isEmpty || (rc.systems      ?? '').toLowerCase().contains(currentSystem.toLowerCase());
+
+      final catMatch  = failureCategoryId == null || failureCategoryId.isEmpty ||
+          rc.failureCategoryId?.toString().trim() == failureCategoryId.trim();
+      final causeMatch = rc.causeOfFailureId?.toString().trim() == causeId.trim();
+
+      return wcMatch && baMatch && sysMatch && catMatch && causeMatch;
+    })
+        .map((rc) => LabelValue(
+      label: rc.rootCause,
+      value: rc.rootCauseId?.toString() ?? '',
+    ))
+        .toList();
+  }
+
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // FMECA Methods for Section Incharge
+  // ---------------------------------------------------------------------------
+
+  Future<void> fetchFmecaSystemSubsystemByFuncLoc(
+      String locationTypeId, String funcLocId) async {
+    if (locationTypeId.isEmpty || funcLocId.isEmpty || selectedDepartment.value == null) {
+      debugPrint('fetchFmecaSystemSubsystemByFuncLoc: Missing required parameters');
+      return;
+    }
+
+    try {
+      final session = Get.find<SessionController>();
+      final apiClient = ApiClient();
+      final userId = await AuthManager().getUserId();
+
+      final requestBody = {
+        'userId': userId,
+        'system': '',
+        'locationTypeId': int.tryParse(locationTypeId) ?? 0,
+        'funcLocId': int.tryParse(funcLocId) ?? 0,
+        'action': 'GetSystemSubSystemByFuncLoc',
+        'failureCategoryId': 0,
+        'causeOfFailureId': 0,
+        'departmentIds': selectedDepartment.value,
+      };
+
+      debugPrint('fetchFmecaSystemSubsystemByFuncLoc: Request body: $requestBody');
+
+      final response = await apiClient.post(
+        'GetFailureStandDropDownDataNew',
+        body: requestBody,
+      );
+
+      if (response.statusCode == 200 && response.body.isNotEmpty) {
+        final decodedData = jsonDecode(response.body);
+        final output = decodedData['data'] ?? decodedData['responseOutput'] ?? {};
+        final subsystemsOnFuncLocs = output['subsystemsOnFuncLocs'] ?? [];
+
+        debugPrint('fetchFmecaSystemSubsystemByFuncLoc: Got ${subsystemsOnFuncLocs.length} subsystem pairs');
+
+        _applyFmecaSystemSubsystemPairs(subsystemsOnFuncLocs);
+      } else {
+        debugPrint('fetchFmecaSystemSubsystemByFuncLoc: API error ${response.statusCode}');
+        _applyFmecaSystemSubsystemPairs([]);
+      }
+    } catch (e) {
+      debugPrint('fetchFmecaSystemSubsystemByFuncLoc: Error $e');
+      _applyFmecaSystemSubsystemPairs([]);
+    }
+  }
+
+  void _applyFmecaSystemSubsystemPairs(List<dynamic> pairs) {
+    final list = pairs.cast<Map<String, dynamic>>();
+
+    if (list.isEmpty) {
+      fmecaSystemList.clear();
+      fmecaSubsystemList.clear();
+      selectedFmecaSystem.value = null;
+      selectedFmecaSubsystem.value = null;
+      fmecaSystemReadOnly.value = false;
+      fmecaSubsystemReadOnly.value = false;
+      return;
+    }
+
+    if (list.length == 1) {
+      final only = list[0];
+      selectedFmecaSystem.value = only['system']?.toString() ?? '';
+      selectedFmecaSubsystem.value = only['subSystem']?.toString() ?? '';
+      fmecaSystemController.text = selectedFmecaSystem.value ?? '';
+      fmecaSubsystemController.text = selectedFmecaSubsystem.value ?? '';
+      fmecaSystemList.clear();
+      fmecaSubsystemList.clear();
+      fmecaSystemReadOnly.value = true;
+      fmecaSubsystemReadOnly.value = true;
+      return;
+    }
+
+    final uniqueSystems = <String>{};
+    for (final p in list) {
+      final system = p['system']?.toString();
+      if (system != null && system.isNotEmpty) {
+        uniqueSystems.add(system);
+      }
+    }
+
+    final systemOptions = uniqueSystems
+        .map((s) => LabelValue(label: s, value: s))
+        .toList();
+
+    fmecaSystemList.assignAll(systemOptions);
+    fmecaSystemReadOnly.value = false;
+    fmecaSubsystemReadOnly.value = false;
+    selectedFmecaSystem.value = null;
+    selectedFmecaSubsystem.value = null;
+    fmecaSubsystemList.clear();
+
+    if (uniqueSystems.length == 1) {
+      final systemVal = uniqueSystems.first;
+      selectedFmecaSystem.value = systemVal;
+      fmecaSystemReadOnly.value = true;
+
+      final subsystemOptions = list
+          .where((p) => p['system']?.toString() == systemVal && p['subSystem'] != null)
+          .map((p) => LabelValue(
+        label: p['subSystem']?.toString() ?? '',
+        value: p['subSystem']?.toString() ?? '',
+      ))
+          .toList();
+
+      final uniqueSubsystems = <String, LabelValue>{};
+      for (final opt in subsystemOptions) {
+        uniqueSubsystems[opt.value ?? ''] = opt;
+      }
+
+      fmecaSubsystemList.assignAll(uniqueSubsystems.values.toList());
+
+      if (uniqueSubsystems.length == 1) {
+        selectedFmecaSubsystem.value = uniqueSubsystems.values.first.value;
+        fmecaSubsystemReadOnly.value = true;
+      }
+    }
+  }
+
+  List<LabelValue> _getSubsystemOptionsForSystem(String systemVal) {
+    return fmecaSubsystemList.where((opt) {
+      // In a real implementation, you'd need to store the system-subsystem relationships
+      // For now, we'll return all subsystems
+      return true;
+    }).toList();
+  }
+
+  void onFmecaSystemChanged(String? value) {
+    if (value == null || value.isEmpty || value == 'Select') {
+      selectedFmecaSystem.value = null;
+      selectedFmecaSubsystem.value = null;
+      fmecaSubsystemList.clear();
+      return;
+    }
+
+    selectedFmecaSystem.value = value;
+    fmecaSystemController.text = value;
+
+    // Filter subsystems based on selected system
+    // This would need the actual system-subsystem relationship data
+    // For now, we'll load all available subsystems
+    // In a real implementation, you'd filter based on the selected system
+  }
+
+  void onFmecaSubsystemChanged(String? value) {
+    if (value == null || value.isEmpty || value == 'Select') {
+      selectedFmecaSubsystem.value = null;
+      return;
+    }
+
+    selectedFmecaSubsystem.value = value;
+    fmecaSubsystemController.text = value;
+  }
+
   Future<void> fetchRootCauseAndAction(
       String objectCodeId, String faultCodeId) async {
     try {
-      EasyLoading.show(status: 'Loading RCA options...');
-      final data =
-      await _failureService.getRootCauseAndAction(objectCodeId, faultCodeId);
-      EasyLoading.dismiss();
-      rootCauseList.assignAll(data.rootCauses);
-      actionTakenList.assignAll(data.actionTaken);
+      final globalMasterData = Get.find<GlobalMasterDataController>();
+      final system = systemController.text.trim();
+      final workCenter = getCurrentWorkCenterFromDept() ?? '';
+      final businessArea = await getCurrentBusinessArea() ?? '';
+
+      // selectedRcaFailureCategory holds the label → look up the numeric ID
+      // Prioritize dropdown selection over passed parameters
+      final dropdownFailureCategoryId = _resolveRcaCategoryId();
+
+      // Use dropdown selection if available, otherwise use passed parameter
+      final failureCategoryId = (dropdownFailureCategoryId != null)
+          ? dropdownFailureCategoryId
+          : (objectCodeId != "0" ? objectCodeId : null);
+
+      debugPrint('fetchRootCauseAndAction: system=$system, businessArea=$businessArea, workCenter=$workCenter, failureCategoryId=$failureCategoryId (dropdown: $dropdownFailureCategoryId, passed: $objectCodeId)');
+
+      // Causes - preserve filtered list if it was already filtered (has fewer than total)
+      // Only rebuild if we have a valid failureCategoryId to filter by
+      final totalCauses = globalMasterData.masterCauseOfFailures.length;
+      if (causeList.length < totalCauses && failureCategoryId == null) {
+        // Cause list was already filtered but we don't have a category to filter by
+        // Preserve the existing filtered list
+        debugPrint('fetchRootCauseAndAction: Preserving existing filtered cause list (${causeList.length} causes)');
+      } else {
+        final causes = _buildCauseList(
+          workCenter: workCenter,
+          businessArea: businessArea,
+          failureCategoryId: failureCategoryId,
+        );
+        causeList.assignAll(causes);
+        debugPrint('fetchRootCauseAndAction: ${causes.length} causes from $totalCauses total');
+      }
+
+      final currentCause = selectedCause.value;
+      if (currentCause != null && currentCause.isNotEmpty) {
+        final failureCategoryId = _resolveRcaCategoryId();
+        final workCenter = getCurrentWorkCenterFromDept() ?? '';
+        final businessArea = await getCurrentBusinessArea() ?? '';
+        final currentSystem = systemController.text.trim();
+
+        final rootCauses = _buildRootCauseList(
+          causeId: currentCause,
+          failureCategoryId: failureCategoryId,
+          workCenter: workCenter,
+          businessArea: businessArea,
+          currentSystem: currentSystem,
+        );
+        rootCauseList.assignAll(rootCauses);
+        debugPrint('fetchRootCauseAndAction: ${rootCauses.length} root causes for causeId=$currentCause');
+      } else {
+        rootCauseList.clear();
+      }
+
+      // Actions
+      actionTakenList.assignAll(globalMasterData.actionList);
+      actionList.assignAll(globalMasterData.actionList);
+      debugPrint('fetchRootCauseAndAction: ${actionList.length} actions loaded');
     } catch (e) {
-      EasyLoading.dismiss();
       Get.snackbar(AppStrings.error, e.toString());
     }
   }
 
+  void onRcaFailureCategorySelected(String? categoryValue) {
+    selectedRcaFailureCategory.value = categoryValue;
+    _filterCausesByRcaCategory();
+  }
+
+  void _filterCausesByRcaCategory() async {
+    try {
+      final workCenter        = getCurrentWorkCenterFromDept() ?? '';
+      final businessArea      = await getCurrentBusinessArea() ?? '';
+      // selectedRcaFailureCategory holds the label → look up the numeric ID
+      final failureCategoryId = _resolveRcaCategoryId();
+
+      debugPrint('_filterCausesByRcaCategory: businessArea=$businessArea, workCenter=$workCenter, failureCategoryId=$failureCategoryId');
+
+      final causes = _buildCauseList(
+        workCenter: workCenter,
+        businessArea: businessArea,
+        failureCategoryId: failureCategoryId,
+      );
+      causeList.assignAll(causes);
+      debugPrint('_filterCausesByRcaCategory: ${causes.length} causes');
+    } catch (e) {
+      debugPrint('_filterCausesByRcaCategory error: $e');
+    }
+  }
+
+  void onCauseSelected(String? causeValue) async {
+    debugPrint('onCauseSelected: START - causeValue=$causeValue');
+    selectedCause.value = causeValue;
+    if (causeValue != null && causeValue.isNotEmpty) {
+      // Resolve cause ID from label (dropdown passes label, need ID for root cause filtering)
+      final causeId = _resolveCauseId(causeValue);
+      debugPrint('onCauseSelected: Resolved causeId=$causeId from label=$causeValue');
+
+      if (causeId == null) {
+        debugPrint('onCauseSelected: Could not resolve causeId, clearing root causes');
+        rootCauseList.clear();
+        return;
+      }
+
+      // Filter root causes by ONLY cause ID
+      debugPrint('onCauseSelected: Filtering root causes by causeId=$causeId only');
+
+      final rootCauses = _buildRootCauseList(causeId: causeId);
+      rootCauseList.assignAll(rootCauses);
+      debugPrint('onCauseSelected: ${rootCauses.length} root causes for causeId=$causeId');
+    } else {
+      rootCauseList.clear();
+      debugPrint('onCauseSelected: Cleared root causes (no cause selected)');
+    }
+  }
+
+  /// Resolve cause ID from cause label (for root cause filtering)
+  String? _resolveCauseId(String causeLabel) {
+    final matched = causeList.firstWhereOrNull((e) => e.label == causeLabel);
+    debugPrint('_resolveCauseId: Matched cause: ${matched?.label}, value: ${matched?.value}');
+    return matched?.value;
+  }
+
+  Future<List<LabelValue>> getFilteredCausesByFailureCategory(String? failureCategoryId) async {
+    if (failureCategoryId == null || failureCategoryId.isEmpty) return [];
+
+    final workCenter   = getCurrentWorkCenterFromDept() ?? '';
+    final businessArea = await getCurrentBusinessArea() ?? '';
+
+    final causes = _buildCauseList(
+      workCenter: workCenter,
+      businessArea: businessArea,
+      failureCategoryId: failureCategoryId,
+    );
+
+    debugPrint('getFilteredCausesByFailureCategory: ${causes.length} causes for failureCategoryId=$failureCategoryId');
+    return causes;
+  }
+
   Future<void> _autoSelectFailureReportedBy() async {
+    debugPrint("_autoSelectFailureReportedBy: userList count = ${userList.length}");
+    debugPrint("_autoSelectFailureReportedBy: userList sample = ${userList.take(3).map((e) => {'label': e.label, 'value': e.value}).toList()}");
+
     // Don't overwrite if already set (e.g. re-entrant call)
     if (selectedFailureReportedBy.value != null &&
         selectedFailureReportedBy.value!.isNotEmpty) {
+      debugPrint("_autoSelectFailureReportedBy: Already set to ${selectedFailureReportedBy.value}, skipping");
       return;
     }
     final currentUserId = await AuthManager().getUserId();
-    if (currentUserId == null || currentUserId.isEmpty) return;
+    debugPrint("_autoSelectFailureReportedBy: currentUserId = $currentUserId");
+    if (currentUserId == null || currentUserId.isEmpty) {
+      debugPrint("_autoSelectFailureReportedBy: currentUserId is null or empty");
+      return;
+    }
 
     final matched = userList.firstWhere(
           (e) => e.value == currentUserId,
       orElse: () => LabelValue(label: null),
     );
+    debugPrint("_autoSelectFailureReportedBy: matched user = ${matched.label}");
     if (matched.label != null && matched.label!.isNotEmpty) {
       selectedFailureReportedBy.value = matched.label;
+      debugPrint("_autoSelectFailureReportedBy: Auto-selected ${matched.label}");
+    } else {
+      debugPrint("_autoSelectFailureReportedBy: No matching user found for userId $currentUserId");
+      // Try to find user directly from masterUsers
+      final userFromMaster = masterUsers.firstWhere(
+            (e) => e['UserId']?.toString() == currentUserId,
+        orElse: () => <String, dynamic>{},
+      );
+      if (userFromMaster.isNotEmpty) {
+        final firstName = userFromMaster['FirstName']?.toString() ?? '';
+        final lastName = userFromMaster['LastName']?.toString() ?? '';
+        final fullName = '$firstName $lastName'.trim();
+        if (fullName.isNotEmpty) {
+          selectedFailureReportedBy.value = fullName;
+          debugPrint("_autoSelectFailureReportedBy: Auto-selected from masterUsers: $fullName");
+        }
+      }
     }
   }
 
 
   Future<void> loadStationCreateDropdowns() async {
     try {
-      isLoading.value = true;
-      debugPrint("loadStationCreateDropdowns: loading from local DB");
+      debugPrint("loadStationCreateDropdowns: Loading master data");
 
-      await loadMasterDropdownsFromDb();
+      final globalData = Get.find<GlobalMasterDataController>();
 
-      // Now load everything from local DB into reactive lists
-      await loadMasterDataFromDb();
+      // Load all master data for station users
+      if (!globalData.isLoaded) {
+        await globalData.initOnLogin();
+      }
+
+      // Copy global data to local lists
+      _copyGlobalDataToLocal(globalData);
+
+      // Ensure functional locations are loaded from local database for offline mode
+      if (masterFunctionalLocations.isEmpty) {
+        debugPrint("loadStationCreateDropdowns: masterFunctionalLocations empty, loading from local DB");
+        await loadMasterDataFromDb();
+      }
+
+      // Ensure users are loaded from local database for offline mode
+      if (userList.isEmpty || userList.length == 1) { // Only "Select" option
+        debugPrint("loadStationCreateDropdowns: userList empty, loading from local DB");
+        await loadMasterDropdownsFromDb(refreshIfEmpty: true);
+      }
+
       await _autoSelectFailureReportedBy();
 
       debugPrint("loadStationCreateDropdowns: isStationController = $isStationController");
       debugPrint("loadStationCreateDropdowns: masterFunctionalLocations count = ${masterFunctionalLocations.length}");
+      debugPrint("loadStationCreateDropdowns: functionalLocationList count = ${functionalLocationList.length}");
+      debugPrint("loadStationCreateDropdowns: userList count = ${userList.length}");
 
-      // Always reload departments from local storage after sync
-      await loadDepartments();
-      
       // Station is already selected in SessionController from login popup
       final session = Get.find<SessionController>();
       debugPrint("loadStationCreateDropdowns: Station from session: ${session.selectedStationName.value}");
     } catch (e) {
       debugPrint("loadStationCreateDropdowns error: $e");
-    } finally {
-      isLoading.value = false;
+    }
+  }
+
+  /// Loads full master data including RCA data for JE view
+  Future<void> loadJEDropdowns() async {
+    try {
+      debugPrint("loadJEDropdowns: Using global master data with RCA data");
+
+      final globalData = Get.find<GlobalMasterDataController>();
+
+      // Load full master data if not already loaded
+      if (!globalData.isLoaded) {
+        await globalData.initOnLogin();
+      }
+
+      // Copy all global data to local lists
+      _copyGlobalDataToLocal(globalData);
+
+      await _autoSelectFailureReportedBy();
+
+      debugPrint("loadJEDropdowns: masterFunctionalLocations count = ${masterFunctionalLocations.length}");
+      debugPrint("loadJEDropdowns: userList count = ${userList.length}");
+      debugPrint("loadJEDropdowns: masterRcaFailureCategories count = ${masterRcaFailureCategories.length}");
+      debugPrint("loadJEDropdowns: masterCauseOfFailures count = ${masterCauseOfFailures.length}");
+    } catch (e) {
+      debugPrint("loadJEDropdowns error: $e");
     }
   }
 
@@ -2284,12 +2812,13 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         (rescued != null && rescued.isNotEmpty);
 
     isPassengerAffected.value = hasPassengerData;
-    passengersAffectedCountController.text = count?.toString() ?? '';
+    numberOfPassengerAffectedController.text = count?.toString() ?? '';
     trappedDurationController.text = trapped ?? '';
     rescuedDurationController.text = rescued ?? '';
   }
 
-  String _lookupValue(List<LabelValue> list, String? label,
+  @override
+  String lookupValue(dynamic list, String? label,
       {String fallback = "0"}) {
     if (label == null || label.isEmpty || label == 'Select') return fallback;
     return list
@@ -2299,15 +2828,17 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         fallback;
   }
 
-  String _lookupLocationId(List<LabelValue> list, String? label,
+  @override
+  int lookupLocationId(dynamic list, String? label,
       {String fallback = "0"}) {
-    if (label == null || label.isEmpty || label == 'Select') return fallback;
+    if (label == null || label.isEmpty || label == 'Select') return int.tryParse(fallback) ?? 0;
     // Now locationTypeId is stored in value field
-    return list
-        .firstWhere((e) => e.label == label,
-        orElse: () => LabelValue(value: fallback))
-        .value ??
-        fallback;
+    return int.tryParse(
+        list
+            .firstWhere((e) => e.label == label,
+            orElse: () => LabelValue(value: fallback))
+            .value ??
+            fallback) ?? 0;
   }
 
 
@@ -2318,11 +2849,19 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   }
 
   DateTime? _parseDate(String dateStr) {
+    if (dateStr.trim().isEmpty) return null;
+
     try {
       try {
-        return DateFormat('MM/dd/yyyy HH:mm:ss').parse(dateStr);
+        final date = DateFormat('MM/dd/yyyy HH:mm:ss').parse(dateStr);
+        // Check if the parsed date is valid (not default/invalid like 1900)
+        if (date.year < 1900) return null;
+        return date;
       } catch (e) {
-        return DateFormat('dd/MM/yyyy HH:mm').parse(dateStr);
+        final date = DateFormat('dd/MM/yyyy HH:mm').parse(dateStr);
+        // Check if the parsed date is valid (not default/invalid like 1900)
+        if (date.year < 1900) return null;
+        return date;
       }
     } catch (e) {
       debugPrint('Error parsing date: $dateStr — $e');
@@ -2335,18 +2874,18 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       debugPrint('QR Scan: Raw URL: $url');
       final uri = Uri.tryParse(url);
       if (uri == null || uri.pathSegments.isEmpty) {
-         Get.snackbar('Error', 'Invalid QR Code URL', backgroundColor: Colors.red, colorText: Colors.white);
-         return;
+        Get.snackbar('Error', 'Invalid QR Code URL', backgroundColor: AppColors.red, colorText: AppColors.white1);
+        return;
       }
       final encryptedIdBase64 = uri.pathSegments.last;
       debugPrint('QR Scan: Encrypted ID from URL: $encryptedIdBase64');
       final decryptedId = await _decryptQRId(encryptedIdBase64);
       debugPrint('QR Scan: Decrypted ID: $decryptedId');
-      
+
       // Check internet connectivity
       final hasInternet = await NetworkUtils.checkConnectivity();
       debugPrint('QR Scan: Internet available: $hasInternet');
-      
+
       if (hasInternet) {
         // Online mode: Call API to get data with encrypted ID
         await _populateDataFromApi(encryptedIdBase64);
@@ -2356,7 +2895,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       }
     } catch (e) {
       debugPrint('QR Scan Error: $e');
-      Get.snackbar('Error', 'Failed to process QR Code: $e', backgroundColor: Colors.red, colorText: Colors.white);
+      Get.snackbar('Error', 'Failed to process QR Code: $e', backgroundColor: AppColors.red, colorText: AppColors.white1);
     }
   }
 
@@ -2381,45 +2920,42 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
   Future<void> _populateDataFromApi(String decryptedId) async {
     try {
       EasyLoading.show(status: 'Fetching data from server...');
-      
+
       final userId = await AuthManager().getUserId() ?? 1;
-      final apiUrl = 'http://192.168.24.158:8080/api/Common/GetAllDataByFuncLocId';
-      
+      final apiUrl = '${AppUrls.baseUrl8080}${AppUrls.getAllDataByFuncLocId}';
+
       final requestBody = {
         "CreatedBy": userId,
         "FuncLocId": decryptedId,
         "IsSearchFilter": 0
       };
-      
+
       debugPrint('QR Scan API: Calling $apiUrl with body: $requestBody ');
-      
+
       final response = await http.post(
         Uri.parse(apiUrl),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(requestBody),
       ).timeout(const Duration(seconds: 15));
-      
+
       debugPrint('QR Scan API: Response status: ${response.statusCode}');
       debugPrint('QR Scan API: Response body: ${response.body}');
-      
+
       if (response.statusCode == 200) {
         final responseData = jsonDecode(response.body);
-        
+
         if (responseData['responseCode'] == 200 && responseData['responseOutput'] != null) {
-          final output = responseData['responseOutput'];
           debugPrint('QR Scan API: Successfully parsed response output');
-          
-          // Populate form fields from API response
-          await _populateFormFromApiResponse(output);
-          
+
           EasyLoading.dismiss();
-          Get.snackbar('Success', 'Asset data populated from server',
-              backgroundColor: Colors.green, colorText: Colors.white);
+
+          // Navigate to MaintenanceHistoryScreen with showAssetQR = true
+          Get.to(() => const MaintenanceHistoryScreen(showAssetQR: true), arguments: decryptedId);
         } else {
           EasyLoading.dismiss();
           debugPrint('QR Scan API: Invalid response code or missing data');
           Get.snackbar('Error', 'Invalid response from server',
-              backgroundColor: Colors.red, colorText: Colors.white);
+              backgroundColor: AppColors.red, colorText: AppColors.white1);
           // Fallback to offline mode
           await _populateDataFromScannedId(decryptedId);
         }
@@ -2427,7 +2963,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
         EasyLoading.dismiss();
         debugPrint('QR Scan API: Non-200 status code');
         Get.snackbar('Error', 'Server error: ${response.statusCode}',
-            backgroundColor: Colors.red, colorText: Colors.white);
+            backgroundColor: AppColors.red, colorText: AppColors.white1);
         // Fallback to offline mode
         await _populateDataFromScannedId(decryptedId);
       }
@@ -2435,185 +2971,10 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       EasyLoading.dismiss();
       debugPrint('QR Scan API Error: $e');
       Get.snackbar('Error', 'Failed to fetch data from server: $e',
-          backgroundColor: Colors.red, colorText: Colors.white);
+          backgroundColor: AppColors.red, colorText: AppColors.white1);
       // Fallback to offline mode
       await _populateDataFromScannedId(decryptedId);
     }
-  }
-
-  Future<void> _populateFormFromApiResponse(Map<String, dynamic> output) async {
-    // Make sure master caches are populated
-    if (masterFunctionalLocations.isEmpty || masterLocations.isEmpty) {
-      await loadMasterDataFromDb();
-    }
-    
-    // Populate functional location using funcLocId to lookup from master data
-    final funcLocId = output['funcLocId']?.toString();
-    final funcLocation = output['funcLocation']?.toString();
-    final funcLocationDesc = output['description']?.toString();
-    
-    String? selectedFuncLocName;
-    
-    if (funcLocId != null && funcLocId.isNotEmpty) {
-      // Try to find the functional location in master data by funcLocId
-      final match = masterFunctionalLocations.firstWhere(
-        (e) => e['funcLocId']?.toString() == funcLocId,
-        orElse: () => <String, dynamic>{},
-      );
-      
-      if (match.isNotEmpty) {
-        // Use the name from master data (funcLocationName)
-        final masterFuncLocName = match['funcLocationName']?.toString();
-        if (masterFuncLocName != null && masterFuncLocName.isNotEmpty) {
-          ensureDropdownOption(
-            functionalLocationList,
-            masterFuncLocName,
-            funcLocId,
-          );
-          selectedFunctionalLocation.value = masterFuncLocName;
-          functionalLocationDisplayController.text = masterFuncLocName;
-          selectedFuncLocName = masterFuncLocName;
-          debugPrint('QR Scan API: Populated functional location from master data: $masterFuncLocName (funcLocId: $funcLocId)');
-        } else {
-          // Fallback to funcLocation if master data name is empty
-          if (funcLocation != null && funcLocation.isNotEmpty) {
-            ensureDropdownOption(
-              functionalLocationList,
-              funcLocation,
-              funcLocId,
-            );
-            selectedFunctionalLocation.value = funcLocation;
-            functionalLocationDisplayController.text = funcLocation;
-            selectedFuncLocName = funcLocation;
-            debugPrint('QR Scan API: Populated functional location from API funcLocation: $funcLocation (funcLocId: $funcLocId)');
-          }
-        }
-      } else {
-        // Fallback to using funcLocation from API response (the actual functional location code)
-        if (funcLocation != null && funcLocation.isNotEmpty) {
-          ensureDropdownOption(
-            functionalLocationList,
-            funcLocation,
-            funcLocId,
-          );
-          selectedFunctionalLocation.value = funcLocation;
-          functionalLocationDisplayController.text = funcLocation;
-          selectedFuncLocName = funcLocation;
-          debugPrint('QR Scan API: Populated functional location from API funcLocation: $funcLocation (funcLocId: $funcLocId)');
-        } else if (funcLocationDesc != null && funcLocationDesc.isNotEmpty) {
-          // Last fallback to description
-          ensureDropdownOption(
-            functionalLocationList,
-            funcLocationDesc,
-            funcLocId,
-          );
-          selectedFunctionalLocation.value = funcLocationDesc;
-          functionalLocationDisplayController.text = funcLocationDesc;
-          selectedFuncLocName = funcLocationDesc;
-          debugPrint('QR Scan API: Populated functional location from API description: $funcLocationDesc (funcLocId: $funcLocId)');
-        }
-      }
-    } else if (funcLocation != null && funcLocation.isNotEmpty) {
-      // Fallback if funcLocId is not available, use funcLocation
-      ensureDropdownOption(
-        functionalLocationList,
-        funcLocation,
-        funcLocation,
-      );
-      selectedFunctionalLocation.value = funcLocation;
-      functionalLocationDisplayController.text = funcLocation;
-      selectedFuncLocName = funcLocation;
-      debugPrint('QR Scan API: Populated functional location without funcLocId: $funcLocation');
-    }
-    
-    // Refresh dependent dropdowns
-    _updateFunctionalLocationAndEquipmentOptions();
-    
-    // Ensure the selected functional location remains in the list after filtering
-    if (selectedFuncLocName != null && selectedFuncLocName.isNotEmpty) {
-      ensureDropdownOption(
-        functionalLocationList,
-        selectedFuncLocName,
-        funcLocId ?? funcLocation ?? '',
-      );
-      selectedFunctionalLocation.value = selectedFuncLocName;
-    }
-    
-    // Populate department
-    final department = output['department']?.toString();
-    final deptId = output['deptId']?.toString();
-    
-    if (department != null && department.isNotEmpty) {
-      ensureDropdownOption(departmentList, department, deptId ?? '');
-      selectedDepartment.value = department;
-      departmentDisplayController.text = department;
-      debugPrint('QR Scan API: Populated department: $department');
-    }
-    
-    // Populate location (if available in response)
-    final location = output['location']?.toString();
-    if (location != null && location.isNotEmpty) {
-      // Try to find location by code in locationTypeList
-      final locationMatch = locationTypeList.firstWhere(
-        (e) => e.value == location,
-        orElse: () => LabelValue(),
-      );
-      
-      if (locationMatch.label?.isNotEmpty == true) {
-        selectedLocation.value = locationMatch.label;
-        locationDisplayController.text = locationMatch.label ?? '';
-        debugPrint('QR Scan API: Populated location: ${locationMatch.label}');
-      } else {
-        // Try to match by label
-        final locationMatchByName = locationTypeList.firstWhere(
-          (e) => e.label == location,
-          orElse: () => LabelValue(),
-        );
-        if (locationMatchByName.label?.isNotEmpty == true) {
-          selectedLocation.value = locationMatchByName.label;
-          locationDisplayController.text = locationMatchByName.label ?? '';
-          debugPrint('QR Scan API: Populated location by name: ${locationMatchByName.label}');
-        }
-      }
-    }
-    
-    // Populate system and subsystem
-    final system = output['system']?.toString();
-    final subSystem = output['subSystem']?.toString();
-    
-    if (system != null && system.isNotEmpty) {
-      systemController.text = system;
-      debugPrint('QR Scan API: Populated system: $system');
-    }
-    
-    if (subSystem != null && subSystem.isNotEmpty) {
-      // Note: subSystemController not found, using subLocationController instead
-      subLocationController.text = subSystem;
-      debugPrint('QR Scan API: Populated subsystem: $subSystem');
-    }
-    
-    // Populate equipment if available
-    final apiEquipmentList = output['lstEquipmentsDetails'] as List?;
-    if (apiEquipmentList != null && apiEquipmentList.isNotEmpty) {
-      final equipment = apiEquipmentList.first as Map<String, dynamic>;
-      final equipmentName = equipment['equipmentName']?.toString();
-      final equipmentDesc = equipment['equipmentDescriptions']?.toString();
-      final equipmentId = equipment['equipmentId']?.toString();
-      
-      if (equipmentName != null && equipmentName.isNotEmpty) {
-        ensureDropdownOption(
-          equipmentList, // This is the controller's RxList<LabelValue>
-          equipmentDesc ?? equipmentName,
-          equipmentId ?? equipmentName,
-        );
-        selectedEquipmentNumber.value = equipmentDesc ?? equipmentName;
-        equipmentDisplayController.text = equipmentDesc ?? equipmentName;
-        debugPrint('QR Scan API: Populated equipment: ${equipmentDesc ?? equipmentName}');
-      }
-    }
-    
-    // Refresh dependent dropdowns
-    _updateFunctionalLocationAndEquipmentOptions();
   }
 
   Future<void> _populateDataFromScannedId(String scannedId) async {
@@ -2653,23 +3014,21 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       debugPrint('QR Scan: Query by funcLocation LIKE "%$cleanId%" returned ${funcResults.length} results');
     }
 
-    // If no results, try a broader search to see what's in the table
     if (funcResults.isEmpty) {
       final allFuncLocs = await db.rawQuery('SELECT funcLocId, funcLocation, funcLocationName FROM FunctionalLocations LIMIT 10');
       debugPrint('QR Scan: Sample functional locations in DB (first 10): $allFuncLocs');
       final totalCount = await db.rawQuery('SELECT COUNT(*) as cnt FROM FunctionalLocations');
       debugPrint('QR Scan: Total functional locations in DB: ${totalCount.first['cnt']}');
-      
-      // Also check if ID 90225 specifically exists
+
       final check90225 = await db.rawQuery('SELECT funcLocId, funcLocation, funcLocationName FROM FunctionalLocations WHERE funcLocId = 90225');
       debugPrint('QR Scan: Check for ID 90225: ${check90225.isNotEmpty ? "FOUND" : "NOT FOUND"}');
       if (check90225.isNotEmpty) {
         debugPrint('QR Scan: ID 90225 details: $check90225');
       }
-      
+
       Get.snackbar('Not Found',
           'Functional location not found in master data for ID: $cleanId. Total in DB: ${totalCount.first['cnt']}',
-          backgroundColor: Colors.red, colorText: Colors.white);
+          backgroundColor: AppColors.red, colorText: AppColors.white1);
       return;
     }
 
@@ -2680,9 +3039,9 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       await loadMasterDataFromDb();
     }
     if (masterDepartments.isEmpty || departmentList.isEmpty) {
-      await loadDepartments();
+      // await loadDepartments();
     }
-    
+
     debugPrint('QR Scan Offline: masterDepartments count=${masterDepartments.length}');
     debugPrint('QR Scan Offline: departmentList count=${departmentList.length}');
     debugPrint('QR Scan Offline: departmentList sample=${departmentList.take(5).map((e) => {'label': e.label, 'value': e.value, 'uniqueId': e.uniqueId}).toList()}');
@@ -2696,17 +3055,17 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     }
     ensureDropdownOption(
       functionalLocationList,
-      match.funcLocationName ?? '',
-      match.funcLocId?.toString() ?? match.funcLocation ?? '',
+      match.funcLocationName,
+      match.funcLocId?.toString() ?? match.funcLocation,
     );
 
     selectedFunctionalLocation.value = match.funcLocationName;
-    functionalLocationDisplayController.text = match.funcLocationName ?? '';
+    functionalLocationDisplayController.text = match.funcLocationName;
 
     // --- Resolve Location NAME from the raw location CODE on the func loc ---
     String? locName;
-    final locCode = match.location?.toString();
-    if (locCode != null && locCode.isNotEmpty) {
+    final locCode = match.location.toString();
+    if (locCode.isNotEmpty) {
       final loc = masterLocations.firstWhere(
             (e) =>
         e['locationTypeCode']?.toString() == locCode ||
@@ -2716,7 +3075,7 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       locName = loc['locationName']?.toString();
     }
     if (locName != null && locName.isNotEmpty) {
-      ensureDropdownOption(locationTypeList, locName, locCode ?? '');
+      ensureDropdownOption(locationTypeList, locName, locCode);
       selectedLocation.value = locName;
       locationDisplayController.text = locName;
     } else {
@@ -2725,8 +3084,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
 
     // --- Resolve Department via workCenter, same fallback order used elsewhere ---
     String? deptName;
-    final workCenter = match.workCenter?.toString().trim();
-    if (workCenter != null && workCenter.isNotEmpty) {
+    final workCenter = match.workCenter.toString().trim();
+    if (workCenter.isNotEmpty) {
       final deptFromList = departmentList.firstWhere(
             (e) =>
         (e.uniqueId?.toString().trim().toUpperCase() ?? '') ==
@@ -2757,8 +3116,8 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
     // drop our scanned entry if it doesn't match the resolved dept/location — re-add it.
     ensureDropdownOption(
       functionalLocationList,
-      match.funcLocationName ?? '',
-      match.funcLocId?.toString() ?? match.funcLocation ?? '',
+      match.funcLocationName,
+      match.funcLocId?.toString() ?? match.funcLocation,
     );
     selectedFunctionalLocation.value = match.funcLocationName;
 
@@ -2772,17 +3131,80 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       final equipMatch = EquipmentModel.fromJson(equipResults.first);
       ensureDropdownOption(
         equipmentList,
-        equipMatch.equipmentName ?? '',
-        equipMatch.equipId?.toString() ?? equipMatch.equipNo ?? '',
+        equipMatch.equipmentName,
+        equipMatch.equipId?.toString() ?? equipMatch.equipNo,
       );
       selectedEquipmentNumber.value = equipMatch.equipmentName;
-      equipmentDisplayController.text = equipMatch.equipmentName ?? '';
+      equipmentDisplayController.text = equipMatch.equipmentName;
     }
 
-    await _checkMeasurementPoints(match.objectNumber?.toString());
+    await _checkMeasurementPoints(match.objectKey.toString());
 
     Get.snackbar('Success', 'Asset data populated successfully',
-        backgroundColor: Colors.green, colorText: Colors.white);
+        backgroundColor: AppColors.green, colorText: AppColors.white1);
+  }
+
+  // ON-DEMAND: Load functional locations with SQL filtering
+  Future<void> loadFunctionalLocationsOnDemand({
+    int? businessArea,
+    String? workCenter,
+    String? location,
+  }) async {
+    // Only load if not already loaded
+    if (isFunctionalLocationsLoaded.value && functionalLocationList.isNotEmpty) {
+      debugPrint('loadFunctionalLocationsOnDemand: Functional locations already loaded, skipping');
+      return;
+    }
+
+    isFunctionalLocationLoading.value = true;
+    debugPrint('loadFunctionalLocationsOnDemand: Loading with filters - businessArea: $businessArea, workCenter: $workCenter, location: $location');
+    final dbService = LocalDatabaseService();
+    final funcLocs = await dbService.getFunctionalLocationsFiltered(
+      businessArea: businessArea ?? await AuthManager().getBusinessArea(),
+      workCenter: workCenter,
+      location: location,
+      // No limit - load all filtered results
+    );
+
+    masterFunctionalLocations.assignAll(funcLocs.map((e) => e.toJson()).toList());
+    functionalLocationList.assignAll([
+      LabelValue(label: 'Select', value: ''),
+      ...funcLocs.map((e) => LabelValue(
+        label: e.funcLocationName.isNotEmpty ? e.funcLocationName : e.funcLocation,
+        value: e.funcLocId?.toString() ?? '',
+      )),
+    ]);
+    isFunctionalLocationsLoaded.value = true;
+    debugPrint('loadFunctionalLocationsOnDemand: Loaded ${funcLocs.length} functional locations');
+    isFunctionalLocationLoading.value = false;
+  }
+
+  // ON-DEMAND: Load equipment with SQL filtering
+  Future<void> loadEquipmentsOnDemand({
+    int? businessArea,
+    String? functionalLocationId,
+    String? workCenter,
+  }) async {
+    isEquipmentLoading.value = true;
+    debugPrint('loadEquipmentsOnDemand: Loading with filters - businessArea: $businessArea, functionalLocationId: $functionalLocationId, workCenter: $workCenter');
+    final dbService = LocalDatabaseService();
+    final equipments = await dbService.getEquipmentsFiltered(
+      businessArea: businessArea, // Don't default - only filter if explicitly provided
+      functionalLocationId: functionalLocationId,
+      workCenter: workCenter,
+      // No limit - load all filtered results
+    );
+
+    masterEquipments.assignAll(equipments.map((e) => e.toJson()).toList());
+    equipmentList.assignAll([
+      LabelValue(label: 'Select', value: ''),
+      ...equipments.map((e) => LabelValue(
+        label: e.equipmentName.isNotEmpty ? e.equipmentName : e.equipDesc,
+        value: e.equipId?.toString() ?? '',
+      )),
+    ]);
+    debugPrint('loadEquipmentsOnDemand: Loaded ${equipments.length} equipments');
+    isEquipmentLoading.value = false;
   }
 
   Future<void> loadStationFailureDetailsFromData(FailureItem failureItem) async {
@@ -2801,9 +3223,11 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       selectedLocation.value = failureItem.locationName;
       originalLocationId.value = failureItem.locationId;
       selectedFunctionalLocation.value = failureItem.functionalLocation;
+      debugPrint("loadStationFailureDetailsFromData: functionalLocation=${failureItem.functionalLocation}, set to=${selectedFunctionalLocation.value}");
       subLocationController.text = failureItem.subLocation ?? '';
       systemController.text = failureItem.system ?? '';
       trainIdController.text = failureItem.trainId ?? '';
+      await filterRcaFailureCategoriesBySystem();
 
       if (failureItem.failureOccuranceDateTime != null) {
         selectedFailureOccurrenceDate.value = _parseDate(failureItem.failureOccuranceDateTime!);
@@ -2841,6 +3265,310 @@ class CreateFailureController extends GetxController with FailureFormState, Fail
       debugPrint('Error in loadStationFailureDetailsFromData: $e');
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  Future<void> loadJEFailureDetailsFromData(FailureItem failureItem) async {
+    try {
+      isLoading.value = true;
+      errorMessage.value = "";
+      locationTypeList.clear();
+      functionalLocationList.clear();
+      equipmentList.clear();
+      await loadMasterDataFromDb();
+
+      // Load functional locations on-demand based on business area
+      await loadFunctionalLocationsOnDemand();
+
+      // Populate form fields from FailureItem (JE inbox list data)
+      encryptedId.value = failureItem.failureNo ?? failureItem.id?.toString() ?? '';
+      notificationId.value = failureItem.id ?? 0;
+      notificationCode.value = failureItem.notificationCode ?? failureItem.failureNo ?? '';
+      failureCategory.value = failureItem.creationType ?? 'Manual';
+
+      // Populate basic fields from FailureItem
+      failureDescriptionController.text = failureItem.failureDescription ?? '';
+      selectedDepartment.value = failureItem.departmentName;
+      selectedLocation.value = failureItem.locationName;
+      selectedFunctionalLocation.value = failureItem.functionalLocation;
+      selectedEquipmentNumber.value = failureItem.equipmentDescription;
+      subLocationController.text = failureItem.subLocation ?? '';
+      systemController.text = failureItem.system ?? '';
+      subsystemController.text = failureItem.subSystems ?? '';
+      trainIdController.text = failureItem.trainId ?? '';
+
+      selectedPriority.value = failureItem.priority;
+      mainStatusName.value = failureItem.statusName;
+
+      // Set notification type to default for JE offline flow (use corrNotificationTypeList from local DB)
+      if (corrNotificationTypeList.isNotEmpty) {
+        selectedNotificationType.value = corrNotificationTypeList.first.label;
+      }
+
+      await filterRcaFailureCategoriesBySystem();
+
+      if (failureItem.failureOccuranceDateTime != null) {
+        selectedFailureOccurrenceDate.value = _parseDate(failureItem.failureOccuranceDateTime!);
+      }
+      if (failureItem.actualFailureCompletedDateTime != null) {
+        selectedActualFailureRectifiedDate.value = _parseDate(failureItem.actualFailureCompletedDateTime!);
+      }
+
+      selectedFailureReportedBy.value = failureItem.failureReportedby;
+      selectedFailureCategoryType.value = failureItem.failureCategoryTypeText;
+      failureRectificationDetailsController.text = failureItem.failureRectificationDetails ?? '';
+      // carriedOutRemarksController.text = failureItem.carriedOutRemarks ?? '';
+
+      // Load RCA data from FailureItem if available
+      if (failureItem.getObjectANDFaultList != null) {
+        rcaDetailsList.clear();
+        for (var fault in failureItem.getObjectANDFaultList!) {
+          final rectId = fault['rectId'];
+
+          final List<Map<String, dynamic>> matchedRootCauses = [];
+          if (failureItem.getObjectANDFaultRootCauseList != null) {
+            for (var rc in failureItem.getObjectANDFaultRootCauseList!
+                .where((r) => r['rectId'] == rectId)) {
+              matchedRootCauses.add({
+                'causeId': "0", // API doesn't provide cause ID
+                'cause': rc['rootCasueName'] ?? "N/A", // Map root cause name to cause field
+                'rootCauseId': rc['rcaId'].toString(),
+                'rootCause': rc['rootCasueName'] ?? "N/A",
+                'causeText': rc['rcaText'] ?? "", // Map rcaText to causeText
+                'imagePath': null
+              });
+            }
+          }
+
+          final List<Map<String, dynamic>> matchedActions = [];
+          if (failureItem.getObjectANDFaultActionList != null) {
+            for (var ac in failureItem.getObjectANDFaultActionList!
+                .where((a) => a['rectId'] == rectId)) {
+              matchedActions.add({
+                'actionTakenId': ac['actionId'].toString(),
+                'actionTaken': ac['actionName'] ?? "N/A",
+                'actionTakenText': ac['actionText'] ?? "",
+                'imagePath': null
+              });
+            }
+          }
+
+          rcaDetailsList.add({
+            'ObjectPartId': fault['objectPartId']?.toString() ?? "0",
+            'objectPart': fault['objectName'] ?? "",
+            'objectPartText': fault['objectPartText'] ?? "",
+            'FaultId': fault['faultId']?.toString() ?? "0",
+            'fault': fault['faultName'] ?? "",
+            'faultText': fault['faultText'] ?? "",
+            'rootCauses': matchedRootCauses,
+            'actionTakens': matchedActions,
+          });
+        }
+      }
+
+      // Load images if available
+      if (failureItem.getImageBefor != null) {
+        beforeImagesList.clear();
+        afterImagesList.clear();
+        rcaImagesList.clear();
+        for (var img in failureItem.getImageBefor!) {
+          final fileName = img['fileName']?.toString() ?? '';
+          final docType = img['documentType']?.toString() ?? '';
+          if (fileName.isNotEmpty) {
+            final imgMap = {
+              'name': fileName.split('/').last,
+              'path': fileName,
+              'isNetwork': true
+            };
+            if (docType == 'BEFORE_NOT') {
+              beforeImagesList.add(imgMap);
+            } else if (docType == 'AFTER_NOT') {
+              afterImagesList.add(imgMap);
+            } else if (docType == 'RCA_NOT') {
+              rcaImagesList.add(imgMap);
+            } else {
+              beforeImagesList.add(imgMap);
+            }
+          }
+        }
+      }
+
+      debugPrint("loadJEFailureDetailsFromData: Loaded details from FailureItem for offline JE flow");
+    } catch (e) {
+      errorMessage.value = 'Error: $e';
+      debugPrint('Error in loadJEFailureDetailsFromData: $e');
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  /// Sets asset data from MaintenanceHistoryScreen arguments
+  /// Populates functional location and dependent fields based on funcLocId
+  Future<void> setAssetDataFromQR(Map<String, dynamic> args) async {
+    try {
+      debugPrint('setAssetDataFromQR: Received args: $args');
+
+      // Make sure master caches are populated
+      if (masterFunctionalLocations.isEmpty || masterLocations.isEmpty) {
+        await loadMasterDataFromDb();
+      }
+
+      final funcLocId = args['funcLocId']?.toString();
+      final funcLocation = args['funcLocation']?.toString();
+      final description = args['description']?.toString();
+      final department = args['department']?.toString();
+      final deptId = args['deptId']?.toString();
+      final location = args['location']?.toString();
+
+      String? selectedFuncLocName;
+
+      if (funcLocId != null && funcLocId.isNotEmpty) {
+        // Try to find the functional location in master data by funcLocId
+        final match = masterFunctionalLocations.firstWhere(
+              (e) => e['funcLocId']?.toString() == funcLocId,
+          orElse: () => <String, dynamic>{},
+        );
+
+        if (match.isNotEmpty) {
+          // Use the name from master data (funcLocationName)
+          final masterFuncLocName = match['funcLocationName']?.toString();
+          if (masterFuncLocName != null && masterFuncLocName.isNotEmpty) {
+            ensureDropdownOption(
+              functionalLocationList,
+              masterFuncLocName,
+              funcLocId,
+            );
+            selectedFunctionalLocation.value = masterFuncLocName;
+            functionalLocationDisplayController.text = masterFuncLocName;
+            selectedFuncLocName = masterFuncLocName;
+            debugPrint('setAssetDataFromQR: Populated functional location from master data: $masterFuncLocName (funcLocId: $funcLocId)');
+          } else {
+            // Fallback to funcLocation if master data name is empty
+            if (funcLocation != null && funcLocation.isNotEmpty) {
+              ensureDropdownOption(
+                functionalLocationList,
+                funcLocation,
+                funcLocId,
+              );
+              selectedFunctionalLocation.value = funcLocation;
+              functionalLocationDisplayController.text = funcLocation;
+              selectedFuncLocName = funcLocation;
+              debugPrint('setAssetDataFromQR: Populated functional location from funcLocation: $funcLocation (funcLocId: $funcLocId)');
+            }
+          }
+        } else {
+          // Fallback to using funcLocation from arguments
+          if (funcLocation != null && funcLocation.isNotEmpty) {
+            ensureDropdownOption(
+              functionalLocationList,
+              funcLocation,
+              funcLocId,
+            );
+            selectedFunctionalLocation.value = funcLocation;
+            functionalLocationDisplayController.text = funcLocation;
+            selectedFuncLocName = funcLocation;
+            debugPrint('setAssetDataFromQR: Populated functional location from funcLocation: $funcLocation (funcLocId: $funcLocId)');
+          } else if (description != null && description.isNotEmpty) {
+            // Last fallback to description
+            ensureDropdownOption(
+              functionalLocationList,
+              description,
+              funcLocId,
+            );
+            selectedFunctionalLocation.value = description;
+            functionalLocationDisplayController.text = description;
+            selectedFuncLocName = description;
+            debugPrint('setAssetDataFromQR: Populated functional location from description: $description (funcLocId: $funcLocId)');
+          }
+        }
+      } else if (funcLocation != null && funcLocation.isNotEmpty) {
+        // Fallback if funcLocId is not available, use funcLocation
+        ensureDropdownOption(
+          functionalLocationList,
+          funcLocation,
+          funcLocation,
+        );
+        selectedFunctionalLocation.value = funcLocation;
+        functionalLocationDisplayController.text = funcLocation;
+        selectedFuncLocName = funcLocation;
+        debugPrint('setAssetDataFromQR: Populated functional location without funcLocId: $funcLocation');
+      }
+
+      // Refresh dependent dropdowns
+      _updateFunctionalLocationAndEquipmentOptions();
+
+      // Ensure the selected functional location remains in the list after filtering
+      if (selectedFuncLocName != null && selectedFuncLocName.isNotEmpty) {
+        ensureDropdownOption(
+          functionalLocationList,
+          selectedFuncLocName,
+          funcLocId ?? funcLocation ?? '',
+        );
+        selectedFunctionalLocation.value = selectedFuncLocName;
+      }
+
+      // Populate department if provided
+      if (department != null && department.isNotEmpty) {
+        final deptMatch = departmentList.firstWhere(
+              (e) => e.label == department || e.value == deptId,
+          orElse: () => LabelValue(label: department, value: deptId ?? '0'),
+        );
+        selectedDepartment.value = deptMatch.label;
+        debugPrint('setAssetDataFromQR: Populated department: $deptMatch.label');
+      }
+
+      // Populate location if provided
+      if (location != null && location.isNotEmpty) {
+        final locMatch = locationTypeList.firstWhere(
+              (e) => e.label == location,
+          orElse: () => LabelValue(label: location, value: location),
+        );
+        selectedLocation.value = locMatch.label;
+        debugPrint('setAssetDataFromQR: Populated location: $locMatch.label');
+      }
+
+    } catch (e) {
+      debugPrint('Error in setAssetDataFromQR: $e');
+    }
+  }
+
+  /// Populates the read-only "Observation Detail" panel when the form is
+  /// opened from the Inspection module's "Not Okay" flow. This is distinct
+  /// from Joint Inspection (isFromJointInspection) — it's a failure created
+  /// FROM an inspection finding, not a request for a joint inspection.
+  ///
+  /// Accepts either camelCase (app-native) or PascalCase (API) keys since the
+  /// exact shape of what the Inspection module hands over via navigation
+  /// arguments hasn't been confirmed yet — verify these key names against
+  /// that screen and adjust `pick(...)` below if they differ.
+  void setInspectionObservationContext(Map<String, dynamic> args) {
+    String? pick(List<String> keys) {
+      for (final k in keys) {
+        final v = args[k];
+        if (v != null && v.toString().trim().isNotEmpty) return v.toString();
+      }
+      return null;
+    }
+
+    final data = <String, dynamic>{
+      'inspectionNo': pick(['inspectionNo', 'InspectionNo']),
+      'scheduleDate': pick(
+          ['inspectedDateDisplay', 'inspectionScheduleDate', 'ScheduleDate']),
+      'createdOn': pick(['createdOnDisplay', 'createdOn', 'CreatedOn']),
+      'personResponsible':
+      pick(['personResponsible', 'PersonResponsible']),
+      'system': pick(['systemName', 'system', 'System']),
+      'subSystem': pick(['subSystem', 'SubSystem']),
+      'status': pick(['status', 'Status']) ?? 'Not Okay',
+      'remark': pick(['remark', 'Remark']),
+      'overallRemark': pick(
+          ['overallInspectionRemark', 'overallRemark', 'OverallRemark']),
+    };
+
+    // Only populate if we actually found something, so the panel stays
+    // hidden (inspectionObservation.isEmpty) rather than showing all "N/A".
+    if (data.values.any((v) => v != null)) {
+      inspectionObservation.assignAll(data);
     }
   }
 }

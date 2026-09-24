@@ -66,7 +66,7 @@ class CustomBottomSheet {
                 Navigator.pop(context);
                 option.onTap();
               },
-            )).toList(),
+            )),
           ],
         ),
       ),

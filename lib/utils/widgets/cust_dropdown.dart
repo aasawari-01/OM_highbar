@@ -6,6 +6,7 @@ import 'package:dropdown_search/dropdown_search.dart';
 import '../../constants/app_constants.dart';
 import '../../constants/colors.dart';
 import '../../utils/responsive_helper.dart';
+import '../../utils/string_utils.dart';
 import 'cust_text.dart';
 
 class CustDropdown extends StatelessWidget {
@@ -40,136 +41,167 @@ class CustDropdown extends StatelessWidget {
       data: MediaQuery.of(context).copyWith(
         textScaler: const TextScaler.linear(1.0),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          buildRequiredLabel(context, label),
-          SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
-          ConstrainedBox(
-            constraints: BoxConstraints(minHeight: AppConstants.inputHeight),
-            child: DropdownSearch<String>(
-              enabled: enabled,
-              selectedItem: selectedValue,
-              onChanged: onChanged,
-              validator: validator,
-              items: (filter, loadProps) {
-                if (filter.isEmpty) return items;
-                return items.where((item) => item.toLowerCase().contains(filter.toLowerCase())).toList();
-              },
-              popupProps: PopupProps.modalBottomSheet(
-                showSearchBox: true,
-                fit: FlexFit.loose,
-                disabledItemFn: disabledItemFn,
-                modalBottomSheetProps: const ModalBottomSheetProps(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.only(
-                      topLeft: Radius.circular(16),
-                      topRight: Radius.circular(16),
+      child: FormField<String>(
+        initialValue: selectedValue,
+        validator: validator,
+        builder: (formFieldState) {
+          if (formFieldState.value != selectedValue) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              formFieldState.didChange(selectedValue);
+            });
+          }
+
+          final Color borderColor = formFieldState.hasError
+              ? AppColors.red
+              : AppColors.textFieldColor;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              buildRequiredLabel(context, label),
+              SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
+              ConstrainedBox(
+                constraints: BoxConstraints(minHeight: AppConstants.inputHeight),
+                child: DropdownSearch<String>(
+                  enabled: enabled,
+                  selectedItem: selectedValue,
+                  onChanged: (value) {
+                    onChanged(value);
+                    formFieldState.didChange(value);
+                  },
+                  // No validator here — the outer FormField above owns
+                  // validation + error display now, so it isn't rendered twice.
+                  items: (filter, loadProps) {
+                    if (filter.isEmpty) return items;
+                    return items.where((item) => item.toLowerCase().contains(filter.toLowerCase())).toList();
+                  },
+                  popupProps: PopupProps.modalBottomSheet(
+                    showSearchBox: true,
+                    fit: FlexFit.loose,
+                    disabledItemFn: disabledItemFn,
+                    modalBottomSheetProps: const ModalBottomSheetProps(
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.only(
+                          topLeft: Radius.circular(16),
+                          topRight: Radius.circular(16),
+                        ),
+                      ),
+                    ),
+                    title: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                      child: CustText.sectionHeader(label),
+                    ),
+                    containerBuilder: (ctx, popupWidget) {
+                      return MediaQuery(
+                        data: MediaQuery.of(ctx).copyWith(
+                          textScaler: const TextScaler.linear(1.0),
+                        ),
+                        child: popupWidget,
+                      );
+                    },
+                    itemBuilder: (context, item, isDisabled, isSelected) {
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                        child: CustText(
+                          name: item,
+                          color: isSelected
+                              ? AppColors.appBarColor
+                              : (isDisabled ? Colors.grey.shade400 : AppColors.textDarkSecondary),
+                          size: AppConstants.bodySize,
+                          fontWeightName: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      );
+                    },
+                    searchFieldProps: TextFieldProps(
+                      decoration: InputDecoration(
+                        isDense: true,
+                        contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                          borderSide: BorderSide(color: AppColors.textFieldColor),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                          borderSide: const BorderSide(color: AppColors.appBarColor, width: 1.5),
+                        ),
+                        hintText: 'Search...',
+                        hintStyle: GoogleFonts.lato(
+                          color: AppColors.hintTextColor,
+                          fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
+                        ),
+                      ),
+                      style: GoogleFonts.lato(
+                        fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
+                        color: AppColors.textDarkPrimary,
+                      ),
                     ),
                   ),
-                ),
-                title: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
-                  child: CustText.sectionHeader(label),
-                ),
-                containerBuilder: (ctx, popupWidget) {
-                  return MediaQuery(
-                    data: MediaQuery.of(ctx).copyWith(
-                      textScaler: const TextScaler.linear(1.0),
-                    ),
-                    child: popupWidget,
-                  );
-                },
-                itemBuilder: (context, item, isDisabled, isSelected) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-                    child: CustText(
-                      name: item,
-                      color: isSelected 
-                          ? AppColors.appBarColor
-                          : (isDisabled ? Colors.grey.shade400 : AppColors.textDarkSecondary),
-                      size: AppConstants.bodySize,
-                      fontWeightName: isSelected ? FontWeight.bold : FontWeight.normal,
-                    ),
-                  );
-                },
-                searchFieldProps: TextFieldProps(
-                  decoration: InputDecoration(
-                    isDense: true,
-                    contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                      borderSide: BorderSide(color: AppColors.textFieldColor),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                      borderSide: const BorderSide(color: AppColors.appBarColor, width: 1.5),
-                    ),
-                    hintText: 'Search...',
-                    hintStyle: GoogleFonts.lato(
-                      color: AppColors.hintTextColor,
+                  suffixProps: const DropdownSuffixProps(
+                    dropdownButtonProps: DropdownButtonProps(isVisible: false),
+                    clearButtonProps: ClearButtonProps(isVisible: false),
+                  ),
+                  decoratorProps: DropDownDecoratorProps(
+                    baseStyle: GoogleFonts.lato(
+                      color: AppColors.black,
                       fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
                     ),
+                    decoration: InputDecoration(
+                      hintText: hint,
+                      hintStyle: GoogleFonts.lato(
+                        color: AppColors.hintTextColor,
+                        fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
+                      ),
+                      isDense: true,
+                      filled: true,
+                      fillColor: enabled ? Colors.white : AppColors.containerColor2,
+                      prefixIcon: prefixIcon,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                        borderSide: BorderSide(color: borderColor),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                        borderSide: BorderSide(color: borderColor),
+                      ),
+                      disabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                        borderSide: BorderSide(color: AppColors.textFieldColor),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                        borderSide: const BorderSide(color: AppColors.orangeColor),
+                      ),
+                      contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                      suffixIcon: const Padding(
+                        padding: EdgeInsets.only(right: 12.0),
+                        child: Icon(
+                          TablerIcons.chevron_down,
+                          size: 16.0,
+                          color: AppColors.orangeColor,
+                        ),
+                      ),
+                      suffixIconConstraints: const BoxConstraints(
+                        minHeight: 24,
+                        minWidth: 24,
+                      ),
+                    ),
                   ),
+                ),
+              ),
+              if (formFieldState.hasError) ...[
+                const SizedBox(height: 4),
+                Text(
+                  formFieldState.errorText ?? '',
                   style: GoogleFonts.lato(
-                    fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
-                    color: AppColors.textDarkPrimary,
-                  ),
-                ),
-              ),
-              suffixProps: const DropdownSuffixProps(
-                dropdownButtonProps: DropdownButtonProps(isVisible: false),
-                clearButtonProps: ClearButtonProps(isVisible: false),
-              ),
-              decoratorProps: DropDownDecoratorProps(
-                baseStyle: GoogleFonts.lato(
-                  color: AppColors.black,
-                  fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
-                ),
-                decoration: InputDecoration(
-                  hintText: hint,
-                  hintStyle: GoogleFonts.lato(
-                    color: AppColors.hintTextColor,
-                    fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
-                  ),
-                  isDense: true,
-                  filled: true,
-                  fillColor:enabled ?Colors.white : AppColors.containerColor2,
-                  prefixIcon: prefixIcon,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                    borderSide: BorderSide(color: AppColors.textFieldColor),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                    borderSide: BorderSide(color: AppColors.textFieldColor),
-                  ),
-                  disabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                    borderSide: BorderSide(color: AppColors.textFieldColor),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                    borderSide: const BorderSide(color: AppColors.orangeColor),
-                  ),
-                  contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  errorStyle: GoogleFonts.lato(
+                    color: AppColors.red,
                     fontSize: ResponsiveHelper.fontSize(context, 10),
                     height: 1.0,
                   ),
-                  suffixIcon: const Padding(
-                    padding: EdgeInsets.only(right: 12.0),
-                    child: Icon(TablerIcons.chevron_down, size: 16.0, color: AppColors.orangeColor),
-                  ),
-                  suffixIconConstraints: const BoxConstraints(
-                    minHeight: 24,
-                    minWidth: 24,
-                  ),
                 ),
-              ),
-            ),
-          ),
-        ],
+              ],
+            ],
+          );
+        },
       ),
     );
   }

@@ -16,7 +16,6 @@ import 'package:om_mobile/utils/widgets/cust_toggle.dart';
 import 'package:om_mobile/utils/widgets/cust_button.dart';
 import 'package:om_mobile/utils/widgets/cust_data_card.dart';
 import 'package:om_mobile/utils/widgets/cust_section.dart';
-import '../../../../service/network_service/app_urls.dart';
 import '../../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../../utils/widgets/cust_loader.dart';
 import '../../../../utils/widgets/horizontal_paginated_view.dart';
@@ -25,7 +24,7 @@ import '../../../../service/master_data_sync_service.dart';
 
 class RstFailureScreen extends StatefulWidget {
   final int? notificationId;
-  const RstFailureScreen({Key? key, this.notificationId}) : super(key: key);
+  const RstFailureScreen({super.key, this.notificationId});
 
   @override
   State<RstFailureScreen> createState() => _RstFailureScreenState();
@@ -925,10 +924,10 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
         decoration: BoxDecoration(
           color: AppColors.white1,
           borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-          border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
+          border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withValues(alpha: 0.03),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -1419,8 +1418,8 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                       decoration: BoxDecoration(
                         color: AppColors.white1,
                         borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-                        border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                        border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1647,8 +1646,8 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                       decoration: BoxDecoration(
                         color: AppColors.white1,
                         borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-                        border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
-                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                        border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
+                        boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1876,10 +1875,10 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
           decoration: BoxDecoration(
             color: AppColors.white1,
             borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-            border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
+            border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withOpacity(0.03),
+                color: Colors.black.withValues(alpha: 0.03),
                 blurRadius: 10,
                 offset: const Offset(0, 4),
               ),
@@ -1904,7 +1903,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: (status == 'Assigned' ? AppColors.orangeColor : Colors.green).withOpacity(0.1),
+                      color: (status == 'Assigned' ? AppColors.orangeColor : Colors.green).withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
@@ -2092,7 +2091,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             final syncService = Get.find<MasterDataSyncService>();
             if (syncService.isSyncing.value) {
               return Container(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 child: Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -2111,13 +2110,13 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             }
             if (controller.isLoading.value) {
               return Container(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 child: const Center(child: CustLoader()),
               );
             }
             if (controller.errorMessage.value.isNotEmpty) {
               return Container(
-                color: Colors.black.withOpacity(0.3),
+                color: Colors.black.withValues(alpha: 0.3),
                 child: Center(
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),

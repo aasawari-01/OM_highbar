@@ -4,10 +4,10 @@ import '../../constants/colors.dart';
 class HorizontalPaginatedView extends StatefulWidget {
   final List<Widget> items;
 
-  const HorizontalPaginatedView({Key? key, required this.items}) : super(key: key);
+  const HorizontalPaginatedView({super.key, required this.items});
 
   @override
-  _HorizontalPaginatedViewState createState() => _HorizontalPaginatedViewState();
+  State<HorizontalPaginatedView> createState() => _HorizontalPaginatedViewState();
 }
 
 class _HorizontalPaginatedViewState extends State<HorizontalPaginatedView> {

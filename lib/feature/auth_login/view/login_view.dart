@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
-import 'package:get/get_core/src/get_main.dart';
 import 'package:om_mobile/constants/app_constants.dart';
 import 'package:om_mobile/constants/app_images.dart';
 import 'package:om_mobile/constants/colors.dart';
@@ -11,7 +9,6 @@ import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 
-import '../../../utils/responsive_helper.dart';
 import '../controller/login_controller.dart';
 import 'forgot_password_view.dart';
 
@@ -21,6 +18,8 @@ class LoginView extends StatelessWidget {
   final TextEditingController passwordController = TextEditingController();
   final bool obscureText = true;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  LoginView({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -35,7 +34,7 @@ class LoginView extends StatelessWidget {
             child: Image.asset(
               AppAssets.metroImage,
               fit: BoxFit.cover,
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               colorBlendMode: BlendMode.darken,
             ),
           ),
@@ -46,11 +45,11 @@ class LoginView extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(AppConstants.screenPadding * 1.5),
                 decoration: BoxDecoration(
-                  color: AppColors.white1.withOpacity(0.8),
+                  color: AppColors.white1.withValues(alpha: 0.8),
                   borderRadius: BorderRadius.circular(20),
                   boxShadow: [
                     BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 20,
                       spreadRadius: 5,
                     ),
@@ -170,7 +169,7 @@ class LoginView extends StatelessWidget {
                         sHeight: 40,
                         color1: AppColors.orangeColor,
                         color2: AppColors.orangeColor,
-                        onSelected: (bool) {
+                        onSelected: (val) {
                           if (_formKey.currentState!.validate()) {
                             loginController.login(
                               email: userNameController.text.trim(),

@@ -15,11 +15,11 @@ class LocationModel {
 
   factory LocationModel.fromJson(Map<String, dynamic> json) {
     return LocationModel(
-      locationTypeId: json['locationTypeId'] as int?,
-      locationTypeCode: json['locationTypeCode']?.toString() ?? '',
-      locationTypeName: json['locationTypeName']?.toString() ?? '',
-      locationName: json['locationName']?.toString() ?? '',
-      plantId: json['plantId'] as int?,
+      locationTypeId: json['LocationTypeId'] ?? json['locationTypeId'] as int?,
+      locationTypeCode: json['LocationTypeCode']?.toString() ?? json['locationTypeCode']?.toString() ?? '',
+      locationTypeName: json['LocationTypeName']?.toString() ?? json['locationTypeName']?.toString() ?? '',
+      locationName: json['LocationName']?.toString() ?? json['locationName']?.toString() ?? '',
+      plantId: json['PlantId'] ?? json['plantId'] as int?,
     );
   }
 

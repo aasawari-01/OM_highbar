@@ -9,6 +9,8 @@ import '../../../utils/widgets/cust_textfield.dart';
 class ForgotPasswordView extends StatelessWidget {
   final TextEditingController emailController = TextEditingController();
 
+  ForgotPasswordView({super.key});
+
   @override
   Widget build(BuildContext context) {
     final double screenHeight = MediaQuery.of(context).size.height;
@@ -55,7 +57,7 @@ class ForgotPasswordView extends StatelessWidget {
                     CustText(
                       name: "We'll send a reset link to your email",
                       size: 14,
-                      color: AppColors.white2.withOpacity(0.7),
+                      color: AppColors.white2.withValues(alpha: 0.7),
                     ),
                     const SizedBox(height: 24),
                     CustText(
@@ -73,7 +75,7 @@ class ForgotPasswordView extends StatelessWidget {
                     CustButton(
                       name: "Send Reset Link",
                       size: double.infinity,
-                      onSelected: (bool) {
+                      onSelected: (val) {
                         // TODO: Implement send reset link logic
                       },
                     ),
@@ -86,7 +88,7 @@ class ForgotPasswordView extends StatelessWidget {
                         child: CustText(
                           name: "← Back to Login",
                           size: 14,
-                          color: AppColors.white2.withOpacity(0.7),
+                          color: AppColors.white2.withValues(alpha: 0.7),
                         ),
                       ),
                     ),
@@ -99,4 +101,4 @@ class ForgotPasswordView extends StatelessWidget {
       ),
     );
   }
-} 
+}

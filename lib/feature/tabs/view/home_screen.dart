@@ -2,31 +2,33 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
-import 'package:get/get_core/src/get_main.dart';
-import 'package:om_mobile/feature/failure/view/create_failure_screen.dart';
+import 'package:om_mobile/feature/failure/view/forms/create_failure_screen.dart';
 import 'package:om_mobile/feature/failure/view/failure_list_screen.dart';
 import '../../../constants/colors.dart';
 import '../../../constants/app_constants.dart';
-import '../../../service/session_controller.dart';
+import '../../../core/controller/session_controller.dart';
 import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/sync_icon_button.dart';
 import '../controller/home_controller.dart';
 
-
-
 import '../../../utils/widgets/custom_drawer.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({Key? key}) : super(key: key);
+  const HomeScreen({super.key});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final HomeController _homeController = Get.put(HomeController());
   final SessionController sessionController = Get.find<SessionController>();
+
+  @override
+  void initState() {
+    super.initState();
+    Get.put(HomeController());
+  }
 
   final PageController _pageController = PageController(viewportFraction: 0.5,  initialPage: 0,
   );
@@ -110,7 +112,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           "title": "Maintenance",
                           "count": 6,
                           "gradient": [Color(0xFF9FD5FF), Color(0xFF6AA9FF)],
-                          "screen": const FailureListScreen(
+                          "screen": FailureListScreen(
                             failureType: "Maintenance",
                           ),
                         },
@@ -118,7 +120,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           "title": "Depot",
                           "count": 0,
                           "gradient": [Color(0xFFD3B2FF), Color(0xFF9B6BFF)],
-                          "screen": const FailureListScreen(
+                          "screen": FailureListScreen(
                             failureType: "Depot",
                           ),
                         },
@@ -228,7 +230,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.08),
+            color: Colors.black.withValues(alpha: 0.08),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -289,7 +291,7 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(16),
           boxShadow: [
             BoxShadow(
-              color: AppColors.black.withOpacity(0.1),
+              color: AppColors.black.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),
@@ -566,7 +568,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Failure in Station 1",
             time: "18/06/2025 10:05 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
             onTap: () {
               Navigator.push(context, MaterialPageRoute(builder: (context) => const FailureListScreen(failureType: "Station")));
@@ -580,7 +582,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Checklist",
             time: "18/06/2025 10:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
           ),
           const SizedBox(height: AppConstants.subElementSpacing,),
@@ -591,7 +593,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Checklist",
             time: "18/06/2025 11:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
             isLast: true,
           ),
@@ -609,6 +611,20 @@ class _HomeScreenState extends State<HomeScreen> {
             status: "Approval",
             badgeBgColor: const Color(0xFFD6F2CB),
             badgeTextColor: Colors.black87,
+          ),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          divider(),
+          const SizedBox(height: AppConstants.subElementSpacing,),
+          _taskCard(
+            title: "Create Maintenance",
+            subtitle: "Maintenance Form",
+            time: "18/06/2025 10:05 AM",
+            status: "Create",
+            badgeBgColor: Colors.grey[200],
+            badgeTextColor: Colors.black87,
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(builder: (context) => const CreateMaintenanceForm()));
+            },
           ),
           const SizedBox(height: AppConstants.subElementSpacing,),
           divider(),
@@ -648,7 +664,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Failure in Station 1",
             time: "18/06/2025 10:05 AM",
             status: "Approve",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
             isLast: true,
           ),
@@ -660,7 +676,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Approval Task",
             time: "18/06/2025 10:00 AM",
             status: "Acknowledge",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
           ),
         ],
@@ -682,7 +698,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Checklist",
             time: "18/06/2025 11:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
             onTap: () => Get.to(FailureListScreen()),
           ),
@@ -694,7 +710,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Checklist",
             time: "18/06/2025 10:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
           ),
           const SizedBox(height: AppConstants.subElementSpacing,),
@@ -706,7 +722,7 @@ class _HomeScreenState extends State<HomeScreen> {
             time: "18/06/2025 10:05 AM",
             status: "Pending",
             isLast: true,
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
           ),
         ],
@@ -759,7 +775,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Checklist",
             time: "18/06/2025 10:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
           ),
           const SizedBox(height: AppConstants.subElementSpacing,),
@@ -770,7 +786,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Failure in Station 1",
             time: "18/06/2025 10:05 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.2),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.2),
             badgeTextColor: AppColors.orangeColor,
           ),
           const SizedBox(height: AppConstants.subElementSpacing,),
@@ -781,7 +797,7 @@ class _HomeScreenState extends State<HomeScreen> {
             subtitle: "Checklist",
             time: "18/06/2025 11:00 AM",
             status: "Pending",
-            badgeBgColor: AppColors.orangeColor.withOpacity(0.1),
+            badgeBgColor: AppColors.orangeColor.withValues(alpha: 0.1),
             badgeTextColor: AppColors.orangeColor,
             isLast: true,
           ),

@@ -4,15 +4,17 @@ import 'package:get/get.dart';
 import 'package:om_mobile/constants/colors.dart';
 import 'package:om_mobile/constants/app_constants.dart';
 import 'package:om_mobile/constants/strings.dart';
-import 'package:om_mobile/service/session_controller.dart';
+import '../../core/controller/session_controller.dart';
 import '../../feature/auth_login/view/login_view.dart';
 import '../../feature/failure/view/failure_list_screen.dart';
 import '../../feature/failure/view/rst/rst_list_screen.dart';
 import '../../feature/inspection/view/inspection_list_screen.dart';
 import '../../feature/inspection/view/top_management/inspection_dashboard_screen.dart';
 import '../../feature/inspection/view/top_management/top_management_create_inspection_screen.dart';
-
+import '../../feature/failure/view/rst/rst_failure_screen.dart';
 import '../../feature/ibl/view/ibl_screen.dart';
+import '../../feature/occ_to_sc_comm/view/create_occ_instruction.dart';
+import '../../feature/occ_to_sc_comm/view/occ_to_sc_inbox.dart';
 import '../../service/auth_manager.dart';
 import 'cust_dropdown.dart';
 import 'cust_button.dart';
@@ -84,6 +86,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
 
   @override
   Widget build(BuildContext context) {
+
+    print("selected role is ${sessionController.selectedRole.string}");
     return Drawer(
       width: MediaQuery.sizeOf(context).width / 1.3,
       backgroundColor: Colors.white,
@@ -138,7 +142,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         ),
                         const SizedBox(height: 2),
                         CustText(
-                          name: sessionController.designationName.value.isNotEmpty ? sessionController.designationName.value : 'No Role Selected',
+                          name: sessionController.designationName.value ?? 'No Role Selected',
                           size: 12,
                           color: AppColors.textDarkSecondary,
                           fontWeightName: FontWeight.w400,
@@ -178,6 +182,17 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   children: [
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final availableRoles = sessionController.roles.map((r) => r.roleDescr).toList();
+                      print("Drawer - Current role: '$role'");
+                      print("Drawer - Available roles: $availableRoles");
+                      print("Drawer - Number of available roles: ${availableRoles.length}");
+                      
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      print("Drawer - isSectionIncharge: $isSectionIncharge");
+                      
+                      if (isSectionIncharge) {
+                        return _drawerItem('Failure List', 'section_incharge_failure', const FailureListScreen(failureType: 'Maintenance'));
+                      }
                       final isStationController = role.contains('Station Controller');
                       if (isStationController) {
                         return const SizedBox.shrink();
@@ -186,6 +201,12 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
+
+                      print("role is $role");
                       final canAccessStationFailure =
                           role.contains('Station Controller') || role.contains('Junior Engineer');
                       if (!canAccessStationFailure) {
@@ -195,6 +216,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
                       final isStationController = role.contains('Station Controller');
                       if (isStationController) {
                         return const SizedBox.shrink();
@@ -203,6 +228,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
                       final isStationController = role.contains('Station Controller');
                       if (isStationController) {
                         return const SizedBox.shrink();
@@ -211,6 +240,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
                       final isStationController = role.contains('Station Controller');
                       if (isStationController) {
                         return const SizedBox.shrink();
@@ -262,6 +295,32 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     _drawerItem('Create Inspection', 'inspection_tm_create', const TopManagementCreateInspectionScreen()),
                   ],
                 ),
+
+                divider(),
+                // Inspection (Top Management)
+
+                Obx(() {
+
+                  final role = sessionController.selectedRole.value?.roleDescr ?? '';
+
+                  final canAccessOCCtoSC =
+                      role.contains('Station Controller') || role.contains('OCC');
+                  final isOcc =
+                  role.contains('OCC');
+                  print("role Is $canAccessOCCtoSC---$isOcc");
+                  return canAccessOCCtoSC ?_drawerSection(
+                    title: 'OCC to SC Communication',
+                    sectionKey: 'occ_to_sc_communication',
+                    icon: TablerIcons.clipboard_check,
+                    children: [
+
+
+                      // isOcc?_drawerItem('Create Instructions', 'create_instructions', const CreateOccScCommunicationScreen()):Container(),
+                      _drawerItem('Instructions', 'inbox_occ', OccScInboxScreen(isOcc: isOcc,)),
+                    ],
+                  ):Container();
+
+                }),
               ],
             ),
           ),

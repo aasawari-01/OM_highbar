@@ -56,6 +56,10 @@ dependencies:
   pointycastle: ^3.9.1
   dart_des: ^1.0.2
   path_provider: ^2.1.5
+  connectivity_plus: ^6.0.5
+  webview_flutter: ^4.13.1
+  internet_file: ^1.3.0
+  pdfx: ^2.11.0
 
 dev_dependencies:
   flutter_test:
@@ -84,7 +88,26 @@ flutter:
     - assets/images/
     - assets/images/home_image/
     - assets/images/login_image/
-    - assets/master.db
+    - assets/dept.db
+    - assets/fun_loc.db
+    - assets/equipment.db
+    - assets/location.db
+    - assets/measurementPointMaster.db
+    - assets/priority.db
+    - assets/UserMaster.db
+    - assets/failure_categorytype.db
+    - assets/notificationType.db
+    - assets/rootCause.db
+    - assets/actiontaken.db
+    - assets/causeOfFailure.db
+    - assets/rca_failurecategory.db
+    - assets/CorrfailureCategory.db
+    - assets/userStatus.db
+    - assets/materialMaster.db
+    - assets/objectPart.db
+    - assets/faultMaster.db
+    - assets/OldRootCause.db
+    - assets/StoreLocation.db
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -8,11 +8,11 @@ import '../../../constants/colors.dart';
 import '../../../constants/app_constants.dart';
 import '../model/asset_qr_response.dart';
 import '../service/failure_service.dart';
+import 'forms/create_failure_screen.dart';
 
 class MaintenanceHistoryScreen extends StatefulWidget {
   final bool showAssetQR;
-  const MaintenanceHistoryScreen({Key? key, this.showAssetQR = false})
-      : super(key: key);
+  const MaintenanceHistoryScreen({super.key, this.showAssetQR = false});
 
   @override
   State<MaintenanceHistoryScreen> createState() =>
@@ -150,6 +150,9 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
             children: [
               Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
               const SizedBox(height: 16),
+              // CustButton(name: "Retry", size: 1.2,
+              //
+              //   onSelected:(_) => _fetchAssetData,),
               ElevatedButton(
                 onPressed: _fetchAssetData,
                 child: const Text('Retry'),
@@ -231,7 +234,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
         borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 8,
               offset: const Offset(0, 2)),
         ],
@@ -298,7 +301,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
         borderRadius: BorderRadius.circular(4),
         boxShadow: [
           BoxShadow(
-              color: Colors.black.withOpacity(0.1),
+              color: Colors.black.withValues(alpha: 0.1),
               blurRadius: 6,
               offset: const Offset(0, 2)),
         ],
@@ -338,7 +341,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
                 borderRadius: BorderRadius.circular(8),
                 boxShadow: [
                   BoxShadow(
-                      color: Colors.black.withOpacity(0.1),
+                      color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 6,
                       offset: const Offset(0, 2)),
                 ],
@@ -391,7 +394,7 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
               _divider(),
             ],
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -427,8 +430,9 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
             if (_failurePage > 1) setState(() => _failurePage--);
           },
           onNext: () {
-            if (_failurePage < _failureHistory.length)
+            if (_failurePage < _failureHistory.length) {
               setState(() => _failurePage++);
+            }
           },
         ),
       ],
@@ -465,8 +469,9 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
             if (_schedulePage > 1) setState(() => _schedulePage--);
           },
           onNext: () {
-            if (_schedulePage < _scheduleHistory.length)
+            if (_schedulePage < _scheduleHistory.length) {
               setState(() => _schedulePage++);
+            }
           },
         ),
       ],
@@ -533,8 +538,8 @@ class _MaintenanceHistoryScreenState extends State<MaintenanceHistoryScreen> {
         child: ElevatedButton(
           onPressed: () {
             if (_assetData != null) {
-              // Navigate to Create Failure screen with asset data
-              Get.toNamed('/CreateNotification', arguments: {
+              // Navigate to Create Failure screen with asset data for station failure
+              Get.to(() => const CreateFailureScreen(failureType: "Station"), arguments: {
                 'funcLocId': _assetData!.funcLocId,
                 'funcLocation': _assetData!.funcLocation,
                 'description': _assetData!.description,

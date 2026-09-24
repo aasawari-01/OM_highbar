@@ -7,7 +7,7 @@ import 'package:om_mobile/utils/widgets/custom_app_bar.dart';
 import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
 
 class SicChecklistScreen extends StatelessWidget {
-  const SicChecklistScreen({Key? key}) : super(key: key);
+  const SicChecklistScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -51,7 +51,7 @@ class SicChecklistScreen extends StatelessWidget {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, spreadRadius: 2),
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 2),
                           ]
                         ),
                         child: Column(
@@ -106,7 +106,7 @@ class SicChecklistScreen extends StatelessWidget {
                             color: Colors.white,
                             borderRadius: BorderRadius.circular(12),
                             boxShadow: [
-                              BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, spreadRadius: 2),
+                              BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, spreadRadius: 2),
                             ]
                           ),
                           child: Column(

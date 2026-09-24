@@ -154,16 +154,16 @@ class RstFetchData {
   final bool? powerBlockRequired;
   final bool? sicRequired;
   final bool? ptwRequired;
-  final int? assignUserId_SIC;
+  final int? assignUserIdSic;
   final String? failureTypeId;
   final String? ptwNo;
   final String? intimationWorkNo;
-  final int? assignedUserId_JI;
-  final int? deptId_JI;
-  final int? functionLocation_JI;
-  final int? equipmentId_JI;
+  final int? assignedUserIdJi;
+  final int? deptIdJi;
+  final int? functionLocationJi;
+  final int? equipmentIdJi;
   final String? sicResponsiblePerson;
-  final String? remark_JE;
+  final String? remarkJe;
   final String? imagesPaths;
   final String? imagesPathsAfter;
   final String? imagesPathsRCA;
@@ -188,7 +188,7 @@ class RstFetchData {
   final String? emailId;
   final int? priorityId;
   final int? statusId;
-  final int? statusId_IBL;
+  final int? statusIdIbl;
   final String? priorityType;
   final String? doNotReport;
   final String? locationFailure;
@@ -264,16 +264,16 @@ class RstFetchData {
     this.powerBlockRequired,
     this.sicRequired,
     this.ptwRequired,
-    this.assignUserId_SIC,
+    this.assignUserIdSic,
     this.failureTypeId,
     this.ptwNo,
     this.intimationWorkNo,
-    this.assignedUserId_JI,
-    this.deptId_JI,
-    this.functionLocation_JI,
-    this.equipmentId_JI,
+    this.assignedUserIdJi,
+    this.deptIdJi,
+    this.functionLocationJi,
+    this.equipmentIdJi,
     this.sicResponsiblePerson,
-    this.remark_JE,
+    this.remarkJe,
     this.imagesPaths,
     this.imagesPathsAfter,
     this.imagesPathsRCA,
@@ -298,7 +298,7 @@ class RstFetchData {
     this.emailId,
     this.priorityId,
     this.statusId,
-    this.statusId_IBL,
+    this.statusIdIbl,
     this.priorityType,
     this.doNotReport,
     this.locationFailure,
@@ -343,7 +343,7 @@ class RstFetchData {
       description: json['description'] as String?,
       failureDescription: json['failureDescription'] as String?,
       deptId: json['deptId'] as int?,
-      deptId_JI:json['deptId_JI'] as int?,
+      deptIdJi:json['deptId_JI'] as int?,
       deptName: json['deptName'] as String?,
       natureOfWorkId: json['natureOfWorkId'] as int?,
       workName: json["workName"],
@@ -377,15 +377,15 @@ class RstFetchData {
       powerBlockRequired: json['powerBlockRequired'] as bool?,
       sicRequired: json['sicRequired'] as bool?,
       ptwRequired: json['ptwRequired'] as bool?,
-      assignUserId_SIC: json['assignUserId_SIC'] as int?,
-      failureTypeId: json['failureTypeId'] != null ? json['failureTypeId'].toString() : null,
+      assignUserIdSic: json['assignUserId_SIC'] as int?,
+      failureTypeId: json['failureTypeId']?.toString(),
       ptwNo: json['ptwNo'] as String?,
       intimationWorkNo: json['intimationWorkNo'] as String?,
-      assignedUserId_JI: json['assignedUserId_JI'] as int?,
-      functionLocation_JI: json['functionLocation_JI'] as int?,
-      equipmentId_JI: json['equipmentId_JI'] as int?,
+      assignedUserIdJi: json['assignedUserId_JI'] as int?,
+      functionLocationJi: json['functionLocation_JI'] as int?,
+      equipmentIdJi: json['equipmentId_JI'] as int?,
       sicResponsiblePerson: json['sicResponsiblePerson'] as String?,
-      remark_JE: json['remark_JE'] as String?,
+      remarkJe: json['remark_JE'] as String?,
       imagesPaths: json['imagesPaths'] as String?,
       imagesPathsAfter: json['imagesPathsAfter'] as String?,
       imagesPathsRCA: json['imagesPathsRCA'] as String?,
@@ -396,7 +396,7 @@ class RstFetchData {
       actualFailureRectifiedDate: json['actualFailureRectifiedDate'] as String?,
       failureType: json['failureType'] as String?,
       isFailureRectifiDetails: json['isFailureRectifiDetails'] as bool?,
-      userStatus: json['userStatus'] != null ? json['userStatus'].toString() : null,
+      userStatus: json['userStatus']?.toString(),
       id: json['id'] as int?,
       isPassengerAffected: json['isPassengerAffected'] as bool?,
       noOfPassengerAffected: json['noOfPassengerAffected'] as int?,
@@ -410,7 +410,7 @@ class RstFetchData {
       emailId: json['emailId'] as String?,
       priorityId: json['priorityId'] as int?,
       statusId: json['statusId'] as int?,
-      statusId_IBL: json['statusId_IBL'] as int?,
+      statusIdIbl: json['statusId_IBL'] as int?,
       priorityType: json['priorityType'] as String?,
       doNotReport: json['doNotReport'] as String?,
       locationFailure: json['locationFailure'] as String?,
@@ -489,16 +489,16 @@ class RstFetchData {
       'powerBlockRequired': powerBlockRequired,
       'sicRequired': sicRequired,
       'ptwRequired': ptwRequired,
-      'assignUserId_SIC': assignUserId_SIC,
+      'assignUserId_SIC': assignUserIdSic,
       'failureTypeId': failureTypeId,
       'ptwNo': ptwNo,
       'intimationWorkNo': intimationWorkNo,
-      'assignedUserId_JI': assignedUserId_JI,
-      'deptId_JI': deptId_JI,
-      'functionLocation_JI': functionLocation_JI,
-      'equipmentId_JI': equipmentId_JI,
+      'assignedUserId_JI': assignedUserIdJi,
+      'deptId_JI': deptIdJi,
+      'functionLocation_JI': functionLocationJi,
+      'equipmentId_JI': equipmentIdJi,
       'sicResponsiblePerson': sicResponsiblePerson,
-      'remark_JE': remark_JE,
+      'remark_JE': remarkJe,
       'imagesPaths': imagesPaths,
       'imagesPathsAfter': imagesPathsAfter,
       'imagesPathsRCA': imagesPathsRCA,
@@ -523,7 +523,7 @@ class RstFetchData {
       'emailId': emailId,
       'priorityId': priorityId,
       'statusId': statusId,
-      'statusId_IBL': statusId_IBL,
+      'statusId_IBL': statusIdIbl,
       'priorityType': priorityType,
       'doNotReport': doNotReport,
       'locationFailure': locationFailure,
@@ -564,64 +564,64 @@ class RstFetchData {
 
 class JointInspection {
   final int id;
-  final int jI_Dept_Id;
-  final String jI_Dept_Name;
-  final int jI_ResponsiblePersonId;
-  final String jI_ResponsiblePerson;
-  final String? jI_Remark;
+  final int jiDeptId;
+  final String jiDeptName;
+  final int jiResponsiblePersonId;
+  final String jiResponsiblePerson;
+  final String? jiRemark;
   final bool isDeleted;
-  final String? jI_FunctionalLocation;
-  final String? jI_EquipementName;
-  final String jI_Status;
-  final num jI_StatusId;
-  final String? jI_UserRemark;
+  final String? jiFunctionalLocation;
+  final String? jiEquipementName;
+  final String jiStatus;
+  final num jiStatusId;
+  final String? jiUserRemark;
 
   JointInspection({
     required this.id,
-    required this.jI_Dept_Id,
-    required this.jI_Dept_Name,
-    required this.jI_ResponsiblePersonId,
-    required this.jI_ResponsiblePerson,
-    required this.jI_Remark,
+    required this.jiDeptId,
+    required this.jiDeptName,
+    required this.jiResponsiblePersonId,
+    required this.jiResponsiblePerson,
+    required this.jiRemark,
     required this.isDeleted,
-    this.jI_FunctionalLocation,
-    this.jI_EquipementName,
-    required this.jI_Status,
-    required this.jI_StatusId,
-    this.jI_UserRemark,
+    this.jiFunctionalLocation,
+    this.jiEquipementName,
+    required this.jiStatus,
+    required this.jiStatusId,
+    this.jiUserRemark,
   });
 
   factory JointInspection.fromJson(Map<String, dynamic> json) {
     return JointInspection(
       id: json['id'] as int,
-      jI_Dept_Id: json['jI_Dept_Id'] as int,
-      jI_Dept_Name: json['jI_Dept_Name'] as String,
-      jI_ResponsiblePersonId: json['jI_ResponsiblePersonId'] as int,
-      jI_ResponsiblePerson: json['jI_ResponsiblePerson'] as String,
-      jI_Remark: json['jI_Remark'] as String? ?? '',
+      jiDeptId: json['jI_Dept_Id'] as int,
+      jiDeptName: json['jI_Dept_Name'] as String,
+      jiResponsiblePersonId: json['jI_ResponsiblePersonId'] as int,
+      jiResponsiblePerson: json['jI_ResponsiblePerson'] as String,
+      jiRemark: json['jI_Remark'] as String? ?? '',
       isDeleted: json['isDeleted'] as bool,
-      jI_FunctionalLocation: json['jI_FunctionalLocation'] as String?,
-      jI_EquipementName: json['jI_EquipementName'] as String?,
-      jI_Status: json['jI_Status'] as String,
-      jI_StatusId: json['jI_StatusId'] as num,
-      jI_UserRemark: json['jI_UserRemark'] as String?,
+      jiFunctionalLocation: json['jI_FunctionalLocation'] as String?,
+      jiEquipementName: json['jI_EquipementName'] as String?,
+      jiStatus: json['jI_Status'] as String,
+      jiStatusId: json['jI_StatusId'] as num,
+      jiUserRemark: json['jI_UserRemark'] as String?,
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'jI_Dept_Id': jI_Dept_Id,
-      'jI_Dept_Name': jI_Dept_Name,
-      'jI_ResponsiblePersonId': jI_ResponsiblePersonId,
-      'jI_ResponsiblePerson': jI_ResponsiblePerson,
-      'jI_Remark': jI_Remark,
+      'jI_Dept_Id': jiDeptId,
+      'jI_Dept_Name': jiDeptName,
+      'jI_ResponsiblePersonId': jiResponsiblePersonId,
+      'jI_ResponsiblePerson': jiResponsiblePerson,
+      'jI_Remark': jiRemark,
       'isDeleted': isDeleted,
-      'jI_FunctionalLocation': jI_FunctionalLocation,
-      'jI_EquipementName': jI_EquipementName,
-      'jI_Status': jI_Status,
-      'jI_StatusId': jI_StatusId,
-      'jI_UserRemark': jI_UserRemark,
+      'jI_FunctionalLocation': jiFunctionalLocation,
+      'jI_EquipementName': jiEquipementName,
+      'jI_Status': jiStatus,
+      'jI_StatusId': jiStatusId,
+      'jI_UserRemark': jiUserRemark,
     };
   }
 }

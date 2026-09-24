@@ -9,20 +9,55 @@ import '../../../constants/strings.dart';
 import '../../../core/models/label_value.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
-import '../../../service/session_controller.dart';
+import '../../../service/network_service/app_urls.dart';
+import '../../../core/controller/session_controller.dart';
 import 'failure_form_state.dart';
 import 'failure_material_logic.dart';
 import 'failure_rca_logic.dart';
-import '../model/failure_list_response.dart';
 import '../service/failure_service.dart';
 
 mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
   FailureService get _failureService => FailureService();
-  void _refreshFailureListAfterSubmission(bool isStation);
-  String _lookupValue(List<LabelValue> list, String? label, {String fallback = "0"});
-  int _lookupLocationId(List<LabelValue> list, String? label);
+  void refreshFailureListAfterSubmission(bool isStation);
+  String lookupValue(dynamic list, String? label, {String fallback = "0"});
+  int lookupLocationId(dynamic list, String? label);
   void showPendingJointInspectionPopup();
   int resolveNotificationId();
+
+  /// Generates offline failure number in format: DEPT/MM-YYYY/XXXX
+  Future<String> _generateOfflineFailureNumber(String deptCode) async {
+    final now = DateTime.now();
+    final monthYear = '${now.month.toString().padLeft(2, '0')}-${now.year}';
+
+    try {
+      // Query the database to get the highest failure number for this month
+      final dbService = LocalDatabaseService();
+      final db = await dbService.database;
+
+      final results = await db.rawQuery(
+          "SELECT failureNo FROM FailureList WHERE failureNo LIKE ? ORDER BY failureNo DESC LIMIT 1",
+          ['$deptCode/$monthYear/%']
+      );
+
+      int nextSequence = 1;
+      if (results.isNotEmpty) {
+        final lastFailureNo = results.first['failureNo'] as String;
+        // Extract the sequence number from the last failure number
+        final parts = lastFailureNo.split('/');
+        if (parts.length >= 3) {
+          final lastSequence = int.tryParse(parts[2]) ?? 0;
+          nextSequence = lastSequence + 1;
+        }
+      }
+
+      return '$deptCode/$monthYear/${nextSequence.toString().padLeft(4, '0')}';
+    } catch (e) {
+      debugPrint("Error generating offline failure number: $e");
+      // Fallback to timestamp-based approach if database query fails
+      final sequence = DateTime.now().millisecondsSinceEpoch % 10000;
+      return '$deptCode/$monthYear/${sequence.toString().padLeft(4, '0')}';
+    }
+  }
 
   List<Map<String, dynamic>> _jointInspectionHistoryForSubmit() {
     final notifId = resolveNotificationId();
@@ -53,8 +88,8 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
       Get.snackbar(
         "Access Denied",
         "Only Station Controller can create station failure.",
-        backgroundColor: Colors.red.withOpacity(0.9),
-        colorText: Colors.white,
+        backgroundColor: AppColors.red.withValues(alpha: 0.9),
+        colorText: AppColors.white1,
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
@@ -79,6 +114,29 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
       errors.add("Functional Location is required.");
     }
 
+    // FMECA validation for Section Incharge
+    if (isSectionIncharge) {
+      if (selectedFmecaSystem.value == null || selectedFmecaSystem.value!.isEmpty || selectedFmecaSystem.value == 'Select') {
+        errors.add("System is required.");
+      }
+      if (selectedFmecaSubsystem.value == null || selectedFmecaSubsystem.value!.isEmpty || selectedFmecaSubsystem.value == 'Select') {
+        errors.add("Subsystem is required.");
+      }
+      if (fmecaFrequency.value == 0) {
+        errors.add("Frequency is required.");
+      }
+    }
+
+    // Actual Failure Occurrence validation for all users
+    if (selectedFailureOccurrenceDate.value == null) {
+      errors.add("Actual Failure Occurrence is required.");
+    }
+
+    // Notification Type validation for all users
+    if (selectedNotificationType.value == null || selectedNotificationType.value!.isEmpty || selectedNotificationType.value == 'Select') {
+      errors.add("Notification Type is required.");
+    }
+
     if (isServiceAffected.value) {
       if (tripDelayUplineController.text.trim().isEmpty) errors.add("Trip Delay Upline is required.");
       if (tripDelayDownlineController.text.trim().isEmpty) errors.add("Trip Delay Downline is required.");
@@ -100,8 +158,8 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
       Get.snackbar(
         'Validation Error',
         errors.first,
-        backgroundColor: Colors.red.withOpacity(0.9),
-        colorText: Colors.white,
+        backgroundColor: AppColors.red.withValues(alpha: 0.9),
+        colorText: AppColors.white1,
         snackPosition: SnackPosition.BOTTOM,
         duration: const Duration(seconds: 3),
       );
@@ -113,7 +171,7 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
       final createdBy =
           int.tryParse(await AuthManager().getUserId() ?? "0") ?? 0;
 
-      final deptIdStr = _lookupValue(
+      final deptIdStr = lookupValue(
         departmentList,
         selectedDepartment.value,
         fallback: Get.find<SessionController>()
@@ -123,21 +181,25 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
             ?.toString() ??
             "0",
       );
-      final priorityId = _lookupValue(priorityTypeList, selectedPriority.value);
-      
+
+      // Get department code for offline failure number generation
+      // Use the workCenter from functional location (e.g., SIG) as dept code
+      final deptCode = 'SIG'; // Default to SIG for station failures
+
+      final priorityId = lookupValue(priorityTypeList, selectedPriority.value);
+
       // Get locationTypeId instead of locationTypeCode
-      final locationId = _lookupLocationId(locationTypeList, selectedLocation.value);
+      final locationId = lookupLocationId(locationTypeList, selectedLocation.value);
       debugPrint("locationId===$locationId");
-      final funcLocId = _lookupValue(
+      final funcLocId = lookupValue(
           functionalLocationList, selectedFunctionalLocation.value);
       final stationCategoryId = corrNotificationTypeList
           .firstWhere((e) => e.label?.toLowerCase() == 'station',
           orElse: () => LabelValue(value: "4"))
           .value ??
           "4";
-      final failureReportedById = int.tryParse(
-          _lookupValue(userList, selectedFailureReportedBy.value)) ??
-          0;
+      // Use logged-in user ID as failure reported by for station failures
+      final failureReportedById = int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
       final trainReplace = int.tryParse(trainReplaceNosController.text) ?? 0;
 
       final body = <String, dynamic>{
@@ -223,11 +285,46 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
       // Try to submit to API, if fails save locally for offline sync
       try {
         debugPrint("createStationFailure: Attempting API submission");
+        debugPrint("createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
+        debugPrint("createStationFailure: Request payload: $body");
         final failureNo = await _failureService.createStationFailure(body);
         debugPrint("createStationFailure: API success, failureNo: $failureNo");
-        
-        _refreshFailureListAfterSubmission(isStation);
-        
+
+        // Save successfully created failure to local database for display
+        try {
+          final dbService = LocalDatabaseService();
+          final locationId = body['LocationId'];
+          final locationName = locationTypeList.firstWhere(
+                  (e) => e.value == locationId.toString(),
+              orElse: () => LabelValue(label: locationId.toString(), value: locationId.toString())
+          ).label;
+
+          final failureItem = {
+            'id': DateTime.now().millisecondsSinceEpoch,
+            'failureNo': failureNo,
+            'failureDescription': body['FailureDescription'] ?? '',
+            'functionalLocation': body['FuncationLocationIds']?.toString() ?? '',
+            'statusName': 'Open',
+            'failureOccuranceDateTime': body['ActualFailureOccuranceDate'] ?? '',
+            'locationName': locationName,
+            'priority': body['PriorityId']?.toString() ?? '',
+            'departmentName': body['DepartmentIds']?.toString() ?? '',
+            'creationType': 'station',
+            'syncStatus': 'synced',
+            'lastSyncedAt': DateTime.now().toIso8601String(),
+            'failureType': 'Station',
+          };
+          await dbService.insertFailureList([failureItem], 'Station');
+          debugPrint("createStationFailure: Added successfully created failure to local DB");
+        } catch (dbError) {
+          debugPrint("Error saving successful failure to local DB: $dbError");
+        }
+
+        refreshFailureListAfterSubmission(isStation);
+
+        // Wait for refresh to complete before dismissing
+        await Future.delayed(const Duration(milliseconds: 500));
+
         EasyLoading.dismiss();
         Get.back();
         final message = (failureNo != null && failureNo.isNotEmpty)
@@ -241,21 +338,29 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
           final dbService = LocalDatabaseService();
           final id = await dbService.insertPendingSubmission(body, 'Station');
           debugPrint("createStationFailure: Saved locally with id: $id");
-          
+
           // Verify it was saved
           final pending = await dbService.getPendingSubmissions();
           debugPrint("createStationFailure: Total pending submissions: ${pending.length}");
-          
+
           // Add to FailureList table so it shows in the list immediately
-          final tempFailureId = DateTime.now().millisecondsSinceEpoch.toString();
+          final locationId = body['LocationId'];
+          final locationName = locationTypeList.firstWhere(
+                  (e) => e.value == locationId.toString(),
+              orElse: () => LabelValue(label: locationId.toString(), value: locationId.toString())
+          ).label;
+
+          // Generate offline failure number in DEPT/MM-YYYY/XXXX format
+          final offlineFailureNo = await _generateOfflineFailureNumber(deptCode);
+
           final failureItem = {
             'id': id, // Use pending submission ID
-            'failureNo': tempFailureId,
+            'failureNo': offlineFailureNo,
             'failureDescription': body['FailureDescription'] ?? '',
             'functionalLocation': body['FuncationLocationIds']?.toString() ?? '',
             'statusName': 'Pending Sync',
             'failureOccuranceDateTime': body['ActualFailureOccuranceDate'] ?? '',
-            'locationName': body['LocationId']?.toString() ?? '',
+            'locationName': locationName,
             'priority': body['PriorityId']?.toString() ?? '',
             'departmentName': body['DepartmentIds']?.toString() ?? '',
             'creationType': 'station',
@@ -264,33 +369,33 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
             'failureType': 'Station',
           };
           await dbService.insertFailureList([failureItem], 'Station');
-          debugPrint("createStationFailure: Added to FailureList table for immediate display");
-          
-          _refreshFailureListAfterSubmission(isStation);
+          debugPrint("createStationFailure: Added to FailureList table for immediate display with failureNo: $offlineFailureNo");
+
+          refreshFailureListAfterSubmission(isStation);
         } catch (dbError) {
           debugPrint("Error saving to local database: $dbError");
         }
-        
+
         EasyLoading.dismiss();
         Get.back();
         Get.snackbar(
           "Saved Offline",
           "Failure saved locally. Will sync when internet is available.",
           backgroundColor: AppColors.orangeColor,
-          colorText: Colors.white,
+          colorText: AppColors.white1,
           duration: const Duration(seconds: 3),
         );
       }
     } catch (e) {
       EasyLoading.dismiss();
       debugPrint("Create Station Failure Error: $e");
-      Get.snackbar("Error", "An unexpected error occurred");
+      Get.snackbar(AppStrings.error, "An unexpected error occurred");
     }
   }
 
   Future<void> updateFailure() async {
     try {
-      print("updateFailure");
+      debugPrint("updateFailure");
       List<String> errors = [];
 
       if (failureRectificationDetailsController.text.trim().isEmpty) {
@@ -350,16 +455,39 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
         } else {
           for (int i = 0; i < rcaDetailsList.length; i++) {
             var rca = rcaDetailsList[i];
+
+            // Check for JE-specific fields (subsystem, failureCategory)
+            final subsystem = rca['subsystem']?.toString().trim() ?? "";
+            final failureCategory = rca['failureCategory']?.toString().trim() ?? "";
+
+            // Check for RST-specific fields (objectPart, fault)
             final objPart = rca['objectPart']?.toString().trim() ?? "";
             final objPartText = rca['objectPartText']?.toString().trim() ?? "";
             final fault = rca['fault']?.toString().trim() ?? "";
             final faultText = rca['faultText']?.toString().trim() ?? "";
 
-            if (objPart.isEmpty && objPartText.isEmpty) {
-              errors.add("Object Part is required in RCA item ${i + 1}.");
-            }
-            if (fault.isEmpty && faultText.isEmpty) {
-              errors.add("Fault is required in RCA item ${i + 1}.");
+            // Validate based on failure type
+            // JE failures use subsystem + failureCategory
+            // RST failures use objectPart + fault
+            if (subsystem.isNotEmpty || failureCategory.isNotEmpty) {
+              // JE RCA validation
+              if (subsystem.isEmpty) {
+                errors.add("Subsystem is required in RCA item ${i + 1}.");
+              }
+              if (failureCategory.isEmpty) {
+                errors.add("Failure Category is required in RCA item ${i + 1}.");
+              }
+            } else if (objPart.isNotEmpty || objPartText.isNotEmpty || fault.isNotEmpty || faultText.isNotEmpty) {
+              // RST RCA validation
+              if (objPart.isEmpty && objPartText.isEmpty) {
+                errors.add("Object Part is required in RCA item ${i + 1}.");
+              }
+              if (fault.isEmpty && faultText.isEmpty) {
+                errors.add("Fault is required in RCA item ${i + 1}.");
+              }
+            } else {
+              // No valid RCA data
+              errors.add("Either Subsystem or Object Part is required in RCA item ${i + 1}.");
             }
 
             final List rootCauses = rca['rootCauses'] ?? [];
@@ -379,8 +507,8 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
         Get.snackbar(
           'Validation Error',
           errors.first,
-          backgroundColor: Colors.red.withOpacity(0.9),
-          colorText: Colors.white,
+          backgroundColor: AppColors.red.withValues(alpha: 0.9),
+          colorText: AppColors.white1,
           snackPosition: SnackPosition.BOTTOM,
           duration: const Duration(seconds: 3),
         );
@@ -395,6 +523,7 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
 
       final changeNotifictionJE = {
         "Id": encryptedId.value.isEmpty ? "0" : encryptedId.value,
+        "Description": null, // API expects Description field
         "Category": failureCategory.value,
         "Remark_JE": newJeRemark,
         "NatureOfWorkId": int.tryParse(natureOfWorkList
@@ -406,7 +535,7 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
         "TrainRunningKM": trainRunningKmController.text.isEmpty
             ? null
             : trainRunningKmController.text,
-        "NotificationTypeId": int.tryParse(notificationTypeList
+        "NotificationTypeId": int.tryParse(corrNotificationTypeList
             .firstWhere(
                 (e) => e.label == selectedNotificationType.value,
             orElse: () => LabelValue(value: "0"))
@@ -427,6 +556,7 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
             "0") ??
             0,
         "PowerBlockRequired": isPowerBlockRequired.value,
+        "OHERequired": isOheRequired.value,
         "SICRequired": isSicRequired.value,
         "SICFailureType": 0, // Need to map if available
         "SICResponsiblePerson": 0, // Need to map if available
@@ -442,12 +572,64 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
         "IsPassengerDeboarding": isPassengerDeboarding.value,
         "NoofTrainDeboarded":
         int.tryParse(trainDeboardedNosController.text) ?? 0,
-        "FailureAttendedDate": selectedFailureAttendedDate.value != null
+        // Add missing fields from working API - populate from RCA data if available
+        "System": isSectionIncharge
+            ? (selectedFmecaSystem.value ?? "")
+            : (systemController.text.isNotEmpty ? systemController.text : (rcaDetailsList.isNotEmpty && rcaDetailsList[0]['system'] != null
+            ? rcaDetailsList[0]['system']
+            : "")),
+        "SubSystem": isSectionIncharge
+            ? (selectedFmecaSubsystem.value ?? "")
+            : (subsystemController.text.isNotEmpty ? subsystemController.text : (rcaDetailsList.isNotEmpty && rcaDetailsList[0]['subsystem'] != null
+            ? rcaDetailsList[0]['subsystem']
+            : "")),
+        "Frequency": isSectionIncharge
+            ? fmecaFrequency.value
+            : 1, // Default value for non-Section Incharge
+        "failureCategoryId": rcaDetailsList.isNotEmpty
+            ? int.tryParse(rcaDetailsList[0]['FailureCategoryId']?.toString() ?? "0") ?? 0
+            : int.tryParse(
+            rcaFailureCategoryList
+                .firstWhere((e) => e.label == selectedRcaFailureCategory.value,
+                orElse: () => LabelValue(value: "0"))
+                .value ??
+                "0") ?? 0,
+        "FailureCategory": rcaDetailsList.isNotEmpty
+            ? rcaDetailsList[0]['failureCategory'] ?? ""
+            : (selectedRcaFailureCategory.value ?? ""),
+        "causeOfFailureId": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['rootCauses'] is List && (rcaDetailsList[0]['rootCauses'] as List).isNotEmpty
+            ? int.tryParse(rcaDetailsList[0]['rootCauses'][0]['causeId']?.toString() ?? "0") ?? 0
+            : 0,
+        "Cause": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['rootCauses'] is List && (rcaDetailsList[0]['rootCauses'] as List).isNotEmpty
+            ? rcaDetailsList[0]['rootCauses'][0]['cause'] ?? ""
+            : "",
+        "CauseOfFailureOtherText": "", // Default value
+        "rootCauseIdN": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['rootCauses'] is List && (rcaDetailsList[0]['rootCauses'] as List).isNotEmpty
+            ? int.tryParse(rcaDetailsList[0]['rootCauses'][0]['rootCauseId']?.toString() ?? "0") ?? 0
+            : 0,
+        "rootCauseId": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['rootCauses'] is List && (rcaDetailsList[0]['rootCauses'] as List).isNotEmpty
+            ? int.tryParse(rcaDetailsList[0]['rootCauses'][0]['rootCauseId']?.toString() ?? "0") ?? 0
+            : 0,
+        "rootCauseTextN": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['rootCauses'] is List && (rcaDetailsList[0]['rootCauses'] as List).isNotEmpty
+            ? rcaDetailsList[0]['rootCauses'][0]['rootCauseText'] ?? ""
+            : "",
+        "rootCause": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['rootCauses'] is List && (rcaDetailsList[0]['rootCauses'] as List).isNotEmpty
+            ? rcaDetailsList[0]['rootCauses'][0]['rootCause'] ?? ""
+            : "",
+        "ActionTakenId": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['actionTakens'] is List && (rcaDetailsList[0]['actionTakens'] as List).isNotEmpty
+            ? int.tryParse(rcaDetailsList[0]['actionTakens'][0]['actionTakenId']?.toString() ?? "0") ?? 0
+            : 0,
+        "ActionTakenText": rcaDetailsList.isNotEmpty && rcaDetailsList[0]['actionTakens'] is List && (rcaDetailsList[0]['actionTakens'] as List).isNotEmpty
+            ? rcaDetailsList[0]['actionTakens'][0]['actionTakenText'] ?? ""
+            : "",
+        "FailureAttendedDate": selectedFailureAttendedDate.value != null &&
+            selectedFailureAttendedDate.value!.year > 1900
             ? DateFormat("dd/MM/yyyy HH:mm")
             .format(selectedFailureAttendedDate.value!)
             : null,
         "ActualFailureRectifiedDate":
-        selectedActualFailureRectifiedDate.value != null
+        selectedActualFailureRectifiedDate.value != null &&
+            selectedActualFailureRectifiedDate.value!.year > 1900
             ? DateFormat("dd/MM/yyyy HH:mm")
             .format(selectedActualFailureRectifiedDate.value!)
             : null,
@@ -507,16 +689,17 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
         ) ??
             0,
         "NotificationCode": notificationCode.value,
-        "UnderObservationDate": selectedUnderObservationDate.value != null
+        "UnderObservationDate": selectedUnderObservationDate.value != null &&
+            selectedUnderObservationDate.value!.year > 1900 // Check for valid date
             ? DateFormat("dd/MM/yyyy HH:mm")
             .format(selectedUnderObservationDate.value!)
-            : null,
+            : "", // Send empty string instead of null for invalid dates
         "FailureRectificationDetails":
         failureRectificationDetailsController.text.isEmpty
             ? "N/A"
             : failureRectificationDetailsController.text,
         "LocationFailure": subLocationController.text,
-        "Corr_NotificationTypeId": int.tryParse(notificationTypeList
+        "Corr_NotificationTypeId": int.tryParse(corrNotificationTypeList
             .firstWhere(
                 (e) => e.label == selectedNotificationType.value,
             orElse: () => LabelValue(value: "1"))
@@ -526,6 +709,42 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
         "ReasonForDelayId": reasonForDelayId.value,
       };
 
+      // Build failure rectification array for API
+      final failureRectificationJson = rcaDetailsList
+          .map((e) {
+        // Extract data from nested rootCauses array
+        final rootCauses = e['rootCauses'] as List?;
+        final firstRootCause = rootCauses != null && rootCauses.isNotEmpty ? rootCauses[0] : null;
+
+        // Extract data from nested actionTakens array
+        final actionTakens = e['actionTakens'] as List?;
+        final firstActionTaken = actionTakens != null && actionTakens.isNotEmpty ? actionTakens[0] : null;
+
+        return {
+          "System": isSectionIncharge
+              ? (selectedFmecaSystem.value ?? "")
+              : (systemController.text.isNotEmpty ? systemController.text : (e['system'] ?? "")),
+          "SubSystem": isSectionIncharge
+              ? (selectedFmecaSubsystem.value ?? "")
+              : (subsystemController.text.isNotEmpty ? subsystemController.text : (e['subsystem'] ?? "")),
+          "FailureCategoryId": int.tryParse(e['FailureCategoryId']?.toString() ?? "0") ?? 0,
+          "FailureCategoryText": e['failureCategory'] ?? "",
+          "CauseOfFailureId": firstRootCause != null ? int.tryParse(firstRootCause['causeId']?.toString() ?? "0") ?? 0 : 0,
+          "CauseOfFailureText": "",
+          "Cause": firstRootCause != null ? firstRootCause['cause'] ?? "" : "",
+          "RootCauseId": firstRootCause != null ? int.tryParse(firstRootCause['rootCauseId']?.toString() ?? "0") ?? 0 : 0,
+          "RootCause": firstRootCause != null ? firstRootCause['rootCause'] ?? "" : "",
+          "RootCauseText": firstRootCause != null ? firstRootCause['causeText'] ?? "" : "",
+          "ActionTakenId": firstActionTaken != null ? int.tryParse(firstActionTaken['actionTakenId']?.toString() ?? "0") ?? 0 : 0,
+          "ActionTaken": firstActionTaken != null ? firstActionTaken['actionTaken'] ?? "" : "",
+          "ActionTakenText": firstActionTaken != null ? firstActionTaken['actionTakenText'] ?? "" : ""
+        };
+      })
+          .toList();
+
+      // Add FailureRectificationJson to changeNotifictionJE
+      changeNotifictionJE['FailureRectificationJson'] = failureRectificationJson;
+
       final payload = {
         "Action": "UPDATE_JE_NOTIFICATIONMob",
         "changeNotifictionJE": changeNotifictionJE,
@@ -533,18 +752,32 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
             ? materialsForSubmit().map(buildMaterialPayload).toList()
             : <Map<String, dynamic>>[],
         "failureRectification": rcaDetailsList
-            .map((e) => {
-          "ObjectPartId":
-          int.tryParse(e['ObjectPartId'].toString()) ?? 0,
-          "ObjectPartText": e['objectPartText'] ?? "",
-          "FaultId": int.tryParse(e['FaultId'].toString()) ?? 0,
-          "FaultText": e['faultText'] ?? "",
-          "RootCauseText": (e['rootCauses'] as List).isNotEmpty
-              ? "${e['rootCauses'][0]['rootCauseId']}:${e['rootCauses'][0]['rootCauseText']}"
-              : "",
-          "ActionText": (e['actionTakens'] as List).isNotEmpty
-              ? "${e['actionTakens'][0]['actionTakenId']}:${e['actionTakens'][0]['actionTakenText']}"
-              : ""
+            .map((e) {
+          // Extract data from nested rootCauses array
+          final rootCauses = e['rootCauses'] as List?;
+          final firstRootCause = rootCauses != null && rootCauses.isNotEmpty ? rootCauses[0] : null;
+
+          // Extract data from nested actionTakens array
+          final actionTakens = e['actionTakens'] as List?;
+          final firstActionTaken = actionTakens != null && actionTakens.isNotEmpty ? actionTakens[0] : null;
+
+          final rectificationItem = {
+            "System": systemController.text.isNotEmpty ? systemController.text : (e['system'] ?? ""),
+            "SubSystem": subsystemController.text.isNotEmpty ? subsystemController.text : (e['subsystem'] ?? ""),
+            "FailureCategoryId": int.tryParse(e['FailureCategoryId']?.toString() ?? "0") ?? 0,
+            "FailureCategoryText": e['failureCategory'] ?? "",
+            "CauseOfFailureId": firstRootCause != null ? int.tryParse(firstRootCause['causeId']?.toString() ?? "0") ?? 0 : 0,
+            "CauseOfFailureText":  "",
+            "Cause": firstRootCause != null ? firstRootCause['cause'] ?? "" : "",
+            "RootCauseId": firstRootCause != null ? int.tryParse(firstRootCause['rootCauseId']?.toString() ?? "0") ?? 0 : 0,
+            "RootCause": firstRootCause != null ? firstRootCause['rootCause'] ?? "" : "",
+            "RootCauseText": firstRootCause != null ? firstRootCause['causeText'] ?? "" : "",
+            "ActionTakenId": firstActionTaken != null ? int.tryParse(firstActionTaken['actionTakenId']?.toString() ?? "0") ?? 0 : 0,
+            "ActionTaken": firstActionTaken != null ? firstActionTaken['actionTaken'] ?? "" : "",
+            "ActionTakenText": firstActionTaken != null ? firstActionTaken['actionTakenText'] ?? "" : ""
+          };
+          debugPrint("failureRectification item: $rectificationItem");
+          return rectificationItem;
         })
             .toList(),
         "getMeasurementPoints": measurementPointsList
@@ -566,68 +799,69 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
             : <Map<String, dynamic>>[],
         "materialDismantleDetails": isMaterialDismantle.value
             ? [
-                ...dismantleMaterialsList.map((e) {
-                  final recordId = materialRecordId(e);
-                  final statusId = recordId > 0 ? 2 : 1;
-                  
-                  // Format dates to dd/MM/yyyy HH:mm format for API
-                  String formatDismantleDate(dynamic date) {
-                    if (date == null) return "";
-                    if (date is DateTime) return DateFormat('dd/MM/yyyy HH:mm').format(date);
-                    if (date is String) {
-                      // Try to parse and reformat to dd/MM/yyyy HH:mm
-                      try {
-                        final dt = DateTime.parse(date); // ISO8601
-                        return DateFormat('dd/MM/yyyy HH:mm').format(dt);
-                      } catch (e) {
-                        try {
-                          final dt = DateFormat('dd/MM/yyyy HH:mm').parse(date);
-                          return date; // Already in correct format
-                        } catch (e2) {
-                          try {
-                            final dt = DateFormat('dd-MM-yyyy HH:mm').parse(date);
-                            return DateFormat('dd/MM/yyyy HH:mm').format(dt);
-                          } catch (e3) {
-                            return date.toString();
-                          }
-                        }
-                      }
+          ...dismantleMaterialsList.map((e) {
+            final recordId = materialRecordId(e);
+            final statusId = recordId > 0 ? 2 : 1;
+
+            // Format dates to dd/MM/yyyy HH:mm format for API
+            String formatDismantleDate(dynamic date) {
+              if (date == null) return "";
+              if (date is DateTime) return DateFormat('dd/MM/yyyy HH:mm').format(date);
+              if (date is String) {
+                // Try to parse and reformat to dd/MM/yyyy HH:mm
+                try {
+                  final dt = DateTime.parse(date); // ISO8601
+                  return DateFormat('dd/MM/yyyy HH:mm').format(dt);
+                } catch (e) {
+                  try {
+                    // ignore: unused_local_variable
+                    final _ = DateFormat('dd/MM/yyyy HH:mm').parse(date);
+                    return date; // Already in correct format
+                  } catch (e2) {
+                    try {
+                      final dt = DateFormat('dd-MM-yyyy HH:mm').parse(date);
+                      return DateFormat('dd/MM/yyyy HH:mm').format(dt);
+                    } catch (e3) {
+                      return date.toString();
                     }
-                    return "";
                   }
-                  
-                  return {
-                    "MaterialId": e['materialId'] ?? resolveMaterialId(e),
-                    "MaterialValue": e['materialCode'] ?? "",
-                    "MaterialReqId": recordId,
-                    "OldSerialNumber": e['oldSerialNumber'] ?? "",
-                    "NewSerialNumber": e['newSerialNumber'] ?? "",
-                    "OldSerialNoDismantleDate": formatDismantleDate(e['oldSerialDismantleDate']),
-                    "NewSerialNoInstallationDate": formatDismantleDate(e['newSerialInstallationDate']),
-                    "InsertUpdateStatusId": statusId,
-                    "CurrentInsertUpdateStatusId": statusId,
-                    "Id": recordId,
-                  };
-                }).toList(),
-                // Add deleted items with delete status
-                ...deletedDismantleMaterialsList.map((e) {
-                  return {
-                    "MaterialId": e['materialId'] ?? resolveMaterialId(e),
-                    "MaterialValue": e['materialCode'] ?? "",
-                    "MaterialReqId": e['id'],
-                    "OldSerialNumber": e['oldSerialNumber'] ?? "",
-                    "NewSerialNumber": e['newSerialNumber'] ?? "",
-                    "OldSerialNoDismantleDate": e['oldSerialDismantleDate'] ?? "",
-                    "NewSerialNoInstallationDate": e['newSerialInstallationDate'] ?? "",
-                    "InsertUpdateStatusId": 3, // 3 = Delete
-                    "CurrentInsertUpdateStatusId": 3,
-                    "Id": e['id'],
-                  };
-                }).toList(),
-              ]
+                }
+              }
+              return "";
+            }
+
+            return {
+              "MaterialId": e['materialId'] ?? resolveMaterialId(e),
+              "MaterialValue": e['materialCode'] ?? "",
+              "MaterialReqId": recordId,
+              "OldSerialNumber": e['oldSerialNumber'] ?? "",
+              "NewSerialNumber": e['newSerialNumber'] ?? "",
+              "OldSerialNoDismantleDate": formatDismantleDate(e['oldSerialDismantleDate']),
+              "NewSerialNoInstallationDate": formatDismantleDate(e['newSerialInstallationDate']),
+              "InsertUpdateStatusId": statusId,
+              "CurrentInsertUpdateStatusId": statusId,
+              "Id": recordId,
+            };
+          }),
+          // Add deleted items with delete status
+          ...deletedDismantleMaterialsList.map((e) {
+            return {
+              "MaterialId": e['materialId'] ?? resolveMaterialId(e),
+              "MaterialValue": e['materialCode'] ?? "",
+              "MaterialReqId": e['id'],
+              "OldSerialNumber": e['oldSerialNumber'] ?? "",
+              "NewSerialNumber": e['newSerialNumber'] ?? "",
+              "OldSerialNoDismantleDate": e['oldSerialDismantleDate'] ?? "",
+              "NewSerialNoInstallationDate": e['newSerialInstallationDate'] ?? "",
+              "InsertUpdateStatusId": 3, // 3 = Delete
+              "CurrentInsertUpdateStatusId": 3,
+              "Id": e['id'],
+            };
+          }),
+        ]
             : <Map<String, dynamic>>[]
       };
-    print("payload===${payload["materialDismantleDetails"]}");
+      debugPrint("payload===${payload["materialDismantleDetails"]}");
       // Build files list from local (non-network) selections
       final List<http.MultipartFile> files = [];
       if (beforeFiles.isNotEmpty &&
@@ -657,7 +891,7 @@ mixin FailureSubmitLogic on GetxController, FailureFormState, FailureMaterialLog
       EasyLoading.dismiss();
       Get.back();
       Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
-          backgroundColor: Colors.green, colorText: Colors.white);
+          backgroundColor: AppColors.green, colorText: AppColors.white1);
     } catch (e) {
       EasyLoading.dismiss();
       debugPrint('updateFailure error: $e');

@@ -10,7 +10,7 @@ import '../../../utils/widgets/sync_icon_button.dart';
 
 
 class InspectionDetailScreen extends StatefulWidget {
-  const InspectionDetailScreen({Key? key}) : super(key: key);
+  const InspectionDetailScreen({super.key});
 
   @override
   State<InspectionDetailScreen> createState() => _InspectionDetailScreenState();
@@ -110,7 +110,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: AppColors.textDarkSecondary.withOpacity(0.1),
+                                  color: AppColors.textDarkSecondary.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: CustText(
@@ -126,7 +126,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: _statusColor(inspection['status'] ?? '').withOpacity(0.1),
+                                  color: _statusColor(inspection['status'] ?? '').withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: CustText(
@@ -195,7 +195,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
                                 fontWeightName: FontWeight.w500,
                               ),
                               const SizedBox(height: 8),
-                              ...attachments.map((file) => _fileRow(file, '62.33 kB')).toList(),
+                              ...attachments.map((file) => _fileRow(file, '62.33 kB')),
                             ],
                           ),
                     ),

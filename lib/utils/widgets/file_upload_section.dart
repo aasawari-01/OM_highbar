@@ -10,10 +10,10 @@ class FileUploadSection extends StatefulWidget {
   final Function(List<File>) onFilesChanged;
 
   const FileUploadSection({
-    Key? key,
+    super.key,
     required this.files,
     required this.onFilesChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<FileUploadSection> createState() => _FileUploadSectionState();
@@ -32,7 +32,7 @@ class _FileUploadSectionState extends State<FileUploadSection> {
         widget.onFilesChanged([...widget.files, ...newFiles]);
       }
     } catch (e) {
-      print('Error picking files: $e');
+      debugPrint('Error picking files: $e');
     }
   }
 
@@ -113,7 +113,7 @@ class _FileUploadSectionState extends State<FileUploadSection> {
                     _getFileSize(file),
                     () => _removeFile(index),
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),

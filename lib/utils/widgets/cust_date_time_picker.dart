@@ -22,7 +22,7 @@ class CustDateTimePicker extends StatelessWidget {
   final String? Function(String?)? validator;
 
   const CustDateTimePicker({
-    Key? key,
+    super.key,
     required this.label,
     required this.hint,
     this.selectedDateTime,
@@ -33,7 +33,7 @@ class CustDateTimePicker extends StatelessWidget {
     this.lastDate,
     this.enabled = true,
     this.validator,
-  }) : super(key: key);
+  });
 
   ThemeData _pickerTheme(BuildContext context) {
     return Theme.of(context).copyWith(
@@ -97,7 +97,7 @@ class CustDateTimePicker extends StatelessWidget {
       );
       if (pickedDate == null) return;
 
-      // ignore: use_build_context_synchronously
+      if (!context.mounted) return;
       final pickedTime = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(selectedDateTime ?? DateTime.now()),

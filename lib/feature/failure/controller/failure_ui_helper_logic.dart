@@ -90,7 +90,7 @@ mixin FailureUIHelperLogic on GetxController, FailureFormState {
       funcs
           .where((e) => (e['funcLocationName']?.toString() ?? '').isNotEmpty && (e['funcLocationName']?.toString() ?? '').toLowerCase() != 'select')
           .map((e) => LabelValue(
-        // Display funcLocation code (e.g. "M2-L1-ST01") as the label
+        // Display Functional Location Name as the label
         label: e['funcLocationName']?.toString() ?? '',
         value: e['funcLocId']?.toString() ?? '',
       ))
@@ -133,7 +133,7 @@ mixin FailureUIHelperLogic on GetxController, FailureFormState {
     // Restore the preserved selection if it was filtered out
     if (preserved != null && preserved.label != null) {
       if (!equipmentList.any((e) => e.label == preserved!.label)) {
-        equipmentList.add(preserved!);
+        equipmentList.add(preserved);
       }
     }
   }

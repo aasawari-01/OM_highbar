@@ -65,89 +65,110 @@ class CustomTextField extends StatelessWidget {
 
     return MediaQuery(
       data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(1.0)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (label != null) ...[
-            buildRequiredLabel(context, label!),
-            SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
-          ],
-          ConstrainedBox(
-            constraints: BoxConstraints(
-              minHeight: effectiveMaxLines == 1 ? AppConstants.inputHeight : 0,
-            ),
-            child: TextFormField(
-              enabled: enabled,
-              style: GoogleFonts.lato(
-                color: AppColors.black,
-                fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
+      child: FormField<String>(
+        initialValue: controller.text,
+        validator: validator,
+        builder: (formFieldState) {
+          final Color borderColor = formFieldState.hasError
+              ? AppColors.red
+              : AppColors.textFieldColor;
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (label != null) ...[
+                buildRequiredLabel(context, label!),
+                SizedBox(height: ResponsiveHelper.spacing(context, AppConstants.labelSpacing)),
+              ],
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  minHeight: effectiveMaxLines == 1 ? AppConstants.inputHeight : 0,
+                ),
+                child: TextFormField(
+                  enabled: enabled,
+                  style: GoogleFonts.lato(
+                    color: AppColors.black,
+                    fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
+                  ),
+                  onTapOutside: (_) {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                  },
+                  cursorColor: AppColors.textDarkPrimary,
+                  controller: controller,
+                  obscureText: obscureText,
+                  keyboardType: keyboardType,
+                  textInputAction: textInputAction,
+                  onChanged: (value) {
+                    onChanged?.call(value);
+                    formFieldState.didChange(value);
+                  },
+                  onFieldSubmitted: onSubmitted,
+                  readOnly: readOnly,
+                  maxLength: maxLength,
+                  // No validator here — the outer FormField above owns
+                  // validation + error display now, so it isn't rendered twice.
+                  focusNode: focusNode,
+                  autofocus: autofocus,
+                  maxLines: effectiveMaxLines,
+                  textCapitalization: textCapitalization,
+                  onTap: onTap,
+                  inputFormatters: inputFormatters,
+                  textAlign: textAlign ?? TextAlign.start,
+                  decoration: InputDecoration(
+                    hintText: hintText,
+                    hintStyle: GoogleFonts.lato(
+                      color: AppColors.hintTextColor,
+                      fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
+                    ),
+                    filled: true,
+                    fillColor: enabled ? Colors.white : AppColors.containerColor2,
+                    counterText: "",
+                    suffixIcon: suffixIcon != null
+                        ? Padding(
+                      padding: const EdgeInsets.only(right: 12.0),
+                      child: suffixIcon,
+                    )
+                        : null,
+                    suffixIconConstraints: const BoxConstraints(
+                      minHeight: 24,
+                      minWidth: 24,
+                    ),
+                    prefixIcon: prefixIcon,
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                      borderSide: BorderSide(color: borderColor),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                      borderSide: BorderSide(color: borderColor),
+                    ),
+                    disabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                      borderSide: BorderSide(color: AppColors.textFieldColor),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
+                      borderSide: const BorderSide(color: AppColors.orangeColor),
+                    ),
+                    contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  ),
+                ),
               ),
-              onTapOutside: (_) {
-                FocusManager.instance.primaryFocus?.unfocus();
-              },
-              cursorColor: AppColors.textDarkPrimary,
-              controller: controller,
-              obscureText: obscureText,
-              keyboardType: keyboardType,
-              textInputAction: textInputAction,
-              onChanged: onChanged,
-              onFieldSubmitted: onSubmitted,
-              readOnly: readOnly,
-              maxLength: maxLength,
-              validator: validator,
-              focusNode: focusNode,
-              autofocus: autofocus,
-              maxLines: effectiveMaxLines,
-              textCapitalization: textCapitalization,
-              onTap: onTap,
-              inputFormatters: inputFormatters,
-              textAlign: textAlign ?? TextAlign.start,
-              decoration: InputDecoration(
-                hintText: hintText,
-                hintStyle: GoogleFonts.lato(
-                  color: AppColors.hintTextColor,
-                  fontSize: ResponsiveHelper.fontSize(context, AppConstants.bodySize),
+              if (formFieldState.hasError) ...[
+                const SizedBox(height: 4),
+                Text(
+                  formFieldState.errorText ?? '',
+                  style: GoogleFonts.lato(
+                    color: AppColors.red,
+                    fontSize: ResponsiveHelper.fontSize(context, 10),
+                    height: 1.0,
+                  ),
                 ),
-                filled: true,
-                fillColor: enabled ?Colors.white : AppColors.containerColor2,
-                counterText: "",
-                errorStyle: GoogleFonts.lato(
-                  fontSize: ResponsiveHelper.fontSize(context, 10),
-                  height: 1.0,
-                ),
-                suffixIcon: suffixIcon != null
-                    ? Padding(
-                        padding: const EdgeInsets.only(right: 12.0),
-                        child: suffixIcon,
-                      )
-                    : null,
-                suffixIconConstraints: const BoxConstraints(
-                  minHeight: 24,
-                  minWidth: 24,
-                ),
-                prefixIcon: prefixIcon,
-                isDense: true,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                  borderSide: BorderSide(color: AppColors.textFieldColor),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                  borderSide: BorderSide(color: AppColors.textFieldColor),
-                ),
-                disabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                  borderSide: BorderSide(color: AppColors.textFieldColor),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(ResponsiveHelper.spacing(context, AppConstants.inputRadius)),
-                  borderSide: const BorderSide(color: AppColors.orangeColor,),
-                ),
-                contentPadding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              ),
-            ),
-          ),
-        ],
+              ],
+            ],
+          );
+        },
       ),
     );
   }

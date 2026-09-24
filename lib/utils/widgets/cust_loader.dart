@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../constants/colors.dart';
 
 class CustLoader extends StatelessWidget {
-  const CustLoader({Key? key}) : super(key: key);
+  const CustLoader({super.key});
 
   @override
   Widget build(BuildContext context) {

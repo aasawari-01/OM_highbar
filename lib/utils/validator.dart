@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 class Validator{
 
   static String? validateEmail(String? value) {
@@ -40,7 +38,6 @@ class Validator{
 
     String pattern = r'^(?=.*?[A-Z])(?=.*?[a-z])(?=.*?[0-9])(?=.*?[!@#\$&*~]).{8,}$';
     RegExp regex =  RegExp(pattern);
-    debugPrint(value);
     if (value.isEmpty) {
       return 'Please Enter Confirm Password';
     } else if (value.length < 7) {
@@ -57,7 +54,7 @@ class Validator{
   static String validateMobile(String value) {
     String patttern = r'(^[0-9]*$)';
     RegExp regExp =  RegExp(patttern);
-    if (value.length == 0) {
+    if (value.isEmpty) {
       return "Please Enter Phone Number";
     } else if (value.length != 9) {
       return "Please Enter Valid Phone Number";

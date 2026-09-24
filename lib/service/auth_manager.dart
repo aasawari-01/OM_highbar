@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import '../feature/auth_login/model/login_response.dart';
 import 'network_service/app_urls.dart';
@@ -47,7 +46,7 @@ class AuthManager {
   Future<void> login(LoginResponse response, {bool rememberMe = false}) async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
 
-    print("login data is $response");
+    debugPrint("login data is $response");
     await prefs.setBool(_keyIsLoggedIn, true);
     await prefs.setBool(_keyRememberMe, rememberMe);
     await prefs.setString(_keyUserId, response.userId?.toString() ?? '');
@@ -125,7 +124,15 @@ class AuthManager {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyUserName);
   }
+  Future<void> saveSelectedStationID(String code) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('selectedStationID', code);
+  }
 
+  Future<String?> getSelectedStationID() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('selectedStationID');
+  }
   // Get token
   Future<String?> getToken() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();

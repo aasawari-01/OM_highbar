@@ -1,16 +1,20 @@
+
 import 'package:flutter/material.dart' hide Action;
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http_pkg;
-import 'package:get/get_connect/http/src/multipart/multipart_file.dart' as http;
+import '../../../constants/colors.dart';
+import '../../../constants/strings.dart';
 import '../../../core/models/label_value.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../model/rst_failure_full_response.dart';
 import '../../../service/local_database_service.dart';
 import '../service/failure_service.dart';
+import '../../../core/controller/global_master_data_controller.dart';
 
 class RstFailureController extends GetxController {
   final FailureService _failureService = FailureService();
   final LocalDatabaseService _dbService = LocalDatabaseService();
+  final GlobalMasterDataController _globalData = Get.find<GlobalMasterDataController>();
 
   final RxBool isLoading = false.obs;
   final RxString errorMessage = "".obs;
@@ -25,6 +29,11 @@ class RstFailureController extends GetxController {
   final RxList<LabelValue> rstObjectPartList = <LabelValue>[].obs;
   final RxList<LabelValue> rstMaterialList = <LabelValue>[].obs;
   final RxList<LabelValue> rstTrainStatusList = <LabelValue>[].obs;
+
+  // NEW: RST View dropdowns from asset DB
+  final RxList<LabelValue> rstFaultMasterList = <LabelValue>[].obs;
+  final RxList<LabelValue> rstOldRootCauseList = <LabelValue>[].obs;
+  final RxList<LabelValue> rstStoreLocationList = <LabelValue>[].obs;
   
   // Master Data Lists from Local Storage
   final RxList<LabelValue> priorityList = <LabelValue>[].obs;
@@ -115,7 +124,7 @@ class RstFailureController extends GetxController {
       selectedSicType.value = null;
       selectedSicResponsiblePerson.value = null;
     } else {
-      Get.snackbar("Error", "Please select SIC Type and Responsible Person");
+      Get.snackbar(AppStrings.error, "Please select SIC Type and Responsible Person");
     }
   }
 
@@ -134,7 +143,7 @@ class RstFailureController extends GetxController {
       selectedJointInspectionResponsiblePerson.value = null;
       jointInspectionRemarksController.clear();
     } else {
-      Get.snackbar("Error", "Please select Department and Responsible Person");
+      Get.snackbar(AppStrings.error, "Please select Department and Responsible Person");
     }
   }
 
@@ -282,7 +291,7 @@ class RstFailureController extends GetxController {
       objectPartTextController.clear();
       faultTextController.clear();
     } else {
-      Get.snackbar("Error", "Please select Object Part and Fault");
+      Get.snackbar(AppStrings.error, "Please select Object Part and Fault");
     }
   }
 
@@ -358,7 +367,7 @@ class RstFailureController extends GetxController {
       popupRootCauseTextController.clear();
       popupRootCauseFiles.clear();
     } else {
-      Get.snackbar("Error", "Please select Root Cause");
+      Get.snackbar(AppStrings.error, "Please select Root Cause");
     }
   }
 
@@ -376,7 +385,7 @@ class RstFailureController extends GetxController {
       popupActionTakenTextController.clear();
       popupActionTakenFiles.clear();
     } else {
-      Get.snackbar("Error", "Please select Action Taken");
+      Get.snackbar(AppStrings.error, "Please select Action Taken");
     }
   }
 
@@ -493,7 +502,7 @@ class RstFailureController extends GetxController {
         oldSerialDismantleDate.value == null ||
         newSerialNumberController.text.trim().isEmpty ||
         newSerialInstallationDate.value == null) {
-      Get.snackbar("Error", "Please fill all required fields");
+      Get.snackbar(AppStrings.error, "Please fill all required fields");
       return;
     }
 
@@ -594,11 +603,9 @@ class RstFailureController extends GetxController {
       debugPrint("fetchRstFailureData: API data received, rstFetchData=${fullData.rstFetchData.notificationId}");
 
       // Populate notification history
-      if (fullData.notificationHistory != null) {
-        notificationHistory.value = fullData.notificationHistory!.toJson();
-        debugPrint("fetchRstFailureData: Notification history populated");
-      }
-
+      notificationHistory.value = fullData.notificationHistory.toJson();
+      debugPrint("fetchRstFailureData: Notification history populated");
+    
       debugPrint("fetchRstFailureData: Parsing RstFetchData...");
       final data = RstFetchData.fromJson(fullData.rstFetchData.toJson());
       rstFailureData.value = data;
@@ -661,23 +668,23 @@ class RstFailureController extends GetxController {
   Future<void> submitPartE() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar("Error", "Missing notification Id");
+      Get.snackbar(AppStrings.error, "Missing notification Id");
       return;
     }
     if (!isPersonsWithdrawn.value) {
-      Get.snackbar("Error", "Please confirm the declaration");
+      Get.snackbar(AppStrings.error, "Please confirm the declaration");
       return;
     }
     if (actualWorkStart.value == null) {
-      Get.snackbar("Error", "Please select Actual Work Start");
+      Get.snackbar(AppStrings.error, "Please select Actual Work Start");
       return;
     }
     if (actualWorkComplete.value == null) {
-      Get.snackbar("Error", "Please select Actual Work Complete");
+      Get.snackbar(AppStrings.error, "Please select Actual Work Complete");
       return;
     }
     if (selectedTrainStatus.value == null) {
-      Get.snackbar("Error", "Please select Train Status");
+      Get.snackbar(AppStrings.error, "Please select Train Status");
       return;
     }
 
@@ -701,22 +708,22 @@ class RstFailureController extends GetxController {
         rcaImages: rcaMultipart,
       );
 
-      Get.snackbar("Success", msg);
+      Get.snackbar(AppStrings.success, msg);
       await fetchRstFailureData(notificationId); // refreshes documents list with real ids/paths from server
     } catch (e) {
-      Get.snackbar("Error", e.toString());
+      Get.snackbar(AppStrings.error, e.toString());
     } finally {
       isLoading.value = false;
     }
   }
 
   void _populateJointInspections(List<JointInspection> raw) {
-    jointInspectionList.assignAll(raw.map((e) => {
-      'department': e.jI_Dept_Name,
-      'responsiblePerson': e.jI_ResponsiblePerson,
-      'remark': e.jI_Remark ?? '',
-      'status': e.jI_Status,
-      'statusId': e.jI_StatusId.toString(),
+    jointInspectionList.assignAll(raw.map((i) => {
+      'department': i.jiDeptName,
+      'responsiblePerson': i.jiResponsiblePerson,
+      'remark': i.jiRemark ?? '',
+      'status': i.jiStatus,
+      'statusId': i.jiStatusId.toString(),
     }));
   }
 
@@ -757,7 +764,7 @@ class RstFailureController extends GetxController {
 
     // Defensive key lookup — adjust once you confirm the actual field names
     // in master_user.dart (dept id / role id column names).
-    String? _val(Map<String, dynamic> m, List<String> keys) {
+    String? val(Map<String, dynamic> m, List<String> keys) {
       for (final k in keys) {
         if (m[k] != null) return m[k].toString();
       }
@@ -765,8 +772,8 @@ class RstFailureController extends GetxController {
     }
 
     final filtered = users.where((u) {
-      final deptId = _val(u, ['deptId', 'departmentId', 'DeptId', 'DepartmentId']);
-      final roleId = _val(u, ['roleId', 'userRoleId', 'RoleId', 'UserRoleId']);
+      final deptId = val(u, ['deptId', 'departmentId', 'DeptId', 'DepartmentId']);
+      final roleId = val(u, ['roleId', 'userRoleId', 'RoleId', 'UserRoleId']);
       return deptId == '3' && roleId == '5';
     }).toList();
 
@@ -792,7 +799,7 @@ class RstFailureController extends GetxController {
       selectedMaintainerName.value = null;
       workAllotedController.clear();
     } else {
-      Get.snackbar("Error", "Please select Name and enter Work Alloted");
+      Get.snackbar(AppStrings.error, "Please select Name and enter Work Alloted");
     }
   }
 
@@ -889,7 +896,7 @@ class RstFailureController extends GetxController {
           ? 'Used Quantity cannot be greater than Required Quantity for ${errorIndices.length} items.'
           : 'Used Quantity cannot be greater than Required Quantity.';
       Get.snackbar("Invalid Quantity", msg,
-          backgroundColor: Colors.red.withOpacity(0.9), colorText: Colors.white);
+          backgroundColor: AppColors.red.withValues(alpha: 0.9), colorText: AppColors.white1);
       return false;
     }
     return true;
@@ -912,7 +919,7 @@ class RstFailureController extends GetxController {
 
   void saveWorkAlloted() {
     if (selectedMaintainerName.value == null || workAllotedController.text.isEmpty) {
-      Get.snackbar("Error", "Please select Name and enter Work Alloted");
+      Get.snackbar(AppStrings.error, "Please select Name and enter Work Alloted");
       return;
     }
 
@@ -953,11 +960,11 @@ class RstFailureController extends GetxController {
   Future<void> submitPartC() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar("Error", "Missing notification Id");
+      Get.snackbar(AppStrings.error, "Missing notification Id");
       return;
     }
     if (workAllotedList.isEmpty) {
-      Get.snackbar("Error", "Please add at least one work alloted entry");
+      Get.snackbar(AppStrings.error, "Please add at least one work alloted entry");
       return;
     }
 
@@ -978,11 +985,11 @@ class RstFailureController extends GetxController {
         isWorkAllotedAccept: isAcceptResponsibility.value,
         isPowerBlockReq: isPowerBlockRequired.value,
       );
-      Get.snackbar("Success", msg);
+      Get.snackbar(AppStrings.success, msg);
       // Refresh to pick up server-assigned Ids for newly added entries
       await fetchRstFailureData(notificationId);
     } catch (e) {
-      Get.snackbar("Error", e.toString());
+      Get.snackbar(AppStrings.error, e.toString());
     } finally {
       isLoading.value = false;
     }
@@ -991,7 +998,7 @@ class RstFailureController extends GetxController {
   Future<void> submitPartD() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar("Error", "Missing notification Id");
+      Get.snackbar(AppStrings.error, "Missing notification Id");
       return;
     }
     if (!validateMaterialRequiredUsedQty()) return;
@@ -1098,10 +1105,10 @@ class RstFailureController extends GetxController {
     try {
       isLoading.value = true;
       final msg = await _failureService.updateNotificationRSTRCAMaterialJE(payload);
-      Get.snackbar("Success", msg);
+      Get.snackbar(AppStrings.success, msg);
       await fetchRstFailureData(notificationId);
     } catch (e) {
-      Get.snackbar("Error", e.toString());
+      Get.snackbar(AppStrings.error, e.toString());
     } finally {
       isLoading.value = false;
     }
@@ -1155,11 +1162,6 @@ class RstFailureController extends GetxController {
     }
   }
 
-
-  String? _formatDateIfValid(String? raw) {
-  if (raw == null || raw.isEmpty || raw.startsWith('0001-01-01')) return null;
-  return raw;
-  }
 
   void _populateMaterialsSwapped(List<dynamic> raw) {
     dismantleMaterialList.assignAll(raw.map((e) => {
@@ -1223,7 +1225,7 @@ class RstFailureController extends GetxController {
         existingTrainStatuses.isEmpty ||
         existingStorageLocations.isEmpty) { // ✅ include in the gate
       try {
-        await _failureService.fetchRstMasterData();
+        // await _failureService.fetchRstMasterData();
       } catch (e) {
         debugPrint('Error refreshing RST master data: $e');
       }
@@ -1272,7 +1274,7 @@ class RstFailureController extends GetxController {
 
     final departments = await _dbService.getDepartments();
     departmentList.assignAll(
-      departments.map((e) => LabelValue(label: e.deptName ?? '', value: e.deptId.toString())).toList(),
+      departments.map((e) => LabelValue(label: e.deptName, value: e.deptId.toString())).toList(),
     );
 
     // TODO: Add notification types when API is available
@@ -1349,14 +1351,14 @@ class RstFailureController extends GetxController {
     // For now, we'll keep all functional locations
   }
 
-  Future<void> fetchRstMasterDataFromApi() async {
-    try {
-      await _failureService.fetchRstMasterData();
-      await _loadRstMasterDataFromDb();
-    } catch (e) {
-      debugPrint('Error fetching RST master data: $e');
-    }
-  }
+  // Future<void> fetchRstMasterDataFromApi() async {
+  //   try {
+  //     await _failureService.fetchRstMasterData();
+  //     await _loadRstMasterDataFromDb();
+  //   } catch (e) {
+  //     debugPrint('Error fetching RST master data: $e');
+  //   }
+  // }
 
 
   // Helper methods to convert LabelValue lists to string lists for dropdowns
@@ -1399,7 +1401,7 @@ class RstFailureController extends GetxController {
     }
 
     selectedDepartment.value=data.deptName;
-  print("selected dept---${selectedDepartment.value}");
+  debugPrint("selected dept---${selectedDepartment.value}");
     // Notification Type - hardcoded based on ID
     selectedFailureType.value = data.notificationType;
 
@@ -1429,7 +1431,7 @@ class RstFailureController extends GetxController {
     }
     selectedNatureOfWork.value=data.workName;
     selectedNatureOfWorkId.value=data.natureOfWorkId.toString();
-    print("data.workName===${data.workName}");
+    debugPrint("data.workName===${data.workName}");
     
     // Do not Report
     selectedDoNotReport.value = data.doNotReport?.toString();
@@ -1527,6 +1529,19 @@ class RstFailureController extends GetxController {
     }
   }
 
+
+  @override
+  void onInit() {
+    super.onInit();
+    _loadRstDropdowns();
+  }
+
+  void _loadRstDropdowns() {
+    // Copy RST data from GlobalMasterDataController
+    rstFaultMasterList.assignAll(_globalData.rstFaultMasterList);
+    rstOldRootCauseList.assignAll(_globalData.rstOldRootCauseList);
+    rstStoreLocationList.assignAll(_globalData.rstStoreLocationList);
+  }
 
   @override
   void onClose() {

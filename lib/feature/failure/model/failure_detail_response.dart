@@ -1,23 +1,38 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import '../../../core/models/label_value.dart';
 
 class FailureDetailResponse {
   final int? responseCode;
   final String? responseMessage;
   final FailureDetailOutput? responseOutput;
+  final String? failureRectificationJson;
 
   FailureDetailResponse({
     this.responseCode,
     this.responseMessage,
     this.responseOutput,
+    this.failureRectificationJson,
   });
 
   factory FailureDetailResponse.fromJson(Map<String, dynamic> json) {
+    String? rcaJson;
+    final rcaValue = json['FailureRectificationJson'];
+    if (rcaValue != null) {
+      if (rcaValue is String) {
+        rcaJson = rcaValue;
+      } else if (rcaValue is List) {
+        rcaJson = jsonEncode(rcaValue);
+      }
+    }
+    
     return FailureDetailResponse(
       responseCode: json['responseCode'] as int?,
       responseMessage: json['responseMessage'] as String?,
       responseOutput: json['responseOutput'] != null
           ? FailureDetailOutput.fromJson(json['responseOutput'] as Map<String, dynamic>)
           : null,
+      failureRectificationJson: rcaJson,
     );
   }
 }
@@ -236,13 +251,13 @@ class CreateVMModel {
   final String? category;
   final String? deptCode;
   final int? locationTypeId;
-  final int? corr_NotificationTypeId;
+  final int? corrNotificationTypeId;
 
   final List<Map<String, dynamic>>? getObjectANDFaultList;
   final List<Map<String, dynamic>>? getObjectANDFaultActionList;
   final List<Map<String, dynamic>>? getObjectANDFaultRootCauseList;
 
-  final String? remark_JE;
+  final String? remarkJe;
   final String? imagesPaths;
   final String? imagesPathsAfter;
   final String? imagesPathsRCA;
@@ -265,6 +280,9 @@ class CreateVMModel {
   final String? failureType;
   final String? assignedUseeName;
   final String? underObservationDate;
+  final String? systems;
+  final String? subSystems;
+  final String? failureRectificationJson;
 
   CreateVMModel({
     this.id,
@@ -298,7 +316,7 @@ class CreateVMModel {
     this.reasonForDelayId,
     this.category,
     this.deptCode,
-    this.remark_JE,
+    this.remarkJe,
     this.imagesPaths,
     this.imagesPathsAfter,
     this.imagesPathsRCA,
@@ -320,11 +338,14 @@ class CreateVMModel {
     this.failureType,
     this.assignedUseeName,
     this.underObservationDate,
+    this.systems,
+    this.subSystems,
     this.locationTypeId,
-    this.corr_NotificationTypeId,
+    this.corrNotificationTypeId,
     this.getObjectANDFaultList,
     this.getObjectANDFaultActionList,
     this.getObjectANDFaultRootCauseList,
+    this.failureRectificationJson,
   });
 
   static int? _asInt(dynamic value) {
@@ -351,6 +372,11 @@ class CreateVMModel {
   }
 
   factory CreateVMModel.fromJson(Map<String, dynamic> json) {
+    debugPrint("CreateVMModel.fromJson: JSON keys = ${json.keys.toList()}");
+    debugPrint("CreateVMModel.fromJson: systems=${json['systems']}, subSystems=${json['subSystems']}");
+    debugPrint("CreateVMModel.fromJson: subsystem=${json['subsystem']}, Subsystem=${json['Subsystem']}");
+    debugPrint("CreateVMModel.fromJson: subSystem=${json['subSystem']}, SubSystem=${json['SubSystem']}");
+    debugPrint("CreateVMModel.fromJson: Full JSON sample = ${json.toString().substring(0, json.toString().length > 500 ? 500 : json.toString().length)}");
     return CreateVMModel(
       id: json['Id'] as String?,
       notificationId: CreateVMModel._asInt(json['notificationId']),
@@ -385,7 +411,7 @@ class CreateVMModel {
       reasonForDelayId: json['reasonForDelayId'] as int?,
       category: json['category'] as String?,
       deptCode: json['deptCode'] as String?,
-      remark_JE: json['remark_JE'] as String?,
+      remarkJe: json['remark_JE'] as String?,
       imagesPaths: json['imagesPaths'] as String?,
       imagesPathsAfter: json['imagesPathsAfter'] as String?,
       imagesPathsRCA: json['imagesPathsRCA'] as String?,
@@ -419,8 +445,10 @@ class CreateVMModel {
       failureType: json['failureType'] as String?,
       assignedUseeName: json['assignedUseeName'] as String?,
       underObservationDate: json['underObservationDate'] as String?,
+      systems: _asString(json['systems'] ?? json['Systems'] ?? json['system'] ?? json['System']),
+      subSystems: _asString(json['subSystems'] ?? json['SubSystems'] ?? json['subsystem'] ?? json['Subsystem'] ?? json['subSystem'] ?? json['SubSystem']),
       locationTypeId: json['locationTypeId'] as int?,
-      corr_NotificationTypeId: json['corr_NotificationTypeId'] as int?,
+      corrNotificationTypeId: json['corr_NotificationTypeId'] as int?,
       getObjectANDFaultList: json['getObjectANDFaultList'] != null
           ? (json['getObjectANDFaultList'] as List).map((e) => e as Map<String, dynamic>).toList()
           : null,
@@ -430,7 +458,15 @@ class CreateVMModel {
       getObjectANDFaultRootCauseList: json['getObjectANDFaultRootCauseList'] != null
           ? (json['getObjectANDFaultRootCauseList'] as List).map((e) => e as Map<String, dynamic>).toList()
           : null,
+      failureRectificationJson: _parseRcaJson(json['FailureRectificationJson'] ?? json['failureRectificationJson']),
     );
+  }
+  
+  static String? _parseRcaJson(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is List) return jsonEncode(value);
+    return null;
   }
 }
 

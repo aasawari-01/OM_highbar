@@ -9,11 +9,7 @@ class AppColors {
   static const Color textDarkTertiary = Color(0xFF515151);
   static const Color textMuted = Color(0xFF777777);
   static const Color textMutedLight = Color(0xFF797979);
-
-  // static const Color textBluePrimary = Color(0xFF081173);
-  // static const Color textBlueSecondary = Color(0xFF1166D4);
-  // static const Color textBlueTertiary = Color(0xFF183F83);
-  // static const Color textBlueAccent = Color(0xFF0089BA);
+  static const Color lightBlueColor = Color(0xffC9F0FF);
 
   static const Color orangeColor= Color(0xffE9822D);
   static const Color iconColor2= Color(0xFFA3A3A3);

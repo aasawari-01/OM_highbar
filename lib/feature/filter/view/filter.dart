@@ -1,29 +1,20 @@
 import 'package:flutter/material.dart';
 import 'package:om_mobile/constants/colors.dart';
 
-import '../../../constants/app_data.dart';
 import '../../../constants/app_constants.dart';
 import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/cust_dropdown.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_date_time_picker.dart';
-import 'package:get/get.dart';
-import '../../../service/session_controller.dart';
-import '../../../core/models/label_value.dart';
-import '../../../service/local_database_service.dart';
-import '../../../service/auth_manager.dart';
-import '../../../service/network_service/api_client.dart';
-import '../../../service/network_service/app_urls.dart';
-import 'dart:convert';
 class FilterPopup extends StatefulWidget {
   final Set<String> initialStatuses;
   final Function(Set<String>) onApply;
 
   const FilterPopup({
-    Key? key,
+    super.key,
     required this.initialStatuses,
     required this.onApply,
-  }) : super(key: key);
+  });
 
   @override
   State<FilterPopup> createState() => _FilterPopupState();
@@ -52,60 +43,60 @@ class _FilterPopupState extends State<FilterPopup> {
   void initState() {
     super.initState();
     selectedStatuses = Set.from(widget.initialStatuses);
-    _loadData();
+    // _loadData();
   }
 
-  Future<void> _loadData() async {
-    final session = Get.find<SessionController>();
-    final dbService = LocalDatabaseService();
-    
-    var locations = await dbService.getLocations();
-    
-    final userId = await AuthManager().getUserId() ?? "0";
-    final userBusinessArea = await AuthManager().getBusinessArea();
-    List<String> validPlantIds = [];
-
-    if (userBusinessArea != null) {
-      try {
-        final plantsRes = await ApiClient().post(
-          AppUrls.getMasterData,
-          body: {
-            "userId": int.tryParse(userId) ?? 0,
-            "action": "GetPlantsMasterData"
-          }
-        );
-        if (plantsRes.statusCode == 200) {
-          final Map<String, dynamic> jsonBody = jsonDecode(plantsRes.body);
-          if (jsonBody['success'] == true && jsonBody['data'] != null) {
-            final List<dynamic> plants = jsonBody['data']['planningPlants'] ?? [];
-            validPlantIds = plants
-                .where((p) => p['businessArea'].toString() == userBusinessArea.toString())
-                .map((p) => p['plant'].toString().trim())
-                .toList();
-          }
-        }
-      } catch (e) {
-        debugPrint("Error fetching validPlantIds for filter: $e");
-      }
-    }
-    
-    if (validPlantIds.isNotEmpty) {
-      locations = locations.where((l) => validPlantIds.contains(l.plantId?.toString().trim())).toList();
-    }
-    
-    if (mounted) {
-      setState(() {
-        departmentListValue = session.departments
-            .map((e) => e.deptName ?? '')
-            .where((e) => e.isNotEmpty)
-            .toList();
-        stationListValue = locations
-            .map((e) => e.locationName ?? '')
-            .where((e) => e.isNotEmpty)
-            .toList();
-      });
-    }
-  }
+  // Future<void> _loadData() async {
+  //   final session = Get.find<SessionController>();
+  //   final dbService = LocalDatabaseService();
+  //
+  //   var locations = await dbService.getLocations();
+  //
+  //   final userId = await AuthManager().getUserId() ?? "0";
+  //   final userBusinessArea = await AuthManager().getBusinessArea();
+  //   List<String> validPlantIds = [];
+  //
+  //   if (userBusinessArea != null) {
+  //     try {
+  //       final plantsRes = await ApiClient().post(
+  //         AppUrls.getMasterData,
+  //         body: {
+  //           "userId": int.tryParse(userId) ?? 0,
+  //           "action": "GetPlantsMasterData"
+  //         }
+  //       );
+  //       if (plantsRes.statusCode == 200) {
+  //         final Map<String, dynamic> jsonBody = jsonDecode(plantsRes.body);
+  //         if (jsonBody['success'] == true && jsonBody['data'] != null) {
+  //           final List<dynamic> plants = jsonBody['data']['planningPlants'] ?? [];
+  //           validPlantIds = plants
+  //               .where((p) => p['businessArea'].toString() == userBusinessArea.toString())
+  //               .map((p) => p['plant'].toString().trim())
+  //               .toList();
+  //         }
+  //       }
+  //     } catch (e) {
+  //       debugPrint("Error fetching validPlantIds for filter: $e");
+  //     }
+  //   }
+  //
+  //   if (validPlantIds.isNotEmpty) {
+  //     locations = locations.where((l) => validPlantIds.contains(l.plantId?.toString().trim())).toList();
+  //   }
+  //
+  //   if (mounted) {
+  //     setState(() {
+  //       departmentListValue = session.departments
+  //           .map((e) => e.deptName ?? '')
+  //           .where((e) => e.isNotEmpty)
+  //           .toList();
+  //       stationListValue = locations
+  //           .map((e) => e.locationName ?? '')
+  //           .where((e) => e.isNotEmpty)
+  //           .toList();
+  //     });
+  //   }
+  // }
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +137,7 @@ class _FilterPopupState extends State<FilterPopup> {
                   ],
                 ),
                 selected: selectedPriorities.contains(p),
-                selectedColor: AppColors.darkBlue.withOpacity(0.1),
+                selectedColor: AppColors.darkBlue.withValues(alpha: 0.1),
                 onSelected: (_) {
                   setState(() {
                     if (selectedPriorities.contains(p)) {
@@ -189,7 +180,7 @@ class _FilterPopupState extends State<FilterPopup> {
                   ],
                 ),
                 selected: selectedStatuses.contains(s),
-                selectedColor: AppColors.darkBlue.withOpacity(0.1),
+                selectedColor: AppColors.darkBlue.withValues(alpha: 0.1),
                 onSelected: (_) {
                   setState(() {
                     if (selectedStatuses.contains(s)) {
@@ -232,7 +223,7 @@ class _FilterPopupState extends State<FilterPopup> {
                   ],
                 ),
                 selected: selectedTypes.contains(t),
-                selectedColor: AppColors.darkBlue.withOpacity(0.1),
+                selectedColor: AppColors.darkBlue.withValues(alpha: 0.1),
                 onSelected: (_) {
                   setState(() {
                     if (selectedTypes.contains(t)) {

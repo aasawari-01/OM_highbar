@@ -8,7 +8,7 @@ import '../../../utils/widgets/custom_app_bar.dart';
 import '../../../utils/widgets/sync_icon_button.dart';
 
 class ViewDetailScreen extends StatefulWidget {
-  const ViewDetailScreen({Key? key}) : super(key: key);
+  const ViewDetailScreen({super.key});
 
   @override
   State<ViewDetailScreen> createState() => _ViewDetailScreenState();
@@ -78,7 +78,7 @@ class _ViewDetailScreenState extends State<ViewDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: AppColors.orangeColor.withOpacity(0.1),
+                                  color: AppColors.orangeColor.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: CustText(
@@ -94,7 +94,7 @@ class _ViewDetailScreenState extends State<ViewDetailScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                                 decoration: BoxDecoration(
-                                  color: AppColors.red.withOpacity(0.1),
+                                  color: AppColors.red.withValues(alpha: 0.1),
                                   borderRadius: BorderRadius.circular(5),
                                 ),
                                 child: CustText(
@@ -262,12 +262,12 @@ class DetailColumn extends StatelessWidget {
   final bool boldValue;
   final double? size;
   const DetailColumn({
-    Key? key,
+    super.key,
     required this.label,
     required this.value,
     this.boldValue = false,
     this.size,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -286,7 +286,7 @@ class DetailRow extends StatelessWidget {
   final bool boldValue1, boldValue2;
   final double size;
   const DetailRow({
-    Key? key,
+    super.key,
     required this.label1,
     required this.value1,
     required this.label2,
@@ -294,7 +294,7 @@ class DetailRow extends StatelessWidget {
     this.boldValue1 = false,
     this.boldValue2 = false,
     this.size = 1.4,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

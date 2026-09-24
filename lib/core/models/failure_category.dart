@@ -11,9 +11,9 @@ class FailureCategoryModel {
 
   factory FailureCategoryModel.fromJson(Map<String, dynamic> json) {
     return FailureCategoryModel(
-      id: json['id'] as int?,
-      failureCategoryType: json['failureCategoryType']?.toString(),
-      orderNo: json['orderNo']?.toString(),
+      id: json['ID'] as int? ?? json['id'] as int?,
+      failureCategoryType: json['FailureCategoryType']?.toString() ?? json['failureCategoryType']?.toString(),
+      orderNo: json['OrderNo']?.toString() ?? json['orderNo']?.toString(),
     );
   }
 

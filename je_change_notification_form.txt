@@ -38,7 +38,7 @@
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   CustSection(
-                    title: "Basic Information",
+                    title: "Failure Information",
                     trailing: Obx(() => YesNoToggle(
                           value: controller.isBasicInfoVisible.value,
                           onChanged: (val) =>

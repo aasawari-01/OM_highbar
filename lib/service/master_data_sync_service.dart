@@ -1,571 +1,461 @@
+import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:get/get.dart';
-import '../core/models/location.dart';
-import '../core/models/functional_location.dart';
-import '../core/models/equipment.dart';
-import '../core/models/measurement_point.dart';
-import '../core/models/priority.dart';
-import '../core/models/failure_category.dart';
-import '../core/models/department.dart';
-import '../core/models/master_user.dart';
+import 'package:http/http.dart' as http;
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter_easyloading/flutter_easyloading.dart';
+import '../constants/colors.dart';
 import '../feature/failure/service/failure_service.dart';
+import '../core/controller/global_master_data_controller.dart';
+import '../core/controller/session_controller.dart';
 import 'local_database_service.dart';
-import 'network_service/api_client.dart';
+import '../service/auth_manager.dart';
 import 'network_service/app_urls.dart';
-import 'auth_manager.dart';
-
-import '../feature/failure/controller/failure_list_controller.dart';
 
 class MasterDataSyncService extends GetxController {
-  final ApiClient _apiClient = ApiClient();
-  static const int _maxPaginatedPages = 100;
-  static bool _syncInProgress = false;
+  bool _syncInProgress = false;
+  Timer? _syncTimer;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  bool _wasOffline = false;
+  
+  // Reusable service instances to optimize memory and avoid repeated allocations
+  final LocalDatabaseService _dbService = LocalDatabaseService();
+  final FailureService _failureService = FailureService();
   
   // Reactive sync status for UI to observe
   final RxBool isSyncing = false.obs;
   final RxString syncStatus = ''.obs;
 
+  @override
+  void onInit() {
+    super.onInit();
+    _startConnectivityMonitoring();
+    _startPeriodicSync();
+  }
+
+  @override
+  void onClose() {
+    _syncTimer?.cancel();
+    _connectivitySubscription?.cancel();
+    super.onClose();
+  }
+
+  void _startConnectivityMonitoring() {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) async {
+      final isConnected = results.contains(ConnectivityResult.wifi) || 
+                          results.contains(ConnectivityResult.mobile) ||
+                          results.contains(ConnectivityResult.ethernet);
+      
+      if (isConnected && _wasOffline) {
+        debugPrint("MasterDataSyncService: Internet restored, triggering sync");
+        _wasOffline = false;
+        // Sync station failures when internet comes back online
+        await syncFailureList('Station');
+        // Sync last selected station details
+        await _syncLastSelectedStation();
+      } else if (!isConnected) {
+        debugPrint("MasterDataSyncService: Internet lost");
+        _wasOffline = true;
+      }
+    });
+  }
+
+  void _startPeriodicSync() {
+    // Check for pending submissions every 15 seconds
+    _syncTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
+      if (!_syncInProgress) {
+        try {
+          final pending = await _dbService.getPendingSubmissions();
+          if (pending.isNotEmpty) {
+            debugPrint("Periodic sync: Found ${pending.length} pending submissions.");
+            await syncPendingSubmissions();
+          }
+        } catch (e) {
+          debugPrint("Periodic sync error: $e");
+        }
+      }
+    });
+  }
+
+  /// A reusable wrapper for sync tasks to handle state and error management cleanly
+  Future<void> _executeSyncTask(String startMessage, Future<void> Function() task) async {
+    if (_syncInProgress) {
+      debugPrint("Sync already in progress, skipping duplicate request.");
+      return;
+    }
+
+    _syncInProgress = true;
+    isSyncing.value = true;
+    syncStatus.value = startMessage;
+    
+    try {
+      await task();
+    } catch (e) {
+      debugPrint("Sync Error: $e");
+      syncStatus.value = 'Sync failed: $e';
+    } finally {
+      _syncInProgress = false;
+      isSyncing.value = false;
+    }
+  }
 
   Future<void> syncMasterData() async {
-    if (_syncInProgress) {
-      debugPrint("syncMasterData: Already in progress, skipping duplicate sync");
-      return;
-    }
-
-    _syncInProgress = true;
-    isSyncing.value = true;
-    syncStatus.value = 'Syncing data...';
-    
-    try {
-      final dbService = LocalDatabaseService();
-      final db = await dbService.database;
-
-      // if (count > 0) {
-      //   debugPrint("Master data already exists (count: $count). Skipping sync.");
-      //   _syncInProgress = false;
-      //   isSyncing.value = false;
-      //   return;
-      // }
-
-      // Show full screen loader for better visibility
-      EasyLoading.show(status: 'Initial data synchronization is required before you can use the application.\nEstimated time: 3 minutes\nPlease do not close the application during this process.', maskType: EasyLoadingMaskType.black);
+    await _executeSyncTask('Loading data from assets...', () async {
+      debugPrint("syncMasterData: Loading all data from asset databases");
+      await _dbService.forceImportFromAssets();
       
-      // Clear existing asset data before fresh sync
-      await dbService.clearAssetTables();
-      debugPrint("syncMasterData: Cleared asset tables for fresh sync");
+      debugPrint("syncMasterData: Reloading GlobalMasterDataController");
+      await Get.find<GlobalMasterDataController>().reloadMasterData();
       
-      final String? userIdStr = await AuthManager().getUserId();
-      final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
-
-
-
-
-
-
-      // 1. Priority, Failure Category, Users first (lightweight — must not be blocked by pagination)
-      syncStatus.value = 'Syncing master data...';
-      try {
-        await syncStationFailureDropdownMasterData();
-      } catch (e) {
-        debugPrint("Error fetching lookup master data: $e");
-      }
-
-      // 1.5. Sync Departments to local DB for offline use
-      syncStatus.value = 'Syncing departments...';
-      try {
-        await syncDepartmentMasterData();
-      } catch (e) {
-        debugPrint("Error syncing departments: $e");
-      }
-
-      // NOTE: clearAssetTables removed to prevent race condition when 
-      // syncMasterData is called concurrently (login background + screen foreground).
-      // INSERT OR REPLACE handles upserts correctly.
-      debugPrint("syncMasterData: Starting asset sync for userId=$userId");
-
-      // 2. Fetch Locations
-      syncStatus.value = 'Syncing locations...';
-      try {
-        final locRes = await _apiClient.post(
-          AppUrls.getMasterData,
-          body: {
-            "userId": userId,
-            "action": "GetLocationMasterData",
-            "PageNumber": "1",
-            "PageSize": "1000"
-          }
-        );
-        if (locRes.statusCode == 200) {
-          final Map<String, dynamic> jsonBody = jsonDecode(locRes.body);
-          if (jsonBody['success'] == true && jsonBody['data'] != null) {
-            List<dynamic> locs = jsonBody['data']['locations'] ?? [];
-
-            if (locs.isNotEmpty) {
-              final mappedLocs = locs.map((e) => LocationModel.fromJson(e)).toList();
-              await dbService.insertLocations(mappedLocs);
-            }
-
-            // Also check if functionalLocations were bundled in this response
-            List<dynamic> funcLocs = jsonBody['data']['functionalLocations'] ?? [];
-
-            if (funcLocs.isNotEmpty) {
-              debugPrint("Found ${funcLocs.length} functional locations bundled in GetLocationMasterData response.");
-              final mappedFuncLocs = funcLocs.map((e) => FunctionalLocationModel.fromJson(e)).toList();
-              await dbService.insertFunctionalLocations(mappedFuncLocs);
-            }
-          }
-        }
-      } catch (e) {
-        debugPrint("Error fetching Location master data: $e");
-      }
-
-      // 3. Fetch Functional Locations (Paginated)
-      // 4. Fetch Equipments (Paginated)
-      // Run both in parallel
-      syncStatus.value = 'Syncing functional locations and equipment...';
-      debugPrint("syncMasterData: Starting parallel sync of FuncLoc and Equipment");
-      await Future.wait([
-        _fetchPaginatedMasterData<FunctionalLocationModel>(
-          userId,
-          'GetFuncLocMasterData',
-          dbService,
-          (data) => data['functionalLocations'],
-          FunctionalLocationModel.fromJson,
-          dbService.insertFunctionalLocations
-        ).catchError((e) {
-          debugPrint("Error fetching FuncLoc master data: $e");
-        }),
-        _fetchPaginatedMasterData<EquipmentModel>(
-          userId,
-          'GetEqMasterData',
-          dbService,
-          (data) => data['equipments'],
-          EquipmentModel.fromJson,
-          dbService.insertEquipments
-
-        ).catchError((e) {
-          debugPrint("Error fetching Equipment master data: $e");
-        }),
-      ]);
-      
-      // Log total counts after sync
-      final funcLocCount = await dbService.getFunctionalLocations();
-      final equipCount = await dbService.getEquipments();
-      debugPrint("syncMasterData: Parallel sync complete");
-      debugPrint("syncMasterData: Total functional locations in DB: ${funcLocCount.length}");
-      debugPrint("syncMasterData: Total equipment in DB: ${equipCount.length}");
-
-      // 5. Fetch Measurement Points (Paginated)
-      syncStatus.value = 'Syncing measurement points...';
-      try {
-        await _fetchPaginatedMasterData<MeasurementPointModel>(
-          userId,
-          'GetMeasurementPtMasterData',
-          dbService,
-          (data) => data['measurementPoints'],
-          MeasurementPointModel.fromJson,
-          dbService.insertMeasurementPoints,
-        );
-      } catch (e) {
-        debugPrint("Error fetching Measurement Points master data: $e");
-      }
-      
-      syncStatus.value = 'Sync complete';
-    } catch (e) {
-      debugPrint("Error in syncMasterData sequence: $e");
-      syncStatus.value = 'Sync failed';
-    } finally {
-      _syncInProgress = false;
-      isSyncing.value = false;
-      EasyLoading.dismiss();
-    }
+      syncStatus.value = 'Data loaded from assets';
+    });
   }
 
-  Future<bool> _fetchGetMasterList<T>({
-    required int userId,
-    required String action,
-    required String dataKey,
-    required T Function(Map<String, dynamic>) mapper,
-    required Future<void> Function(List<T>) insertToDb,
-  }) async {
-    try {
-      final body = {
-        'userId': userId,
-        'action': action,
+  /// Syncs master data from API using lastSyncDate to get only changed data
+  Future<void> syncMasterDataFromAPI() async {
+    debugPrint("syncMasterDataFromAPI: STARTING");
+    await _executeSyncTask('Syncing master data from server...', () async {
+      debugPrint("syncMasterDataFromAPI: Inside sync task");
+      final userId = await AuthManager().getUserId() ?? 1;
+      final lastSyncDate = await _getLastSyncDate();
+      
+      final apiUrl = '${AppUrls.baseUrl}${AppUrls.getMasterData}';
+      
+      final requestBody = {
+        "userId": userId,
+        "action": "",
+        "pageNumber": 0,
+        "pageSize": 0,
+        "lastSyncDate": lastSyncDate,
+        "syncType": "all"
       };
-
-      final response = await _apiClient.post(
-        AppUrls.getMasterData,
-        body: body,
-      );
-
-      if (response.statusCode != 200) return false;
-
-      final Map<String, dynamic> jsonBody = jsonDecode(response.body);
-
-      if (jsonBody['success'] != true || jsonBody['data'] == null) {
-        return false;
-      }
-
-      final List<dynamic> items =
-          (jsonBody['data'][dataKey] as List<dynamic>?) ?? [];
-
-      if (items.isEmpty) {
-        return false;
-      }
-
-      final mappedItems = items.map((e) => mapper(e as Map<String, dynamic>)).toList();
-      await insertToDb(mappedItems);
-      return true;
-    } catch (e) {
-      debugPrint('$action failed: $e');
-      return false;
-    }
-  }
-
-  Future<void> syncPriorityMasterData() async {
-    try {
-      final userId = int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
-      await _fetchGetMasterList(
-        userId: userId,
-        action: 'GetPriorityMasterData',
-        dataKey: 'priorities',
-        mapper: PriorityModel.fromJson,
-        insertToDb: LocalDatabaseService().insertPriorities,
-      );
-    } catch (e) {
-      debugPrint('Error syncing priority master data: $e');
-    }
-  }
-
-  Future<void> syncFailureCategoryMasterData() async {
-    try {
-      final userId = int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
-      await _fetchGetMasterList(
-        userId: userId,
-        action: 'GetFailureCategoryMasterData',
-        dataKey: 'failureCategories',
-        mapper: FailureCategoryModel.fromJson,
-        insertToDb: LocalDatabaseService().insertFailureCategories,
-      );
-    } catch (e) {
-      debugPrint('Error syncing failure category master data: $e');
-    }
-  }
-
-  Future<void> syncUserRoleDeptMasterData() async {
-    try {
-      final userId = int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
-      await _fetchGetMasterList(
-        userId: userId,
-        action: 'GetUserRoleDeptMasterData',
-        dataKey: 'users',
-        mapper: MasterUserModel.fromJson,
-        insertToDb: LocalDatabaseService().insertMasterUsers,
-      );
-    } catch (e) {
-      debugPrint('Error syncing user master data: $e');
-    }
-  }
-
-  Future<void> syncDepartmentMasterData() async {
-    try {
-      final userId = int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
-      debugPrint("syncDepartmentMasterData: Starting sync for userId $userId");
       
-      final dbService = LocalDatabaseService();
-      final existingDepts = await dbService.getDepartments();
-      debugPrint("syncDepartmentMasterData: Existing departments in DB: ${existingDepts.length}");
+      debugPrint("syncMasterDataFromAPI: Calling API with lastSyncDate: $lastSyncDate");
+      debugPrint("syncMasterDataFromAPI: API URL: $apiUrl");
+      debugPrint("syncMasterDataFromAPI: Request body: ${jsonEncode(requestBody)}");
       
-      debugPrint("syncDepartmentMasterData: Calling _fetchGetMasterList with action=GetDeptMasterData");
-      final success = await _fetchGetMasterList(
-        userId: userId,
-        action: 'GetDeptMasterData',
-        dataKey: 'departments',
-        mapper: DepartmentModel.fromJson,
-        insertToDb: LocalDatabaseService().insertDepartments,
+      // Total steps: API call + 6 data types = 7 steps
+      final totalSteps = 7;
+      int completedSteps = 0;
+      
+      // Update status before API call
+      completedSteps++;
+      final percentage = ((completedSteps / totalSteps) * 100).toInt();
+      syncStatus.value = 'Connecting to server... $percentage%';
+      EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+      debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+      
+      final response = await http.post(
+        Uri.parse(apiUrl),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(requestBody),
+      ).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          debugPrint("syncMasterDataFromAPI: API call timed out after 30 seconds");
+          throw Exception('API request timed out');
+        },
       );
-      debugPrint("syncDepartmentMasterData: _fetchGetMasterList returned success=$success");
       
-      if (success) {
-        final depts = await dbService.getDepartments();
-        debugPrint("syncDepartmentMasterData: Successfully synced ${depts.length} departments to local storage");
-      } else {
-        debugPrint("syncDepartmentMasterData: Failed to sync departments");
-      }
-    } catch (e) {
-      debugPrint('Error syncing department master data: $e');
-    }
-  }
-
-  Future<void> syncStations() async {
-    try {
-      final userId = await AuthManager().getUserId() ?? '1';
-      debugPrint("syncStations: Starting sync for userId $userId");
+      debugPrint("syncMasterDataFromAPI: Response status: ${response.statusCode}");
       
-      final dbService = LocalDatabaseService();
-      final existingStations = await dbService.getStations();
-      debugPrint("syncStations: Existing stations in DB: ${existingStations.length}");
-      
-      final response = await _apiClient.get('${AppUrls.getStationName}?AssgineUserId=$userId');
       if (response.statusCode == 200) {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
-        if (body['responseCode'] == 200 && body['responseOutput'] != null) {
-          final stations = body['responseOutput'] as List;
-          await dbService.clearStations();
-          await dbService.insertStations(stations.cast<Map<String, dynamic>>());
-          final syncedStations = await dbService.getStations();
-          debugPrint("syncStations: Successfully synced ${syncedStations.length} stations to local storage");
+        final responseData = jsonDecode(response.body);
+        debugPrint("syncMasterDataFromAPI: Response data: $responseData");
+        
+        if (responseData['success'] == true) {
+          final data = responseData['data'];
+          int totalUpdates = 0;
+          
+          debugPrint("syncMasterDataFromAPI: Starting to sync data types");
+          
+          // Sync functional locations
+          if (data['functionalLocations'] != null) {
+            completedSteps++;
+            final percentage = ((completedSteps / totalSteps) * 100).toInt();
+            syncStatus.value = 'Syncing functional locations... $percentage%';
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+            final funcLocs = data['functionalLocations'] as List;
+            await _dbService.updateFunctionalLocationsFromAPI(funcLocs);
+            totalUpdates += funcLocs.length;
+            debugPrint("syncMasterDataFromAPI: Updated ${funcLocs.length} functional locations");
+          } else {
+            debugPrint("syncMasterDataFromAPI: No functional locations to sync");
+          }
+          
+          // Sync measurement points
+          if (data['measurementPoints'] != null) {
+            completedSteps++;
+            final percentage = ((completedSteps / totalSteps) * 100).toInt();
+            syncStatus.value = 'Syncing measurement points... $percentage%';
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+            final measPoints = data['measurementPoints'] as List;
+            await _dbService.updateMeasurementPointsFromAPI(measPoints);
+            totalUpdates += measPoints.length;
+            debugPrint("syncMasterDataFromAPI: Updated ${measPoints.length} measurement points");
+          } else {
+            debugPrint("syncMasterDataFromAPI: No measurement points to sync");
+          }
+          
+          // Sync locations
+          if (data['locations'] != null) {
+            completedSteps++;
+            final percentage = ((completedSteps / totalSteps) * 100).toInt();
+            syncStatus.value = 'Syncing locations... $percentage%';
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+            final locations = data['locations'] as List;
+            await _dbService.updateLocationsFromAPI(locations);
+            totalUpdates += locations.length;
+            debugPrint("syncMasterDataFromAPI: Updated ${locations.length} locations");
+          } else {
+            debugPrint("syncMasterDataFromAPI: No locations to sync");
+          }
+          
+          // Sync users
+          if (data['users'] != null) {
+            completedSteps++;
+            final percentage = ((completedSteps / totalSteps) * 100).toInt();
+            syncStatus.value = 'Syncing users... $percentage%';
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+            final users = data['users'] as List;
+            await _dbService.updateUsersFromAPI(users);
+            totalUpdates += users.length;
+            debugPrint("syncMasterDataFromAPI: Updated ${users.length} users");
+          } else {
+            debugPrint("syncMasterDataFromAPI: No users to sync");
+          }
+          
+          // Sync materials
+          if (data['materials'] != null) {
+            completedSteps++;
+            final percentage = ((completedSteps / totalSteps) * 100).toInt();
+            syncStatus.value = 'Syncing materials... $percentage%';
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+            final materials = data['materials'] as List;
+            await _dbService.updateMaterialsFromAPI(materials);
+            totalUpdates += materials.length;
+            debugPrint("syncMasterDataFromAPI: Updated ${materials.length} materials");
+          } else {
+            debugPrint("syncMasterDataFromAPI: No materials to sync");
+          }
+          
+          // Sync priorities
+          if (data['priorities'] != null) {
+            completedSteps++;
+            final percentage = ((completedSteps / totalSteps) * 100).toInt();
+            syncStatus.value = 'Syncing priorities... $percentage%';
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+            final priorities = data['priorities'] as List;
+            await _dbService.updatePrioritiesFromAPI(priorities);
+            totalUpdates += priorities.length;
+            debugPrint("syncMasterDataFromAPI: Updated ${priorities.length} priorities");
+          } else {
+            debugPrint("syncMasterDataFromAPI: No priorities to sync");
+          }
+          
+          debugPrint("syncMasterDataFromAPI: Updating last sync date");
+          // Update last sync date
+          await _setLastSyncDate(DateTime.now().toIso8601String().split('T')[0]);
+          
+          debugPrint("syncMasterDataFromAPI: Reloading master data controller");
+          // Reload master data controller
+          await Get.find<GlobalMasterDataController>().reloadMasterData();
+          
+          syncStatus.value = 'Synced $totalUpdates records from server';
+          debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+          EasyLoading.showSuccess('Successfully synced $totalUpdates records');
         } else {
-          debugPrint("syncStations: API returned error code ${body['responseCode']}");
+          syncStatus.value = 'Sync failed: ${responseData['message']}';
+          debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+          EasyLoading.showError(syncStatus.value);
         }
       } else {
-        debugPrint("syncStations: API HTTP error ${response.statusCode}");
+        syncStatus.value = 'Sync failed: ${response.reasonPhrase}';
+        debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
+        EasyLoading.showError(syncStatus.value);
       }
-    } catch (e) {
-      debugPrint('Error syncing stations: $e');
-    }
+    });
+    debugPrint("syncMasterDataFromAPI: FINISHED");
   }
 
-  Future<void> syncStationFailureDropdownMasterData() async {
-    await syncPriorityMasterData();
-    await syncFailureCategoryMasterData();
-    await syncUserRoleDeptMasterData();
-    await syncDepartmentMasterData();
-    await syncStations();
-    
-    // Also sync functional locations and equipment for create failure screen
-    final dbService = LocalDatabaseService();
-    final String? userIdStr = await AuthManager().getUserId();
-    final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
-    
-    try {
-      await _fetchPaginatedMasterData<FunctionalLocationModel>(
-        userId,
-        'GetFuncLocMasterData',
-        dbService,
-        (data) => data['functionalLocations'],
-        FunctionalLocationModel.fromJson,
-        dbService.insertFunctionalLocations
-      );
-      debugPrint("syncStationFailureDropdownMasterData: Functional locations synced");
-    } catch (e) {
-      debugPrint("syncStationFailureDropdownMasterData: Error syncing functional locations: $e");
+  Future<String> _getLastSyncDate() async {
+    final db = await _dbService.database;
+    final result = await db.rawQuery(
+      "SELECT value FROM AppSettings WHERE key = 'lastSyncDate'"
+    );
+    if (result.isNotEmpty) {
+      return result.first['value']?.toString() ?? '2026-08-01';
     }
-    
-    try {
-      await _fetchPaginatedMasterData<EquipmentModel>(
-        userId,
-        'GetEqMasterData',
-        dbService,
-        (data) => data['equipments'],
-        EquipmentModel.fromJson,
-        dbService.insertEquipments
-      );
-      debugPrint("syncStationFailureDropdownMasterData: Equipment synced");
-    } catch (e) {
-      debugPrint("syncStationFailureDropdownMasterData: Error syncing equipment: $e");
-    }
+    return '2026-08-01';
   }
 
-  /// Syncs failure list for a specific failure type (Station, Maintenance, etc.)
-  Future<void> syncFailureList(String failureType) async {
-    if (_syncInProgress) {
-      debugPrint("syncFailureList: Already in progress, skipping");
-      return;
+  Future<void> _setLastSyncDate(String date) async {
+    final db = await _dbService.database;
+    await db.rawInsert(
+      "INSERT OR REPLACE INTO AppSettings (key, value) VALUES ('lastSyncDate', ?)",
+      [date]
+    );
+  }
+
+  Future<String?> _getStationFailureLastSyncDate() async {
+    final db = await _dbService.database;
+    final result = await db.rawQuery(
+      "SELECT value FROM AppSettings WHERE key = 'stationFailureLastSyncDate'"
+    );
+    if (result.isNotEmpty) {
+      return result.first['value']?.toString();
     }
+    return null; // Return null to get all data on first sync
+  }
 
-    // Only sync Station failures to local storage, skip JE and other types
-    if (failureType.toLowerCase() != 'station') {
-      debugPrint("syncFailureList: Skipping sync for $failureType - only Station failures are stored locally");
-      syncStatus.value = 'Not stored (Station only)';
-      return;
-    }
+  Future<void> _setStationFailureLastSyncDate(String date) async {
+    final db = await _dbService.database;
+    await db.rawInsert(
+      "INSERT OR REPLACE INTO AppSettings (key, value) VALUES ('stationFailureLastSyncDate', ?)",
+      [date]
+    );
+  }
 
-    _syncInProgress = true;
-    isSyncing.value = true;
-    syncStatus.value = 'Syncing $failureType failures...';
-
-    try {
-      final dbService = LocalDatabaseService();
-      final String? userIdStr = await AuthManager().getUserId();
-      final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
-
-      String url;
-      Map<String, dynamic> body;
-
-      // Only handle Station failures
-      url = AppUrls.getStationFailureListWithData;
-      body = {"UserId": userId};
-
-      final response = await _apiClient.post(url, body: body);
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonBody = jsonDecode(response.body);
+  /// Syncs failure list for a specific failure type
+  /// If forceFullSync is true, sends null as lastSyncDate to get all data
+  Future<void> syncFailureList(String failureType, {bool forceFullSync = false}) async {
+    await _executeSyncTask('Syncing $failureType failures...', () async {
+      if (failureType == 'Station') {
+        final lastSyncDate = forceFullSync ? null : await _getStationFailureLastSyncDate();
+        final failures = await _failureService.getStationFailureListWithData(lastSyncDate: lastSyncDate);
         
-        // Handle new API response structure for Station failures
-        if (failureType.toLowerCase() == 'station' && jsonBody['success'] == true) {
-          final stationFailureList = jsonBody['data']['stationFailureList'] as List;
-          debugPrint("syncFailureList: Found ${stationFailureList.length} station failures");
+        try {
+          final masterDataController = Get.find<GlobalMasterDataController>();
           
-          // Convert to JSON format for database storage with field mapping
-          final jsonData = stationFailureList.map((e) {
-            final json = Map<String, dynamic>.from(e);
-            // Map new API fields to existing database schema
-            return {
-              'id': json['id'],
-              'failureNo': json['failureId']?.toString() ?? json['id']?.toString(),
-              'failureDescription': json['failureDescription']?.toString() ?? '',
-              'functionalLocation': json['funcationLocation']?.toString() ?? '',
-              'statusName': json['statusName']?.toString() ?? '',
-              'failureOccuranceDateTime': json['actualFailureOccuranceDate']?.toString() ?? '',
-              'locationName': json['location']?.toString() ?? '',
-              'priority': json['priority']?.toString() ?? '',
-              'departmentName': json['departmentName']?.toString() ?? '',
-              'subLocation': json['subLocation']?.toString() ?? '',
-              'trainId': json['trainId']?.toString() ?? '',
-              'system': json['system']?.toString() ?? '',
-              'actualFailureCompletedDateTime': json['actualFailureCompletedDateTime']?.toString() ?? '',
-              'isTripAffected': (json['isTripAffected'] == true) ? 1 : 0,
-              'tripDelayUpline': json['tripDelayUpline'] ?? 0,
-              'tripDelayDownline': json['tripDelayDownline'] ?? 0,
-              'tripCancel': json['tripCancel'] ?? 0,
-              'isTrainReplace': (json['isTrainReplace'] == true) ? 1 : 0,
-              'trainReplace': json['trainReplace']?.toString() ?? '',
-              'isTrainDeboarded': (json['isTrainDeboarded'] == true) ? 1 : 0,
-              'trainDeboarded': json['trainDeboarded']?.toString() ?? '',
-              'numberOfPassengerAffected': json['numberOfPassengerAffected'] ?? 0,
-              'isPassengerAffected': (json['isPassengerAffected'] == true) ? 1 : 0,
-              'trappedDuration': json['trappedDuration'] ?? 0,
-              'rescusedDuration': json['rescusedDuration'] ?? 0,
-              'trainDelayInMin': json['trainDelayInMin'] ?? 0,
-              'noOfTranWithdrawal': json['noOfTranWithdrawal'] ?? 0,
-              'failureReportedby': json['failureReportedby']?.toString() ?? '',
-              'failureCategoryTypeText': json['failureCategoryTypeText']?.toString() ?? '',
-              'failureRectificationDetails': json['failureRectificationDetails']?.toString() ?? '',
-              'carriedOutRemarks': json['carriedOutRemarks']?.toString() ?? '',
-              'creationType': 'station',
-              'syncStatus': 'online',
-              'lastSyncedAt': DateTime.now().toIso8601String(),
-              'failureType': failureType,
-            };
+          // CPU/Memory Optimization: Use a HashMap for O(1) lookups instead of O(N) list search per failure
+          final locationMap = {
+            for (var loc in masterDataController.locationTypeList) 
+              loc.value: loc.label
+          };
+
+          final enrichedFailures = failures.map((failure) {
+            final enriched = Map<String, dynamic>.from(failure);
+            if (enriched.containsKey('locationId')) {
+              final locationId = enriched['locationId'].toString();
+              enriched['locationName'] = locationMap[locationId] ?? enriched['location']?.toString() ?? '';
+            }
+            // Set syncStatus to 'online' for all items fetched from API
+            enriched['syncStatus'] = 'online';
+            return enriched;
           }).toList();
           
-          await dbService.clearFailureList(failureType);
-          await dbService.insertFailureList(jsonData, failureType);
-          debugPrint("syncFailureList: Synced ${jsonData.length} $failureType failures to local storage");
-          
-          // Refresh FailureListController to update UI
-          debugPrint("syncFailureList: Attempting to refresh FailureListController with tag: $failureType");
-          if (Get.isRegistered<FailureListController>(tag: failureType)) {
-            debugPrint("syncFailureList: FailureListController found, calling fetchFailures");
-            Future.microtask(() async {
-              try {
-                await Get.find<FailureListController>(tag: failureType).fetchFailures();
-                debugPrint("syncFailureList: fetchFailures completed successfully");
-              } catch (e) {
-                debugPrint("Error refreshing failure list after sync: $e");
-              }
-            });
-          } else {
-            debugPrint("syncFailureList: FailureListController not found with tag: $failureType");
+          await _dbService.clearFailureList(failureType);
+          await _dbService.insertFailureList(enrichedFailures, failureType);
+          // Update last sync date
+          await _setStationFailureLastSyncDate(DateTime.now().toIso8601String().split('T')[0]);
+          syncStatus.value = 'Synced ${enrichedFailures.length} station failures';
+        } catch (e) {
+          debugPrint("syncFailureList enrichment error: $e");
+          // Fallback: insert without enrichment
+          for (var failure in failures) {
+            failure['syncStatus'] = 'online';
           }
-        } else {
-          debugPrint("syncFailureList: API returned error - ${jsonBody['responseMessage'] ?? 'Unknown error'}");
-          syncStatus.value = 'Sync failed';
+          await _dbService.clearFailureList(failureType);
+          await _dbService.insertFailureList(failures, failureType);
+          syncStatus.value = 'Synced ${failures.length} station failures (without enrichment)';
+        }
+        
+        // Refresh the UI controller if it is currently registered
+        try {
+          if (Get.isRegistered(tag: failureType)) {
+            final failureListController = Get.find(tag: failureType);
+            await failureListController.fetchFailures(forceRefresh: true);
+          }
+        } catch (e) {
+          debugPrint("Could not refresh failure list controller: $e");
         }
       } else {
-        debugPrint("syncFailureList: HTTP ${response.statusCode} - ${response.body}");
-        syncStatus.value = 'Sync failed';
+        syncStatus.value = 'Sync not implemented for $failureType';
       }
-    } catch (e) {
-      debugPrint("Error in syncFailureList: $e");
-      syncStatus.value = 'Sync failed';
-    } finally {
-      _syncInProgress = false;
-      isSyncing.value = false;
-    }
+    });
   }
 
   /// Syncs pending failure submissions when internet becomes available
   Future<void> syncPendingSubmissions() async {
-    if (_syncInProgress) {
-      debugPrint("syncPendingSubmissions: Already in progress, skipping");
-      return;
-    }
+    final pendingSubmissions = await _dbService.getPendingSubmissions();
+    if (pendingSubmissions.isEmpty) return;
 
-    final dbService = LocalDatabaseService();
-    final pendingSubmissions = await dbService.getPendingSubmissions();
-    
-    debugPrint("syncPendingSubmissions: Found ${pendingSubmissions.length} pending submissions");
-    
-    if (pendingSubmissions.isEmpty) {
-      debugPrint("syncPendingSubmissions: No pending submissions to sync");
-      return;
-    }
-
-    _syncInProgress = true;
-    isSyncing.value = true;
-    syncStatus.value = 'Syncing pending submissions...';
-
-    try {
-      final failureService = FailureService();
+    await _executeSyncTask('Syncing pending submissions...', () async {
       int syncedCount = 0;
-      int failedCount = 0;
 
       for (var submission in pendingSubmissions) {
         try {
-          debugPrint("syncPendingSubmissions: Processing submission ${submission['id']}");
           final payload = submission['payload'] as Map<String, dynamic>;
           final failureType = submission['failureType'] as String?;
-          debugPrint("syncPendingSubmissions: Failure type: $failureType");
           
           if (failureType == 'Station') {
-            debugPrint("syncPendingSubmissions: Calling createStationFailure API");
-            final failureNo = await failureService.createStationFailure(payload);
-            debugPrint("syncPendingSubmissions: API returned failureNo: $failureNo");
-            await dbService.updateSubmissionSynced(submission['id'] as int, true);
+            // Get the API response with the actual failure number
+            final apiFailureNo = await _failureService.createStationFailure(payload);
+            debugPrint("syncPendingSubmissions: API returned failureNo: $apiFailureNo");
             
-            // Remove temporary offline entry from FailureList table
+            await _dbService.updateSubmissionSynced(submission['id'] as int, true);
+            
+            // Update the offline entry in FailureList table with the API response
             try {
-              await dbService.database.then((db) {
-                return db.delete(
+              final db = await _dbService.database;
+              
+              // Debug: Check all entries in FailureList
+              final allEntries = await db.query('FailureList');
+              debugPrint("syncPendingSubmissions: Total FailureList entries: ${allEntries.length}");
+              for (var entry in allEntries) {
+                debugPrint("syncPendingSubmissions: Entry - id: ${entry['id']}, failureNo: ${entry['failureNo']}, syncStatus: ${entry['syncStatus']}");
+              }
+              
+              // Get the offline entry
+              final offlineEntries = await db.query(
+                'FailureList',
+                where: 'id = ? AND syncStatus = ?',
+                whereArgs: [submission['id'], 'offline'],
+              );
+              
+              debugPrint("syncPendingSubmissions: Query for id=${submission['id']}, syncStatus='offline' returned ${offlineEntries.length} entries");
+              
+              if (offlineEntries.isNotEmpty) {
+                // Update the existing offline entry with API response
+                await db.update(
                   'FailureList',
-                  where: 'id = ? AND syncStatus = ?',
-                  whereArgs: [submission['id'], 'offline'],
+                  {
+                    'failureNo': apiFailureNo,
+                    'statusName': 'Open',
+                    'syncStatus': 'synced',
+                    'lastSyncedAt': DateTime.now().toIso8601String(),
+                  },
+                  where: 'id = ?',
+                  whereArgs: [submission['id']],
                 );
-              });
-              debugPrint("syncPendingSubmissions: Removed temporary offline entry from FailureList");
+                debugPrint("syncPendingSubmissions: Updated offline entry with API failureNo: $apiFailureNo");
+              } else {
+                debugPrint("syncPendingSubmissions: No offline entry found for id: ${submission['id']}");
+              }
             } catch (e) {
-              debugPrint("syncPendingSubmissions: Error removing temporary entry: $e");
+              debugPrint("Error updating offline entry: $e");
             }
             
+            await _dbService.deletePendingSubmission(submission['id'] as int);
             syncedCount++;
           }
-          // Add other failure types as needed
         } catch (e) {
           debugPrint("Error syncing submission ${submission['id']}: $e");
-          await dbService.updateSubmissionSynced(
+          await _dbService.updateSubmissionSynced(
             submission['id'] as int, 
             false, 
             error: e.toString()
           );
-          failedCount++;
         }
       }
 
-      // Delete successfully synced submissions
-      for (var submission in pendingSubmissions) {
-        final synced = submission['synced'] as int? ?? 0;
-        if (synced == 1) {
-          await dbService.deletePendingSubmission(submission['id'] as int);
-        }
-      }
-
-      debugPrint("syncPendingSubmissions: Synced $syncedCount, Failed $failedCount");
       syncStatus.value = syncedCount > 0 
           ? 'Synced $syncedCount submissions' 
           : 'Sync complete';
@@ -574,117 +464,36 @@ class MasterDataSyncService extends GetxController {
         Get.snackbar(
           'Sync Complete',
           'Successfully synced $syncedCount pending submissions',
-          backgroundColor: Colors.green,
-          colorText: Colors.white,
+          backgroundColor: AppColors.green,
+          colorText: AppColors.white1,
         );
-        
-        // Refresh the failure list to show synced data
-        if (syncedCount > 0) {
-          try {
-            // Trigger a refresh of Station failure list
-            await syncFailureList('Station');
-          } catch (e) {
-            debugPrint("Error refreshing failure list after sync: $e");
-          }
-        }
+        debugPrint("syncPendingSubmissions: Triggering station failure sync after offline submission");
+        await syncFailureList('Station');
       }
-    } catch (e) {
-      debugPrint("Error in syncPendingSubmissions: $e");
-      syncStatus.value = 'Sync failed';
-    } finally {
-      _syncInProgress = false;
-      isSyncing.value = false;
-    }
+    });
   }
 
-  /// Syncs only Measurement Points — call this when the local DB table is empty.
-  Future<void> syncMeasurementPoints() async {
+  /// Syncs the last selected station when internet is restored
+  Future<void> _syncLastSelectedStation() async {
     try {
-      final String? userIdStr = await AuthManager().getUserId();
-      final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
-      final dbService = LocalDatabaseService();
-      await _fetchPaginatedMasterData<MeasurementPointModel>(
-        userId,
-        'GetMeasurementPtMasterData',
-        dbService,
-        (data) => data['measurementPoints'],
-        MeasurementPointModel.fromJson,
-        dbService.insertMeasurementPoints,
-      );
-      debugPrint("Measurement Points sync complete.");
+      final session = Get.find<SessionController>();
+      final stationId = session.selectedStationId.value;
+      final stationName = session.selectedStationName.value;
+      
+      if (stationId != null && stationId.isNotEmpty && stationId != '0' && stationName != null && stationName.isNotEmpty) {
+        debugPrint("_syncLastSelectedStation: Syncing station $stationName (ID: $stationId)");
+        final stationIdInt = int.tryParse(stationId) ?? 0;
+        final success = await _failureService.saveUserStationDetails(stationIdInt, stationName);
+        if (success) {
+          debugPrint("_syncLastSelectedStation: Successfully synced station details");
+        } else {
+          debugPrint("_syncLastSelectedStation: Failed to sync station details");
+        }
+      } else {
+        debugPrint("_syncLastSelectedStation: No station selected, skipping sync");
+      }
     } catch (e) {
-      debugPrint("Error syncing Measurement Points: $e");
-    }
-  }
-
-  Future<void> _fetchPaginatedMasterData<T>(
-    int userId,
-    String action,
-    LocalDatabaseService dbService,
-    List<dynamic> Function(Map<String, dynamic>) extractList,
-    T Function(Map<String, dynamic>) mapper,
-    Future<void> Function(List<T>) insertToDb,
-    {List<T> Function(List<T>)? filterList}
-  ) async
-  {
-    int page = 1;
-    const int pageSize = 1000;
-    int totalItemsFetched = 0;
-
-    while (page <= _maxPaginatedPages) {
-      Map<String, dynamic> body = {
-        "userId": userId,
-        "action": action,
-        "PageNumber": page.toString(),
-        "PageSize": pageSize.toString(),
-      };
-
-      debugPrint("_fetchPaginatedMasterData ($action): Request Body = $body");
-
-      final response = await _apiClient.post(
-        AppUrls.getMasterData,
-        body: body
-      );
-
-      if (response.statusCode != 200) {
-        debugPrint("_fetchPaginatedMasterData ($action): Stopping due to non-200 status code: ${response.statusCode}");
-        break;
-      }
-
-      final Map<String, dynamic> jsonBody = jsonDecode(response.body);
-      if (jsonBody['success'] != true || jsonBody['data'] == null) {
-        debugPrint("_fetchPaginatedMasterData ($action): Stopping due to success=false or null data");
-        break;
-      }
-
-      List<dynamic> items = extractList(jsonBody['data']);
-      debugPrint("_fetchPaginatedMasterData ($action): Fetched ${items.length} items from API (page $page).");
-      if (items.isEmpty) {
-        debugPrint("_fetchPaginatedMasterData ($action): Stopping due to empty items on page $page");
-        break;
-      }
-
-      List<T> mappedItems = items.map((e) => mapper(e as Map<String, dynamic>)).toList();
-
-      if (filterList != null) {
-        final beforeFilter = mappedItems.length;
-        mappedItems = filterList(mappedItems);
-        debugPrint("_fetchPaginatedMasterData ($action): Filtered $beforeFilter items down to ${mappedItems.length}");
-      }
-
-      if (mappedItems.isNotEmpty) {
-        debugPrint("_fetchPaginatedMasterData ($action): Inserting ${mappedItems.length} items into DB (page $page).");
-        await insertToDb(mappedItems);
-        totalItemsFetched += mappedItems.length;
-      }
-
-      page++;
-    }
-
-    debugPrint("_fetchPaginatedMasterData ($action): COMPLETE. Total pages fetched: ${page - 1}, Total items inserted: $totalItemsFetched");
-
-    if (page > _maxPaginatedPages) {
-      debugPrint('$action pagination stopped at max pages ($_maxPaginatedPages)');
+      debugPrint("_syncLastSelectedStation error: $e");
     }
   }
 }

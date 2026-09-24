@@ -18,7 +18,7 @@ class CustPopup extends StatelessWidget {
   final Color? iconColor;
 
   const CustPopup({
-    Key? key,
+    super.key,
     this.title,
     this.message,
     this.confirmText,
@@ -29,7 +29,7 @@ class CustPopup extends StatelessWidget {
     this.showIcon = true,
     this.icon = Icons.cloud_upload_outlined,
     this.iconColor = Colors.black,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
