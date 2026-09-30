@@ -21,6 +21,8 @@ class SessionController extends GetxController {
   final RxString designationName = "".obs;
   final selectedStationId = Rxn<String>();
   final selectedStationName = Rxn<String>();
+  final selectedDepotId = Rxn<String>();
+  final selectedDepotName = Rxn<String>();
 
   String get userInitials {
     if (userName.value.isEmpty) return "??";
@@ -46,13 +48,16 @@ class SessionController extends GetxController {
     "OCC Controller",
     "Chief Engineer",
     "OCC",
-    "Section Incharge"
+    "Section Incharge",
+    "FMC",
+    "DCC"
   ];
 
   bool isRoleAllowed(String roleName) {
+    // Any role whose name contains "FMC" (e.g. "FMC User") is an FMC user.
     final isAllowed = allowedMobileRoles.any((allowed) =>
     roleName.trim().toLowerCase() == allowed.trim().toLowerCase()
-    );
+    ) || roleName.toUpperCase().contains('FMC');
     log("Role check: '$roleName' -> allowed: $isAllowed");
     log("Allowed roles: $allowedMobileRoles");
     return isAllowed;

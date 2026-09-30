@@ -28,6 +28,9 @@ import '../core/models/material_master.dart';
 import '../core/models/rst_fault_master.dart';
 import '../core/models/rst_old_root_cause.dart';
 import '../core/models/store_location.dart';
+import '../core/models/reason_for_delay.dart';
+import '../core/models/nature_of_work.dart';
+import '../core/models/failure_category_type.dart';
 class LocalDatabaseService {
   static final LocalDatabaseService _instance = LocalDatabaseService._internal();
   factory LocalDatabaseService() => _instance;
@@ -54,6 +57,9 @@ class LocalDatabaseService {
   Database? _rstFaultMasterDatabase;
   Database? _rstOldRootCauseDatabase;
   Database? _rstStoreLocationDatabase;
+  Database? _reasonForDelayDatabase;
+  Database? _natureOfWorkDatabase;
+  Database? _failureCategoryTypeDatabase;
 
   Future<Database> _openAssetDatabase(String dbName, Future<void> Function(String) copyMethod) async {
     final path = join(await getDatabasesPath(), dbName);
@@ -119,7 +125,14 @@ class LocalDatabaseService {
 
   Future<Database> get notificationTypeDatabase async {
     if (_notificationTypeDatabase != null) return _notificationTypeDatabase!;
-    _notificationTypeDatabase = await _openAssetDatabase('notification_type_data.db', _copyNotificationTypeDatabaseFromAssets);
+    // Always refresh from assets/notificationType.db so a stale cached copy
+    // on the device can never show wrong data.
+    final ntPath = join(await getDatabasesPath(), 'notification_type_data.db');
+    if (await File(ntPath).exists()) {
+      await File(ntPath).delete();
+    }
+    await _copyNotificationTypeDatabaseFromAssets(ntPath);
+    _notificationTypeDatabase = await openDatabase(ntPath);
     return _notificationTypeDatabase!;
   }
 
@@ -195,12 +208,30 @@ class LocalDatabaseService {
     return _rstStoreLocationDatabase!;
   }
 
+  Future<Database> get reasonForDelayDatabase async {
+    if (_reasonForDelayDatabase != null) return _reasonForDelayDatabase!;
+    _reasonForDelayDatabase = await _openAssetDatabase('reasonForDelay_data.db', _copyReasonForDelayDatabaseFromAssets);
+    return _reasonForDelayDatabase!;
+  }
+
+  Future<Database> get natureOfWorkDatabase async {
+    if (_natureOfWorkDatabase != null) return _natureOfWorkDatabase!;
+    _natureOfWorkDatabase = await _openAssetDatabase('natureOfWork_data.db', _copyNatureOfWorkDatabaseFromAssets);
+    return _natureOfWorkDatabase!;
+  }
+
+  Future<Database> get failureCategoryTypeDatabase async {
+    if (_failureCategoryTypeDatabase != null) return _failureCategoryTypeDatabase!;
+    _failureCategoryTypeDatabase = await _openAssetDatabase('failure_categorytype_data.db', _copyFailureCategoryTypeDatabaseFromAssets);
+    return _failureCategoryTypeDatabase!;
+  }
+
   Future<Database> _initDatabase() async {
     String path = join(await getDatabasesPath(), 'master_data.db');
-    
+
     return await openDatabase(
       path,
-      version: 16,
+      version: 18,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -214,7 +245,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyDeptDatabaseFromAssets: Successfully copied dept.db from assets");
-      
+
       // Print table structure
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
@@ -242,7 +273,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyEquipmentDatabaseFromAssets: Successfully copied equipment.db from asets");
-      
+
       // Print table structure
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
@@ -259,7 +290,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyLocationDatabaseFromAssets: Successfully copied location.db from assets");
-      
+
       // Print table structure
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
@@ -353,7 +384,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyUserDatabaseFromAssets: Successfully copied UserMaster.db from assets");
-      
+
       // Print table structure
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
@@ -370,7 +401,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyCorrFailureTypeDatabaseFromAssets: Successfully copied CorrfailureCategory.db from assets");
-      
+
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("_copyCorrFailureTypeDatabaseFromAssets: Tables in CorrfailureCategory.db: ${tables.map((t) => t['name']).toList()}");
@@ -386,7 +417,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyUserStatusDatabaseFromAssets: Successfully copied userStatus.db from assets");
-      
+
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("_copyUserStatusDatabaseFromAssets: Tables in userStatus.db: ${tables.map((t) => t['name']).toList()}");
@@ -402,7 +433,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyMaterialMasterDatabaseFromAssets: Successfully copied materialMaster.db from assets");
-      
+
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("_copyMaterialMasterDatabaseFromAssets: Tables in materialMaster.db: ${tables.map((t) => t['name']).toList()}");
@@ -418,7 +449,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyRstObjectPartDatabaseFromAssets: Successfully copied objectPart.db from assets");
-      
+
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("_copyRstObjectPartDatabaseFromAssets: Tables in objectPart.db: ${tables.map((t) => t['name']).toList()}");
@@ -434,7 +465,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyRstFaultMasterDatabaseFromAssets: Successfully copied faultMaster.db from assets");
-      
+
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("_copyRstFaultMasterDatabaseFromAssets: Tables in faultMaster.db: ${tables.map((t) => t['name']).toList()}");
@@ -450,7 +481,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyRstOldRootCauseDatabaseFromAssets: Successfully copied OldRootCause.db from assets");
-      
+
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("_copyRstOldRootCauseDatabaseFromAssets: Tables in OldRootCause.db: ${tables.map((t) => t['name']).toList()}");
@@ -466,7 +497,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyRstStoreLocationDatabaseFromAssets: Successfully copied StoreLocation.db from assets");
-      
+
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("_copyRstStoreLocationDatabaseFromAssets: Tables in StoreLocation.db: ${tables.map((t) => t['name']).toList()}");
@@ -482,7 +513,7 @@ class LocalDatabaseService {
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
       await File(targetPath).writeAsBytes(bytes, flush: true);
       debugPrint("_copyFailureCategoryDatabaseFromAssets: Successfully copied failure_categorytype.db from assets");
-      
+
       // Print table structure
       final db = await openDatabase(targetPath);
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
@@ -490,6 +521,57 @@ class LocalDatabaseService {
       await db.close();
     } catch (e) {
       debugPrint("_copyFailureCategoryDatabaseFromAssets: Error copying failure_categorytype.db: $e");
+    }
+  }
+
+  Future<void> _copyReasonForDelayDatabaseFromAssets(String targetPath) async {
+    try {
+      final byteData = await rootBundle.load('assets/reasonForDelay.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      await File(targetPath).writeAsBytes(bytes, flush: true);
+      debugPrint("_copyReasonForDelayDatabaseFromAssets: Successfully copied reasonForDelay.db from assets");
+
+      // Print table structure
+      final db = await openDatabase(targetPath);
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      debugPrint("_copyReasonForDelayDatabaseFromAssets: Tables in reasonForDelay.db: ${tables.map((t) => t['name']).toList()}");
+      await db.close();
+    } catch (e) {
+      debugPrint("_copyReasonForDelayDatabaseFromAssets: Error copying reasonForDelay.db: $e");
+    }
+  }
+
+  Future<void> _copyNatureOfWorkDatabaseFromAssets(String targetPath) async {
+    try {
+      final byteData = await rootBundle.load('assets/natureOfWork.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      await File(targetPath).writeAsBytes(bytes, flush: true);
+      debugPrint("_copyNatureOfWorkDatabaseFromAssets: Successfully copied natureOfWork.db from assets");
+
+      // Print table structure
+      final db = await openDatabase(targetPath);
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      debugPrint("_copyNatureOfWorkDatabaseFromAssets: Tables in natureOfWork.db: ${tables.map((t) => t['name']).toList()}");
+      await db.close();
+    } catch (e) {
+      debugPrint("_copyNatureOfWorkDatabaseFromAssets: Error copying natureOfWork.db: $e");
+    }
+  }
+
+  Future<void> _copyFailureCategoryTypeDatabaseFromAssets(String targetPath) async {
+    try {
+      final byteData = await rootBundle.load('assets/failure_categorytype.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      await File(targetPath).writeAsBytes(bytes, flush: true);
+      debugPrint("_copyFailureCategoryTypeDatabaseFromAssets: Successfully copied failure_categorytype.db from assets");
+
+      // Print table structure
+      final db = await openDatabase(targetPath);
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      debugPrint("_copyFailureCategoryTypeDatabaseFromAssets: Tables in failure_categorytype.db: ${tables.map((t) => t['name']).toList()}");
+      await db.close();
+    } catch (e) {
+      debugPrint("_copyFailureCategoryTypeDatabaseFromAssets: Error copying failure_categorytype.db: $e");
     }
   }
 
@@ -531,6 +613,18 @@ class LocalDatabaseService {
       if (_userDatabase != null) {
         await _userDatabase!.close();
         _userDatabase = null;
+      }
+      if (_reasonForDelayDatabase != null) {
+        await _reasonForDelayDatabase!.close();
+        _reasonForDelayDatabase = null;
+      }
+      if (_natureOfWorkDatabase != null) {
+        await _natureOfWorkDatabase!.close();
+        _natureOfWorkDatabase = null;
+      }
+      if (_failureCategoryTypeDatabase != null) {
+        await _failureCategoryTypeDatabase!.close();
+        _failureCategoryTypeDatabase = null;
       }
 
       final deptPath = join(await getDatabasesPath(), 'dept_data.db');
@@ -581,6 +675,27 @@ class LocalDatabaseService {
         await userFile.delete();
       }
       await _copyUserDatabaseFromAssets(userPath);
+
+      final reasonForDelayPath = join(await getDatabasesPath(), 'reasonForDelay_data.db');
+      final reasonForDelayFile = File(reasonForDelayPath);
+      if (await reasonForDelayFile.exists()) {
+        await reasonForDelayFile.delete();
+      }
+      await _copyReasonForDelayDatabaseFromAssets(reasonForDelayPath);
+
+      final natureOfWorkPath = join(await getDatabasesPath(), 'natureOfWork_data.db');
+      final natureOfWorkFile = File(natureOfWorkPath);
+      if (await natureOfWorkFile.exists()) {
+        await natureOfWorkFile.delete();
+      }
+      await _copyNatureOfWorkDatabaseFromAssets(natureOfWorkPath);
+
+      final failureCategoryTypePath = join(await getDatabasesPath(), 'failure_categorytype_data.db');
+      final failureCategoryTypeFile = File(failureCategoryTypePath);
+      if (await failureCategoryTypeFile.exists()) {
+        await failureCategoryTypeFile.delete();
+      }
+      await _copyFailureCategoryTypeDatabaseFromAssets(failureCategoryTypePath);
 
       debugPrint("forceImportFromAssets: All databases successfully re-imported from assets");
     } catch (e) {
@@ -699,6 +814,37 @@ class LocalDatabaseService {
       // Ensure Stations table exists for offline station list support
       debugPrint("_onUpgrade: Ensuring Stations table exists for version 17");
       await _createLookupTables(db);
+    }
+    if (oldVersion < 18) {
+      // Add new tables for ReasonForDelay, NatureOfWork, and FailureCategoryType
+      debugPrint("_onUpgrade: Creating new tables for version 18");
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS ReasonForDelay (
+          reasonId INTEGER PRIMARY KEY,
+          reasonName TEXT,
+          description TEXT,
+          createdOn TEXT,
+          updatedOn TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS NatureOfWork (
+          natureOfWorkId INTEGER PRIMARY KEY,
+          natureOfWorkName TEXT,
+          description TEXT,
+          createdOn TEXT,
+          updatedOn TEXT
+        )
+      ''');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS FailureCategoryType (
+          failureCategoryTypeId INTEGER PRIMARY KEY,
+          failureCategoryType TEXT,
+          description TEXT,
+          createdOn TEXT,
+          updatedOn TEXT
+        )
+      ''');
     }
   }
 
@@ -958,6 +1104,36 @@ class LocalDatabaseService {
         updatedOn TEXT
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS ReasonForDelay (
+        reasonId INTEGER PRIMARY KEY,
+        reasonName TEXT,
+        description TEXT,
+        createdOn TEXT,
+        updatedOn TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS NatureOfWork (
+        natureOfWorkId INTEGER PRIMARY KEY,
+        natureOfWorkName TEXT,
+        description TEXT,
+        createdOn TEXT,
+        updatedOn TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS FailureCategoryType (
+        failureCategoryTypeId INTEGER PRIMARY KEY,
+        failureCategoryType TEXT,
+        description TEXT,
+        createdOn TEXT,
+        updatedOn TEXT
+      )
+    ''');
   }
 
   Future<void> _onCreate(Database db, int version) async {
@@ -1162,11 +1338,11 @@ class LocalDatabaseService {
     try {
       final db = await locationDatabase;
       debugPrint("getLocations: Opening location database");
-      
+
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getLocations: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Use locationMaster table from asset database
       String query = 'SELECT * FROM locationMaster';
       final results = await db.rawQuery(query);
@@ -1192,39 +1368,39 @@ class LocalDatabaseService {
       final funLocDb = await funLocDatabase;
       const batchSize = 1000;
       final List<FunctionalLocationModel> allResults = [];
-      
+
       // First, get the actual table names from the database
       final tables = await funLocDb.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
+          "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
       );
       debugPrint("getFunctionalLocationsFromFunLoc: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Filter out system tables
       final tableNames = tables
           .map((t) => t['name'] as String)
           .where((name) => name != 'sqlite_sequence' && name != 'android_metadata')
           .toList();
-      
+
       if (tableNames.isEmpty) {
         debugPrint("getFunctionalLocationsFromFunLoc: No tables found in fun_loc database");
         return [];
       }
-      
+
       // Try each table
       for (var tableName in tableNames) {
         try {
           debugPrint("getFunctionalLocationsFromFunLoc: Trying table '$tableName'");
-          
+
           // Use the exact table name with quotes to handle spaces and special characters
           String baseQuery = 'SELECT * FROM "$tableName"';
           int offset = 0;
-          
+
           while (true) {
             final results = await funLocDb.rawQuery('$baseQuery LIMIT $batchSize OFFSET $offset');
             if (results.isEmpty) break;
-            
+
             debugPrint("getFunctionalLocationsFromFunLoc: Found ${results.length} rows in '$tableName'");
-            
+
             // Map the results to FunctionalLocationModel
             for (var row in results) {
               try {
@@ -1239,11 +1415,11 @@ class LocalDatabaseService {
                 debugPrint("getFunctionalLocationsFromFunLoc: Error mapping row: $e");
               }
             }
-            
+
             if (results.length < batchSize) break;
             offset += batchSize;
           }
-          
+
           if (allResults.isNotEmpty) {
             debugPrint("getFunctionalLocationsFromFunLoc: Successfully loaded ${allResults.length} functional locations from table '$tableName'");
             break;
@@ -1253,7 +1429,7 @@ class LocalDatabaseService {
           continue;
         }
       }
-      
+
       return allResults;
     } catch (e) {
       debugPrint("getFunctionalLocationsFromFunLoc: Error: $e");
@@ -1305,8 +1481,8 @@ class LocalDatabaseService {
       final escapedTableName = '"$tableName"';
 
       final results = await db.rawQuery(
-        'SELECT * FROM $escapedTableName WHERE FuncLocId = ? LIMIT 1',
-        [funcLocId]
+          'SELECT * FROM $escapedTableName WHERE FuncLocId = ? LIMIT 1',
+          [funcLocId]
       );
 
       if (results.isNotEmpty) {
@@ -1323,11 +1499,11 @@ class LocalDatabaseService {
     try {
       final db = await equipmentDatabase;
       debugPrint("getEquipments: Opening equipment database");
-      
+
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getEquipments: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       const batchSize = 1000;
       // Use equipmentMaster table from asset database
       String baseQuery = 'SELECT * FROM equipmentMaster';
@@ -1341,13 +1517,13 @@ class LocalDatabaseService {
         if (results.length < batchSize) break;
         offset += batchSize;
       }
-      
+
       debugPrint("getEquipments: Found ${allRawResults.length} equipments");
       if (allRawResults.isNotEmpty) {
         debugPrint("getEquipments: First row columns: ${allRawResults.first.keys.toList()}");
         debugPrint("getEquipments: First row data: ${allRawResults.first}");
       }
-      
+
       // Map column names to match model expectations
       final List<EquipmentModel> allResults = allRawResults.map((row) {
         return EquipmentModel.fromJson({
@@ -1360,11 +1536,11 @@ class LocalDatabaseService {
           'planningPlant': row['PlanningPlant']?.toString() ?? row['planningPlant']?.toString() ?? '',
         });
       }).toList();
-      
+
       if (allResults.isNotEmpty) {
         debugPrint("getEquipments: First mapped equipment: ${allResults.first.toJson()}");
       }
-      
+
       return allResults;
     } catch (e) {
       debugPrint("getEquipments error: $e");
@@ -1401,15 +1577,15 @@ class LocalDatabaseService {
     try {
       final db = await measurementDatabase;
       debugPrint("getMeasurementPoints: Opening measurement database");
-      
+
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getMeasurementPoints: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Check table schema
       final tableInfo = await db.rawQuery("PRAGMA table_info(measurementPointMaster)");
       debugPrint("getMeasurementPoints: measurementPointMaster columns: ${tableInfo.map((t) => t['name']).toList()}");
-      
+
       const batchSize = 1000;
       // Use measurementPointMaster table from asset database
       String baseQuery = 'SELECT * FROM measurementPointMaster';
@@ -1443,22 +1619,22 @@ class LocalDatabaseService {
     try {
       final db = await measurementDatabase;
       debugPrint("getMeasurementPointsFromAssetsFiltered: Querying assets database with filter: $objectNumber");
-      
+
       // Check table schema
       final tableInfo = await db.rawQuery("PRAGMA table_info(measurementPointMaster)");
       debugPrint("getMeasurementPointsFromAssetsFiltered: measurementPointMaster columns: ${tableInfo.map((t) => t['name']).toList()}");
-      
+
       // First, show sample ObjectNo values to understand the data
       final sampleResults = await db.rawQuery('SELECT ObjectNo FROM measurementPointMaster LIMIT 10');
       debugPrint("getMeasurementPointsFromAssetsFiltered: Sample ObjectNo values in assets: ${sampleResults.map((e) => e['ObjectNo']).toList()}");
-      
+
       // Query with ObjectNo filter - try both ObjectNo and objectNo column names
       String query = 'SELECT * FROM measurementPointMaster WHERE ObjectNo = ?';
       List<dynamic> args = [objectNumber];
-      
+
       final results = await db.rawQuery(query, args);
       debugPrint("getMeasurementPointsFromAssetsFiltered: Found ${results.length} measurement points from assets");
-      
+
       if (results.isEmpty) {
         // Try with lowercase objectNo
         query = 'SELECT * FROM measurementPointMaster WHERE objectNo = ?';
@@ -1471,7 +1647,7 @@ class LocalDatabaseService {
       } else {
         debugPrint("getMeasurementPointsFromAssetsFiltered: First row data: ${results.first}");
       }
-      
+
       return results.map((e) => MeasurementPointModel.fromJson(e)).toList();
     } catch (e) {
       debugPrint("getMeasurementPointsFromAssetsFiltered error: $e");
@@ -1523,45 +1699,43 @@ class LocalDatabaseService {
   Future<List<NotificationTypeModel>> getNotificationTypes() async {
     try {
       final db = await notificationTypeDatabase;
-      debugPrint("getNotificationTypes: Opening notification type database");
-      
-      // Check available tables
-      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
-      debugPrint("getNotificationTypes: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+      final tables = await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name NOT IN ('android_metadata','sqlite_sequence')");
+      if (tables.isEmpty) return [];
+      final tableName = tables.first['name'] as String; // "notificationType (1)"
+
       const batchSize = 1000;
-      String baseQuery = 'SELECT * FROM notificationType';
-      List<dynamic> baseArgs = [];
       final List<NotificationTypeModel> allResults = [];
       int offset = 0;
       while (true) {
-        final results = await db.rawQuery('$baseQuery LIMIT $batchSize OFFSET $offset', baseArgs);
+        // quotes are required because the name contains a space and parentheses
+        final results = await db.rawQuery(
+            'SELECT * FROM "$tableName" LIMIT $batchSize OFFSET $offset');
         if (results.isEmpty) break;
+        if (offset == 0) debugPrint('getNotificationTypes: columns ${results.first.keys.toList()}');
         allResults.addAll(results.map((e) => NotificationTypeModel.fromJson(e)));
         if (results.length < batchSize) break;
         offset += batchSize;
       }
-      debugPrint("getNotificationTypes: Found ${allResults.length} notification types");
       return allResults;
     } catch (e) {
       debugPrint("getNotificationTypes error: $e");
       return [];
     }
   }
-
   Future<List<RootCauseModel>> getRootCauses() async {
     try {
       final db = await rootCauseDatabase;
       debugPrint("getRootCauses: Opening root cause database");
-      
+
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getRootCauses: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Check table columns
       final columns = await db.rawQuery("PRAGMA table_info(rootCause)");
       debugPrint("getRootCauses: Table columns: ${columns.map((c) => c['name']).toList()}");
-      
+
       const batchSize = 1000;
       String baseQuery = 'SELECT * FROM rootCause';
       List<dynamic> baseArgs = [];
@@ -1590,15 +1764,15 @@ class LocalDatabaseService {
     try {
       final db = await actionTakenDatabase;
       debugPrint("getActionTakens: Opening action taken database");
-      
+
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getActionTakens: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Check table columns
       final columns = await db.rawQuery("PRAGMA table_info(actionTaken)");
       debugPrint("getActionTakens: Table columns: ${columns.map((c) => c['name']).toList()}");
-      
+
       const batchSize = 1000;
       String baseQuery = 'SELECT * FROM actionTaken';
       List<dynamic> baseArgs = [];
@@ -1627,15 +1801,15 @@ class LocalDatabaseService {
     try {
       final db = await causeOfFailureDatabase;
       debugPrint("getCauseOfFailures: Opening cause of failure database");
-      
+
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getCauseOfFailures: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Check table columns
       final columns = await db.rawQuery("PRAGMA table_info(causeOfFailure)");
       debugPrint("getCauseOfFailures: Table columns: ${columns.map((c) => c['name']).toList()}");
-      
+
       const batchSize = 1000;
       String baseQuery = 'SELECT * FROM causeOfFailure';
       List<dynamic> baseArgs = [];
@@ -1814,15 +1988,60 @@ class LocalDatabaseService {
     await batch.commit(noResult: true);
   }
 
+  Future<void> insertReasonsForDelay(List<ReasonForDelayModel> items) async {
+    final db = await database;
+    final batch = db.batch();
+    try {
+      await db.delete('ReasonForDelay');
+    } catch (e) {
+      debugPrint("insertReasonsForDelay: Table might not exist, creating it: $e");
+      await _createFailureTables(db);
+    }
+    for (final item in items) {
+      batch.insert('ReasonForDelay', item.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> insertNatureOfWorks(List<NatureOfWorkModel> items) async {
+    final db = await database;
+    final batch = db.batch();
+    try {
+      await db.delete('NatureOfWork');
+    } catch (e) {
+      debugPrint("insertNatureOfWorks: Table might not exist, creating it: $e");
+      await _createFailureTables(db);
+    }
+    for (final item in items) {
+      batch.insert('NatureOfWork', item.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> insertFailureCategoryTypes(List<FailureCategoryTypeModel> items) async {
+    final db = await database;
+    final batch = db.batch();
+    try {
+      await db.delete('FailureCategoryType');
+    } catch (e) {
+      debugPrint("insertFailureCategoryTypes: Table might not exist, creating it: $e");
+      await _createFailureTables(db);
+    }
+    for (final item in items) {
+      batch.insert('FailureCategoryType', item.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<List<RcaFailureCategoryModel>> getRcaFailureCategoriesFromLocal() async {
     final db = await database;
     try {
       debugPrint("getRcaFailureCategoriesFromLocal: Opening local database for RCA failure categories");
-      
+
       // Check table schema
       final tableInfo = await db.rawQuery("PRAGMA table_info(RcaFailureCategories)");
       debugPrint("getRcaFailureCategoriesFromLocal: RcaFailureCategories columns: ${tableInfo.map((t) => t['name']).toList()}");
-      
+
       final results = await db.query('RcaFailureCategories');
       debugPrint("getRcaFailureCategoriesFromLocal: Retrieved ${results.length} RCA failure categories from local DB");
       if (results.isNotEmpty) {
@@ -1882,7 +2101,7 @@ class LocalDatabaseService {
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getPriorities: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Use priorityMaster table from asset database
       final results = await db.query('priorityMaster');
       debugPrint("getPriorities: Found ${results.length} priorities");
@@ -1904,7 +2123,7 @@ class LocalDatabaseService {
       // Check available tables
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getDepartments: Available tables: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Try to find department table - could be Departments, departmentMaster, or similar
       String tableName = 'deptMaster';
       if (!tables.any((t) => t['name'] == tableName)) {
@@ -1916,7 +2135,7 @@ class LocalDatabaseService {
       if (!tables.any((t) => t['name'] == tableName)) {
         tableName = 'Department';
       }
-      
+
       // If still not found, try to find any table containing 'dept' in the name
       if (!tables.any((t) => t['name'] == tableName)) {
         for (var table in tables) {
@@ -1928,14 +2147,14 @@ class LocalDatabaseService {
           }
         }
       }
-      
+
       debugPrint("getDepartments: Using table '$tableName'");
       final results = await db.query(tableName);
       debugPrint("getDepartments: Retrieved ${results.length} departments from local storage");
       if (results.isNotEmpty) {
         debugPrint("getDepartments: First row columns: ${results.first.keys.toList()}");
         debugPrint("getDepartments: First row data: ${results.first}");
-        
+
         // Log all department IDs
         final deptIds = results.map((r) => r['DeptId'] ?? r['deptId']).where((id) => id != null).toList();
         debugPrint("getDepartments: Available DeptId values: $deptIds");
@@ -1953,7 +2172,7 @@ class LocalDatabaseService {
       final db = await failureCategoryDatabase;
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       debugPrint("getFailureCategories: Available tables in failure_category_data.db: ${tables.map((t) => t['name']).toList()}");
-      
+
       // Try common table names
       String tableName = 'failureCategory';
       if (!tables.any((t) => t['name'] == tableName)) {
@@ -1968,7 +2187,7 @@ class LocalDatabaseService {
       if (!tables.any((t) => t['name'] == tableName)) {
         tableName = 'CorrfailureCategory';
       }
-      
+
       debugPrint("getFailureCategories: Using table '$tableName'");
       final results = await db.query(tableName, orderBy: 'orderNo ASC');
       debugPrint("getFailureCategories: Retrieved ${results.length} categories from asset database");
@@ -1979,7 +2198,7 @@ class LocalDatabaseService {
       return results.map((e) => FailureCategoryModel.fromJson(e)).toList();
     } catch (e) {
       debugPrint('getFailureCategories: Error loading from asset database: $e');
-      
+
       // Fallback to main database
       final db = await database;
       try {
@@ -2021,7 +2240,7 @@ class LocalDatabaseService {
       final columns = await db.rawQuery("PRAGMA table_info($tableName)");
       final columnNames = columns.map((c) => c['name']).toList();
       debugPrint("getMasterUsers: Table columns: $columnNames");
-      
+
       // Print first 10 raw rows from database
       final rawRows = await db.rawQuery('SELECT * FROM $tableName LIMIT 10');
       debugPrint("getMasterUsers: First 10 raw rows from database:");
@@ -2074,19 +2293,19 @@ class LocalDatabaseService {
       if (allResults.isNotEmpty) {
         debugPrint("getMasterUsers: First row columns: ${allResults.first.toJson().keys.toList()}");
         debugPrint("getMasterUsers: First row data: ${allResults.first.toJson()}");
-        
+
         // Log distinct DeptId values
         final distinctDeptIds = allResults.map((u) => u.deptId).where((id) => id != null).toSet().toList();
         debugPrint("getMasterUsers: Distinct DeptId values found: $distinctDeptIds");
-        
+
         // Log distinct BusinessArea values
         final distinctBusinessAreas = allResults.map((u) => u.businessArea).where((id) => id != null).toSet().toList();
         debugPrint("getMasterUsers: Distinct BusinessArea values found: $distinctBusinessAreas");
-        
+
         // Log distinct RoleDescr values
         final distinctRoleDescrs = allResults.map((u) => u.roleDescr).where((r) => r != null && r!.isNotEmpty).toSet().toList();
         debugPrint("getMasterUsers: Distinct RoleDescr values found: $distinctRoleDescrs");
-        
+
         // Count users with valid DeptId
         final usersWithDept = allResults.where((u) => u.deptId != null).length;
         debugPrint("getMasterUsers: Users with DeptId: $usersWithDept, Users without DeptId: ${allResults.length - usersWithDept}");
@@ -2306,7 +2525,7 @@ class LocalDatabaseService {
   Future<void> insertFailureList(List<Map<String, dynamic>> failures, String failureType) async {
     final db = await database;
     final batch = db.batch();
-    
+
     // Define allowed columns based on database schema
     final allowedColumns = {
       'id', 'failureNo', 'notificationCode', 'jobCardId', 'failureDescription',
@@ -2323,19 +2542,19 @@ class LocalDatabaseService {
       'locationId', 'funcationLocationId', 'syncStatus', 'lastSyncedAt',
       'failureType', 'getImageBefor', 'createdDate'
     };
-    
+
     for (var failure in failures) {
       final data = Map<String, dynamic>.from(failure);
       data['syncStatus'] = 'online';
       data['lastSyncedAt'] = DateTime.now().toIso8601String();
       data['failureType'] = failureType;
-      
+
       // Map API field names to database column names
       if (data.containsKey('failureId') && !data.containsKey('failureNo')) {
         data['failureNo'] = data['failureId'];
         data.remove('failureId');
       }
-      
+
       // Map location to locationName
       if (data.containsKey('location') && !data.containsKey('locationName')) {
         // If we have locationId, try to get full location name from locationTypeList
@@ -2355,23 +2574,41 @@ class LocalDatabaseService {
         data.remove('funcationLocation');
       }
 
+      // Map API date fields to database's failureOccuranceDateTime
+      if (!data.containsKey('failureOccuranceDateTime') || (data['failureOccuranceDateTime'] == null || data['failureOccuranceDateTime'].toString().trim().isEmpty)) {
+        final dateVal = data['actualFailureOccuranceDate'] ??
+            data['actualFailureOccuranceDatetime'] ??
+            data['actualFailureOccuranceOn'];
+        if (dateVal != null && dateVal.toString().trim().isNotEmpty) {
+          data['failureOccuranceDateTime'] = dateVal.toString();
+        }
+      }
+
+      // Map API status fields to database's statusName
+      if (!data.containsKey('statusName') || (data['statusName'] == null || data['statusName'].toString().trim().isEmpty)) {
+        final statusVal = data['mainStatusName'] ?? data['status'] ?? data['statusDescription'];
+        if (statusVal != null && statusVal.toString().trim().isNotEmpty) {
+          data['statusName'] = statusVal.toString();
+        }
+      }
+
       // Convert all boolean values to integer for SQLite
       data.forEach((key, value) {
         if (value is bool) {
           data[key] = value ? 1 : 0;
         }
       });
-      
+
       // Convert list to JSON string
       if (data['getImageBefor'] is List) {
         data['getImageBefor'] = jsonEncode(data['getImageBefor']);
       }
-      
+
       // Filter to only include allowed columns
       final filteredData = Map<String, dynamic>.fromEntries(
-        data.entries.where((entry) => allowedColumns.contains(entry.key))
+          data.entries.where((entry) => allowedColumns.contains(entry.key))
       );
-      
+
       batch.insert('FailureList', filteredData, conflictAlgorithm: ConflictAlgorithm.replace);
     }
     await batch.commit(noResult: true);
@@ -2483,7 +2720,7 @@ class LocalDatabaseService {
   Future<void> updateFunctionalLocationsFromAPI(List<dynamic> funcLocs) async {
     final db = await database;
     final batch = db.batch();
-    
+
     for (var loc in funcLocs) {
       batch.insert(
         'FunctionalLocations',
@@ -2503,7 +2740,7 @@ class LocalDatabaseService {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit(noResult: true);
   }
 
@@ -2511,7 +2748,7 @@ class LocalDatabaseService {
   Future<void> updateMeasurementPointsFromAPI(List<dynamic> measPoints) async {
     final db = await database;
     final batch = db.batch();
-    
+
     for (var point in measPoints) {
       batch.insert(
         'MeasurementPoints',
@@ -2529,7 +2766,7 @@ class LocalDatabaseService {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit(noResult: true);
   }
 
@@ -2537,7 +2774,7 @@ class LocalDatabaseService {
   Future<void> updateLocationsFromAPI(List<dynamic> locations) async {
     final db = await database;
     final batch = db.batch();
-    
+
     for (var loc in locations) {
       batch.insert(
         'Locations',
@@ -2550,7 +2787,7 @@ class LocalDatabaseService {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit(noResult: true);
   }
 
@@ -2558,7 +2795,7 @@ class LocalDatabaseService {
   Future<void> updateUsersFromAPI(List<dynamic> users) async {
     final db = await database;
     final batch = db.batch();
-    
+
     for (var user in users) {
       batch.insert(
         'MasterUsers',
@@ -2580,14 +2817,14 @@ class LocalDatabaseService {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit(noResult: true);
   }
 
   /// Update materials from API sync
   Future<void> updateMaterialsFromAPI(List<dynamic> materials) async {
     final db = await database;
-    
+
     // Ensure RstMaterials table exists
     try {
       await db.execute('''
@@ -2600,9 +2837,9 @@ class LocalDatabaseService {
     } catch (e) {
       debugPrint('updateMaterialsFromAPI: Error creating RstMaterials table: $e');
     }
-    
+
     final batch = db.batch();
-    
+
     for (var material in materials) {
       batch.insert(
         'RstMaterials',
@@ -2614,7 +2851,7 @@ class LocalDatabaseService {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit(noResult: true);
   }
 
@@ -2622,7 +2859,7 @@ class LocalDatabaseService {
   Future<void> updatePrioritiesFromAPI(List<dynamic> priorities) async {
     final db = await database;
     final batch = db.batch();
-    
+
     for (var priority in priorities) {
       batch.insert(
         'Priorities',
@@ -2633,7 +2870,7 @@ class LocalDatabaseService {
         conflictAlgorithm: ConflictAlgorithm.replace,
       );
     }
-    
+
     await batch.commit(noResult: true);
   }
 
@@ -2670,16 +2907,16 @@ class LocalDatabaseService {
           .map((t) => t['name'] as String)
           .where((name) => name != 'sqlite_sequence' && name != 'android_metadata')
           .toList();
-          
+
       if (tableNames.isEmpty) return [];
       String tableName = tableNames.first;
       final escapedTableName = '"$tableName"';
-      
+
       // Get column names from location table
       final columns = await db.rawQuery("PRAGMA table_info($escapedTableName)");
       final columnNames = columns.map((c) => c['name']).toList();
       debugPrint("getLocationsByBusinessArea: $tableName columns: $columnNames");
-      
+
       // Use BusinessLocation column for filtering
       String? businessAreaColumn;
       final candidates = ['BusinessLocation', 'businessLocation', 'BUSINESSLOCATION', 'BusinessArea', 'businessArea', 'BUSINESSAREA', 'MaintenancePlant', 'Maintenanceplant', 'MAINTENANCEPLANT'];
@@ -2690,7 +2927,7 @@ class LocalDatabaseService {
         }
       }
       debugPrint("getLocationsByBusinessArea: Using business location column '$businessAreaColumn'");
-      
+
       // If BusinessLocation column doesn't exist, return a limited subset of locations to avoid OOM
       if (businessAreaColumn == null) {
         debugPrint("getLocationsByBusinessArea: BusinessLocation column not found, returning all locations");
@@ -2698,7 +2935,7 @@ class LocalDatabaseService {
         debugPrint("getLocationsByBusinessArea: Retrieved ${results.length} locations (all)");
         return results.map((e) => LocationModel.fromJson(e)).toList();
       }
-      
+
       final results = await db.rawQuery(
         'SELECT * FROM $escapedTableName WHERE "$businessAreaColumn" = ?',
         [businessArea],
@@ -2739,7 +2976,7 @@ class LocalDatabaseService {
 
       if (businessArea != null) {
         final baCol = columnNames.firstWhere(
-          (c) => ['BusinessArea', 'businessArea', 'BUSINESSAREA'].contains(c),
+              (c) => ['BusinessArea', 'businessArea', 'BUSINESSAREA'].contains(c),
           orElse: () => 'BusinessArea',
         );
         where.add('"$baCol" = ?');
@@ -2748,7 +2985,7 @@ class LocalDatabaseService {
 
       if (workCenter != null && workCenter.isNotEmpty) {
         final wcCol = columnNames.firstWhere(
-          (c) => ['WorkCenter', 'workCenter', 'WORKCENTER'].contains(c),
+              (c) => ['WorkCenter', 'workCenter', 'WORKCENTER'].contains(c),
           orElse: () => 'WorkCenter',
         );
         where.add('"$wcCol" = ?');
@@ -2757,7 +2994,7 @@ class LocalDatabaseService {
 
       if (location != null && location.isNotEmpty) {
         final locCol = columnNames.firstWhere(
-          (c) => ['Location', 'location', 'LOCATION'].contains(c),
+              (c) => ['Location', 'location', 'LOCATION'].contains(c),
           orElse: () => 'Location',
         );
         where.add('"$locCol" = ?');
@@ -2936,31 +3173,52 @@ class LocalDatabaseService {
       final columns = await db.rawQuery("PRAGMA table_info($escapedTableName)");
       final columnNames = columns.map((c) => c['name']).toList();
 
-      // Build WHERE clause with multiple filters
+      final flCol = columnNames.firstWhere(
+            (c) => ['FunctionalLocation', 'functionalLocation', 'FUNCTIONALLOCATION'].contains(c),
+        orElse: () => 'FunctionalLocation',
+      );
+
+      // If functionalLocationId is provided, query by it first (most specific filter)
+      if (functionalLocationId != null && functionalLocationId.trim().isNotEmpty) {
+        final raw = functionalLocationId.trim();
+        final cleanCode = raw.contains(' - ') ? raw.split(' - ').first.trim() : raw;
+
+        String flQuery = 'SELECT * FROM $escapedTableName WHERE TRIM(UPPER("$flCol")) = UPPER(?) OR TRIM(UPPER("$flCol")) = UPPER(?)';
+        List<dynamic> flArgs = [cleanCode, raw];
+        if (limit != null) flQuery += ' LIMIT $limit';
+
+        debugPrint("getEquipmentsFiltered: FL exact query = $flQuery, args = $flArgs");
+        var results = await db.rawQuery(flQuery, flArgs);
+
+        if (results.isEmpty && cleanCode.isNotEmpty) {
+          String likeQuery = 'SELECT * FROM $escapedTableName WHERE "$flCol" LIKE ?';
+          if (limit != null) likeQuery += ' LIMIT $limit';
+          debugPrint("getEquipmentsFiltered: FL LIKE query = $likeQuery, args = [%$cleanCode%]");
+          results = await db.rawQuery(likeQuery, ['%$cleanCode%']);
+        }
+
+        if (results.isNotEmpty) {
+          debugPrint("getEquipmentsFiltered: Retrieved ${results.length} equipments for functionalLocation: $cleanCode");
+          return results.map((row) => EquipmentModel.fromJson(row)).toList();
+        }
+      }
+
+      // Build WHERE clause with businessArea and workCenter filters
       final where = <String>[];
       final args = <dynamic>[];
 
       if (businessArea != null) {
         final baCol = columnNames.firstWhere(
-          (c) => ['PlanningPlant', 'MaintenancePlant', 'BusinessArea', 'businessArea'].contains(c),
+              (c) => ['PlanningPlant', 'MaintenancePlant', 'BusinessArea', 'businessArea'].contains(c),
           orElse: () => 'PlanningPlant',
         );
         where.add('"$baCol" = ?');
         args.add(businessArea);
       }
 
-      if (functionalLocationId != null && functionalLocationId.isNotEmpty) {
-        final flCol = columnNames.firstWhere(
-          (c) => ['FunctionalLocation', 'functionalLocation', 'FUNCTIONALLOCATION'].contains(c),
-          orElse: () => 'FunctionalLocation',
-        );
-        where.add('"$flCol" = ?');
-        args.add(functionalLocationId);
-      }
-
       if (workCenter != null && workCenter.isNotEmpty) {
         final wcCol = columnNames.firstWhere(
-          (c) => ['WorkCenter', 'workCenter', 'WORKCENTER'].contains(c),
+              (c) => ['WorkCenter', 'workCenter', 'WORKCENTER'].contains(c),
           orElse: () => 'WorkCenter',
         );
         where.add('"$wcCol" = ?');
@@ -2974,10 +3232,10 @@ class LocalDatabaseService {
         query += ' LIMIT $limit';
       }
 
-      debugPrint("getEquipmentsFiltered: Query = $query, args = $args");
+      debugPrint("getEquipmentsFiltered fallback: Query = $query, args = $args");
       final results = await db.rawQuery(query, args);
 
-      debugPrint("getEquipmentsFiltered: Retrieved ${results.length} equipments");
+      debugPrint("getEquipmentsFiltered fallback: Retrieved ${results.length} equipments");
       return results.map((row) => EquipmentModel.fromJson(row)).toList();
     } catch (e) {
       debugPrint('getEquipmentsFiltered error: $e');
@@ -3136,7 +3394,7 @@ class LocalDatabaseService {
     try {
       final db = await materialMasterDatabase;
       debugPrint("getMaterialMasters: Opening material master database");
-      
+
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       final tableNames = tables
           .map((t) => t['name'] as String)
@@ -3149,12 +3407,12 @@ class LocalDatabaseService {
 
       final results = await db.rawQuery('SELECT * FROM $escapedTableName');
       debugPrint("getMaterialMasters: Found ${results.length} material masters");
-      
+
       if (results.isNotEmpty) {
         debugPrint("getMaterialMasters: First row columns: ${results.first.keys.toList()}");
         debugPrint("getMaterialMasters: First row data: ${results.first}");
       }
-      
+
       return results.map((row) => MaterialMaster.fromJson(row)).toList();
     } catch (e) {
       debugPrint('getMaterialMasters error: $e');
@@ -3167,7 +3425,7 @@ class LocalDatabaseService {
     try {
       final db = await rstObjectPartDatabase;
       debugPrint("getRstObjectPartsFromDb: Opening RST object part database");
-      
+
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       final tableNames = tables
           .map((t) => t['name'] as String)
@@ -3180,7 +3438,7 @@ class LocalDatabaseService {
 
       final results = await db.rawQuery('SELECT * FROM $escapedTableName');
       debugPrint("getRstObjectPartsFromDb: Found ${results.length} RST object parts");
-      
+
       return results.map((row) => RstObjectPart.fromJson(row)).toList();
     } catch (e) {
       debugPrint('getRstObjectPartsFromDb error: $e');
@@ -3192,7 +3450,7 @@ class LocalDatabaseService {
     try {
       final db = await rstFaultMasterDatabase;
       debugPrint("getRstFaultMasters: Opening RST fault master database");
-      
+
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       final tableNames = tables
           .map((t) => t['name'] as String)
@@ -3205,7 +3463,7 @@ class LocalDatabaseService {
 
       final results = await db.rawQuery('SELECT * FROM $escapedTableName');
       debugPrint("getRstFaultMasters: Found ${results.length} RST fault masters");
-      
+
       return results.map((row) => RstFaultMaster.fromJson(row)).toList();
     } catch (e) {
       debugPrint('getRstFaultMasters error: $e');
@@ -3217,7 +3475,7 @@ class LocalDatabaseService {
     try {
       final db = await rstOldRootCauseDatabase;
       debugPrint("getRstOldRootCauses: Opening RST old root cause database");
-      
+
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       final tableNames = tables
           .map((t) => t['name'] as String)
@@ -3230,7 +3488,7 @@ class LocalDatabaseService {
 
       final results = await db.rawQuery('SELECT * FROM $escapedTableName');
       debugPrint("getRstOldRootCauses: Found ${results.length} RST old root causes");
-      
+
       return results.map((row) => RstOldRootCause.fromJson(row)).toList();
     } catch (e) {
       debugPrint('getRstOldRootCauses error: $e');
@@ -3242,7 +3500,7 @@ class LocalDatabaseService {
     try {
       final db = await rstStoreLocationDatabase;
       debugPrint("getStoreLocations: Opening store location database");
-      
+
       final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
       final tableNames = tables
           .map((t) => t['name'] as String)
@@ -3255,15 +3513,105 @@ class LocalDatabaseService {
 
       final results = await db.rawQuery('SELECT * FROM $escapedTableName');
       debugPrint("getStoreLocations: Found ${results.length} store locations");
-      
+
       if (results.isNotEmpty) {
         debugPrint("getStoreLocations: First row columns: ${results.first.keys.toList()}");
         debugPrint("getStoreLocations: First row data: ${results.first}");
       }
-      
+
       return results.map((row) => StoreLocation.fromJson(row)).toList();
     } catch (e) {
       debugPrint('getStoreLocations error: $e');
+      return [];
+    }
+  }
+
+  Future<List<ReasonForDelayModel>> getReasonsForDelay() async {
+    try {
+      final db = await reasonForDelayDatabase;
+      debugPrint("getReasonsForDelay: Opening reason for delay database");
+
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      final tableNames = tables
+          .map((t) => t['name'] as String)
+          .where((name) => name != 'sqlite_sequence' && name != 'android_metadata')
+          .toList();
+
+      if (tableNames.isEmpty) return [];
+      String tableName = tableNames.first;
+      final escapedTableName = '"$tableName"';
+
+      final results = await db.rawQuery('SELECT * FROM $escapedTableName');
+      debugPrint("getReasonsForDelay: Found ${results.length} reasons for delay");
+
+      if (results.isNotEmpty) {
+        debugPrint("getReasonsForDelay: First row columns: ${results.first.keys.toList()}");
+        debugPrint("getReasonsForDelay: First row data: ${results.first}");
+      }
+
+      return results.map((row) => ReasonForDelayModel.fromJson(row)).toList();
+    } catch (e) {
+      debugPrint('getReasonsForDelay error: $e');
+      return [];
+    }
+  }
+
+  Future<List<NatureOfWorkModel>> getNatureOfWorks() async {
+    try {
+      final db = await natureOfWorkDatabase;
+      debugPrint("getNatureOfWorks: Opening nature of work database");
+
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      final tableNames = tables
+          .map((t) => t['name'] as String)
+          .where((name) => name != 'sqlite_sequence' && name != 'android_metadata')
+          .toList();
+
+      if (tableNames.isEmpty) return [];
+      String tableName = tableNames.first;
+      final escapedTableName = '"$tableName"';
+
+      final results = await db.rawQuery('SELECT * FROM $escapedTableName');
+      debugPrint("getNatureOfWorks: Found ${results.length} nature of work entries");
+
+      if (results.isNotEmpty) {
+        debugPrint("getNatureOfWorks: First row columns: ${results.first.keys.toList()}");
+        debugPrint("getNatureOfWorks: First row data: ${results.first}");
+      }
+
+      return results.map((row) => NatureOfWorkModel.fromJson(row)).toList();
+    } catch (e) {
+      debugPrint('getNatureOfWorks error: $e');
+      return [];
+    }
+  }
+
+  Future<List<FailureCategoryTypeModel>> getFailureCategoryTypes() async {
+    try {
+      final db = await failureCategoryTypeDatabase;
+      debugPrint("getFailureCategoryTypes: Opening failure category type database");
+
+      final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+      final tableNames = tables
+          .map((t) => t['name'] as String)
+          .where((name) => name != 'sqlite_sequence' && name != 'android_metadata')
+          .toList();
+
+      if (tableNames.isEmpty) return [];
+      String tableName = tableNames.first;
+      final escapedTableName = '"$tableName"';
+
+      final results = await db.rawQuery('SELECT * FROM $escapedTableName');
+      debugPrint("getFailureCategoryTypes: Found ${results.length} failure category types");
+
+      if (results.isNotEmpty) {
+        debugPrint("getFailureCategoryTypes: First row columns: ${results.first.keys.toList()}");
+        debugPrint("getFailureCategoryTypes: First row data: ${results.first}");
+      }
+
+      return results.map((row) => FailureCategoryTypeModel.fromJson(row)).toList();
+    } catch (e) {
+      debugPrint('getFailureCategoryTypes error: $e');
       return [];
     }
   }

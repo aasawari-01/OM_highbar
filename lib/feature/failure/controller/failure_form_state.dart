@@ -31,7 +31,8 @@ mixin FailureFormState on GetxController {
   final notificationId = 0.obs;
   final jointInspectionFailureNo = "".obs;
   final notificationCode = "".obs;
-
+  final maintenanceLocationTypeId = 0.obs;
+  final isSubmitting = false.obs;
   // Backs the read-only "Observation Detail" panel shown when the form is
   // opened from an Inspection "Not Okay" flow (via QR / nav arguments).
   final inspectionObservation = <String, dynamic>{}.obs;
@@ -39,6 +40,7 @@ mixin FailureFormState on GetxController {
   // Dropdown lists
   final notificationTypeList = <LabelValue>[].obs;
   final natureOfWorkList = <LabelValue>[].obs;
+  final failureCategoryTypeList = <LabelValue>[].obs;
   final departmentList = <LabelValue>[].obs;
   final userList = <LabelValue>[].obs;
   final functionalLocationList = <LabelValue>[].obs;
@@ -63,6 +65,10 @@ mixin FailureFormState on GetxController {
   final corrFailureTypeList = <LabelValue>[].obs;
   final userStatusJeList = <LabelValue>[].obs;
   final materialMasterList = <LabelValue>[].obs;
+
+  // NEW: API-based dropdowns for Maintenance form (from JE Change Notification API)
+  final apiNatureOfWorkList = <LabelValue>[].obs;
+  final apiNotificationTypeList = <LabelValue>[].obs;
 
   // NEW: RST View dropdowns from asset DB
   final rstFaultMasterList = <LabelValue>[].obs;
@@ -138,7 +144,7 @@ mixin FailureFormState on GetxController {
   final isSicRequired = false.obs;
   final isPassengerAffected = false.obs;
   final isPtwRequired = false.obs;
-  final isRcaRequired = true.obs;
+  final isRcaRequired = false.obs; // Changed to false for Maintenance forms
   final isSparePartReplaced = false.obs;
   final isMaterialDismantle = false.obs;
   final isJointInspection = false.obs;
@@ -194,6 +200,29 @@ mixin FailureFormState on GetxController {
   final jointInspectionRemarkController = TextEditingController();
   final jiUserRemarkController = TextEditingController();
 
+  // Maintenance-specific fields for Section Incharge
+  final locationTypeIdController = TextEditingController();
+  final locationFailureController = TextEditingController();
+  final systemDowntimeController = TextEditingController();
+  final measurementPointIdsController = TextEditingController();
+  final assigneeUserNameController = TextEditingController();
+  final selectedSystemDowntime = Rxn<DateTime>();
+  final departmentId = RxnInt();
+  final selectedSystem = RxnString();
+  final selectedSubsystem = RxnString();
+  final systemList = <LabelValue>[].obs;
+  final subsystemList = <LabelValue>[].obs;
+  final personResponsibleList = <LabelValue>[].obs;
+  final locationList = <LabelValue>[].obs;
+  final assignedUserId = RxnInt();
+  final assignedUserIdJI = RxnInt();
+  final deptIdJI = RxnInt();
+  final remarkJE = RxnInt();
+  final corrNotificationTypeId = RxnInt();
+  final systemName = RxnString();
+  final subSystemName = RxnString();
+  final frequencyValue = RxnInt();
+
   final failureRectificationFocusNode = FocusNode();
   final requiredQtyFocusNode = FocusNode();
 
@@ -225,6 +254,9 @@ mixin FailureFormState on GetxController {
   final maintenanceHistoryList = <Map<String, dynamic>>[].obs;
   final maintenanceHistoryListPrev = <Map<String, dynamic>>[].obs;
   final selectedHistoryTab = 'current'.obs;
+
+  // Measurement points for maintenance form
+  final measurementPoints = <Map<String, dynamic>>[].obs;
 
   // Master data lists
   final masterLocations = <Map<String, dynamic>>[].obs;
@@ -294,6 +326,11 @@ mixin FailureFormState on GetxController {
     jiUserRemarkController.dispose();
     failureRectificationFocusNode.dispose();
     requiredQtyFocusNode.dispose();
+    locationTypeIdController.dispose();
+    locationFailureController.dispose();
+    systemDowntimeController.dispose();
+    measurementPointIdsController.dispose();
+    assigneeUserNameController.dispose();
   }
 
   bool get isJE =>
@@ -302,7 +339,7 @@ mixin FailureFormState on GetxController {
           .value
           ?.roleDescr
           ?.contains("Junior Engineer") ??
-          false;
+      false;
 
   bool get isTechnician =>
       Get.find<SessionController>()
@@ -310,7 +347,7 @@ mixin FailureFormState on GetxController {
           .value
           ?.roleDescr
           ?.contains("Technician") ??
-          false;
+      false;
 
   bool get isStationController =>
       Get.find<SessionController>()
@@ -318,7 +355,7 @@ mixin FailureFormState on GetxController {
           .value
           ?.roleDescr
           ?.contains("Station Controller") ??
-          false;
+      false;
 
   bool get isSectionIncharge =>
       Get.find<SessionController>()
@@ -326,7 +363,7 @@ mixin FailureFormState on GetxController {
           .value
           ?.roleDescr
           ?.contains("Section Incharge") ??
-          false;
+      false;
 
   bool get isStation => failureCategory.value.toLowerCase() == 'station';
   bool get isMaintenance =>
@@ -341,7 +378,7 @@ mixin FailureFormState on GetxController {
   bool get isJointInspectionPending {
     if (_isPendingJointInspectionStatus(mainStatusName.value)) return true;
     return jointInspectionHistoryList.any(
-          (item) => _isPendingJointInspectionStatus(item.statusName),
+      (item) => _isPendingJointInspectionStatus(item.statusName),
     );
   }
 

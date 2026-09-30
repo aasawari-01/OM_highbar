@@ -1,10 +1,10 @@
 class AppUrls {
   /// Base URL for all API .
-   static const String baseUrl = "http://192.168.24.158:5000/api/";
-   static const String imageUrl = "http://192.168.24.158:5000/";
-   static const String baseUrl8080 = "http://192.168.24.158:8080/api/";
+  static const String baseUrl = "http://192.168.24.158:5000/api/";
+  static const String imageUrl = "http://192.168.24.158:5000/";
+  static const String baseUrl8080 = "http://192.168.24.158:8080/api/";
 
-   /// Auth endpoints
+  /// Auth endpoints
   static const String login = 'UserLogin/userLoginValidate';
   static const String logout = 'UserLogin/userLogout';
 
@@ -22,10 +22,23 @@ class AppUrls {
   static const String getFunctionLocEquipmentNoByDeptId = 'JECorrectivesMaintenance/getFunctionLocEquipmentNoByDeptId';
   static const String addUpdateDeleteJointInspection = 'JECorrectivesMaintenance/addUpdateDeleteJointInspection';
   static const String createStationFailure = 'OCCMaintainance/insertStationFailureDetails';
+  /// OCC failure create. Same endpoints the web "Create OCC Failure" page uses.
+  static const String getOccFailureLookups = 'OCCMaintainance/getFailureCreationById';
+  static const String createOccFailure = 'OCCMaintainance/insertFailureDetails';
+  /// Update OCC failure (FMC user) uses the same insert endpoint with an Action.
+  static const String updateOccFailure = createOccFailure;
+  /// FMC user's OCC failure inbox (same call the web inbox makes).
+  static const String getOccFailureInbox = 'OCCMaintainance/getFailureList';
   static const String getStationFailureListWithData = 'mobileAppAPI/GetStationFailureListWithData';
   static const String insertChangeDepartmentFailure = 'OCCMaintainance/insertChangeDepartmentFailure';
   static const String updateStationAcknowledgeStatus = 'OCCMaintainance/updateStationAcknowledgeStatus';
   static const String getStationName = 'Lookup/GetLookup_StationName';
+  /// Depot failure (DCC role): depot lookup, save selection, failure list.
+  static const String getDepotLookup = 'Lookup/GetLookup_Depot';
+  static const String insertUserDepotSelection = 'Common/Insert_Users_DepotSelection';
+  static const String getDepotFailureList = 'OCCMaintainance/getDepotFailureList';
+  static const String getDepotFailureById = 'OCCMaintainance/getDepotFailureCreationById';
+  static const String createDepotFailure = 'OCCMaintainance/insertDepotFailureDetails';
   static const String getMasterData = 'mobileAppAPI/GetMasterData';
   static const String rstNotificationInbox = 'CorrectiveNotification/getRSTNotificationInboxJE';
   static const String getRSTFailureData = 'mobileAppAPI/GetRSTFailureData';
@@ -46,8 +59,12 @@ class AppUrls {
   static const String updateStatusNotificationReject = 'BreakdownMaintainance/updateStatusNotificationReject';
   static const String updateStatusNotificationDelete = 'BreakdownMaintainance/updateStatusNotificationDelete';
   static const String updateAssignUserNotificationCorrection = 'BreakdownMaintainance/updateAssignUserNotificationCorrection';
-  
+  static const String getLookupCreateCorrNotification = 'Lookup/GetLookupCreateCorrNotification';
+
   /// Maintenance form endpoints
   static const String getFunctionalLocationDetails = 'mobileAppAPI/GetFunctionalLocationDetails';
-  static const String submitMaintenanceForm = 'mobileAppAPI/SubmitMaintenanceForm';
+  static const String editNotificationDetails =
+      'CorrectiveNotification/editNotificationDetails';
+  static const String createNotificationDetails = 'CorrectiveNotification/createNotificationDetails';
+
 }

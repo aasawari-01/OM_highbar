@@ -1,10 +1,12 @@
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import '../../../core/controller/global_master_data_controller.dart';
+import '../../../core/controller/session_controller.dart';
 import '../../../core/models/label_value.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
 import 'failure_form_state.dart';
+import '../service/failure_service.dart';
 
 // Function to process users in isolate
 List<Map<String, dynamic>> _processUsersInIsolate(List<Map<String, dynamic>> users) {
@@ -90,8 +92,31 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
 
     // Copy only SMALL master data from global cache
     // Large tables (functional locations, equipment, users) loaded on-demand with SQL filtering
-    masterLocations.assignAll(g.masterLocations);
-    masterDepartments.assignAll(g.masterDepartments);
+    
+    // Load departments and locations directly instead of copying from global to avoid null values
+    final dbService = LocalDatabaseService();
+    final departments = await dbService.getDepartments();
+    masterDepartments.assignAll(departments.map((e) => e.toJson()).toList());
+    departmentList.assignAll([
+      LabelValue(label: 'Select', value: ''),
+      ...departments.map((e) => LabelValue(
+        label: e.deptName,
+        value: e.deptId?.toString() ?? '',
+        uniqueId: e.workCenter,
+      )),
+    ]);
+    
+    // Load locations directly
+    final locations = await dbService.getLocations();
+    masterLocations.assignAll(locations.map((e) => e.toJson()).toList());
+    locationTypeList.assignAll([
+      LabelValue(label: 'Select', value: ''),
+      ...locations.map((e) => LabelValue(
+        label: e.locationName,
+        value: e.locationTypeId?.toString() ?? '',
+      )),
+    ]);
+    
     masterRcaFailureCategories.assignAll(g.masterRcaFailureCategories);
 
     // Large tables - DO NOT copy from global, load on-demand
@@ -106,9 +131,14 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
     functionalLocationList.clear(); // Will load on-demand
     equipmentList.clear(); // Will load on-demand
     priorityTypeList.assignAll(g.priorityTypeList);
-    locationTypeList.assignAll(g.locationTypeList);
-    departmentList.assignAll(g.departmentList);
+    // locationTypeList and departmentList already loaded above
     rcaFailureCategoryList.assignAll(g.rcaFailureCategoryList);
+    
+    // Initialize locationList from locationTypeList
+    locationList.assignAll([
+      LabelValue(label: 'Select', value: ''),
+      ...locationTypeList.where((loc) => loc.label != 'Select'),
+    ]);
 
     storageLocationList.assignAll(g.storageLocationList);
     reasonForDelayList.assignAll(g.reasonForDelayList);
@@ -119,8 +149,19 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
     causeList.assignAll(g.causeList);
 
     actionList.assignAll(g.actionTakenList);
-    // Use corrNotificationTypeList from local DB instead of API-based notificationTypeList
-    notificationTypeList.assignAll(g.corrNotificationTypeList);
+    // Load notificationTypeList from notificationType.db data
+    if (g.notificationTypeList.isNotEmpty) {
+      notificationTypeList.assignAll(g.notificationTypeList);
+    } else {
+      final notifTypes = await LocalDatabaseService().getNotificationTypes();
+      notificationTypeList.assignAll([
+        LabelValue(label: 'Select', value: ''),
+        ...notifTypes.map((e) => LabelValue(
+              label: e.notificationType ?? '',
+              value: e.id?.toString() ?? '',
+            )),
+      ]);
+    }
     natureOfWorkList.assignAll(g.natureOfWorkList);
     userStatusList.assignAll(g.userStatusList);
     corrNotificationTypeList.assignAll(g.corrNotificationTypeList);
@@ -436,6 +477,492 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
     } catch (e) {
       debugPrint("getCurrentBusinessArea: Error getting business area: $e");
       return null;
+    }
+  }
+
+  // Maintenance form specific methods for Section Incharge
+  Future<void> onMaintenanceDepartmentChanged(String? value) async {
+    if (value == null || value.isEmpty) return;
+
+    try {
+      final session = Get.find<SessionController>();
+      final selectedDept = session.departments.firstWhere(
+        (dept) => dept.deptName == value,
+        orElse: () => session.departments.first,
+      );
+
+      departmentId.value = selectedDept.deptId ?? 0;
+
+      // Reset dependent fields
+      selectedLocation.value = '';
+      selectedFunctionalLocation.value = '';
+      selectedFmecaSystem.value = '';
+      selectedFmecaSubsystem.value = '';
+      selectedEquipmentNumber.value = '';
+      selectedPersonResponsible.value = '';
+
+      fmecaSystemController.clear();
+      fmecaSubsystemController.clear();
+
+      functionalLocationList.clear();
+      fmecaSystemList.clear();
+      fmecaSubsystemList.clear();
+      equipmentList.clear();
+      locationList.clear();
+      userList.clear();
+
+      // Reset conditional fields
+      selectedNatureOfWork.value = '';
+      trainRunningKmController.clear();
+      isServiceAffected.value = false;
+      _resetServiceAffectedFields();
+      isPassengerAffected.value = false;
+      _resetPassengerAffectedFields();
+      isOheRequired.value = false;
+      isSicRequired.value = false;
+
+      // Load location if departmentId > 0
+      if ((departmentId.value ?? 0) > 0) {
+        _filterLocationsByDepartment();
+      }
+
+      // Filter functional locations by work center when department changes
+      // This should show all functional locations for the department's work center
+      _filterFunctionalLocationsByWorkCenter();
+
+      // Load person responsible for department
+      await _loadPersonResponsible();
+
+      // Load nature of work data for department ID 3
+      if (departmentId.value == 3) {
+        await _loadNatureOfWorkData();
+      }
+
+      debugPrint('onMaintenanceDepartmentChanged: functionalLocationList count = ${functionalLocationList.length}');
+
+    } catch (e) {
+      debugPrint('Error on department change: $e');
+    }
+  }
+
+  void _filterLocationsByDepartment() {
+    try {
+      // Filter from locationTypeList if available, otherwise from masterLocations
+      if (locationTypeList.length > 1) {
+        final deptLocations = locationTypeList.where((loc) {
+          // For now, include all locations since we don't have department mapping
+          return loc.label != 'Select';
+        }).toList();
+        locationList.assignAll(deptLocations);
+      } else {
+        final deptLocations = masterLocations.where((loc) {
+          final locDeptId = loc['deptId']?.toString();
+          return locDeptId == departmentId.value.toString();
+        }).toList();
+
+        locationList.assignAll([
+          LabelValue(label: 'Select', value: ''),
+          ...deptLocations.map((loc) =>
+            LabelValue(label: loc['label']?.toString() ?? '', value: loc['value']?.toString() ?? '')
+          ),
+        ]);
+      }
+
+      debugPrint('Filtered ${locationList.length} locations for department $departmentId');
+    } catch (e) {
+      debugPrint('Error filtering locations: $e');
+    }
+  }
+
+  void _resetServiceAffectedFields() {
+    trainDelayMinController.clear();
+    trainDelayNosController.clear();
+    trainCancelNosController.clear();
+    trainWithdrawalNosController.clear();
+    trainReplaceNosController.clear();
+    selectedSystemDowntime.value = null;
+    isPassengerDeboarding.value = false;
+    trainDeboardedNosController.clear();
+  }
+
+  void _resetPassengerAffectedFields() {
+    numberOfPassengerAffectedController.clear();
+    trappedDurationController.clear();
+    rescuedDurationController.clear();
+  }
+
+  Future<void> _loadPersonResponsible() async {
+    try {
+      final session = Get.find<SessionController>();
+      final role = session.selectedRole.value?.roleDescr ?? '';
+      final isSectionIncharge = role.contains('Section Incharge');
+
+      if (isSectionIncharge) {
+        // For Section Incharge: Load junior engineers from local DB for the selected department
+        debugPrint('_loadPersonResponsible: Section Incharge - loading junior engineers from local DB for deptId=${departmentId.value}');
+        
+        // Ensure master users are loaded
+        if (masterUsers.isEmpty) {
+          await _loadMasterUsersForPersonResponsible();
+        }
+
+        // Filter users by department and role (Junior Engineer)
+        final filteredUsers = masterUsers.where((user) {
+          final userDeptId = user['DeptId']?.toString() ?? '';
+          final userRole = user['RoleDescr']?.toString() ?? '';
+          final firstName = user['FirstName']?.toString() ?? '';
+          final lastName = user['LastName']?.toString() ?? '';
+          final userName = (firstName + ' ' + lastName).trim();
+          final userId = user['UserId']?.toString() ?? '';
+
+          // Match department
+          final deptMatch = userDeptId == departmentId.value.toString();
+          
+          // Match role - Junior Engineer
+          final roleMatch = userRole.toLowerCase().contains('junior engineer');
+          
+          // Valid user check
+          final isValidUser = userId.isNotEmpty && userId != '0' &&
+                             userName.isNotEmpty && userName.toLowerCase() != 'select user';
+
+          return deptMatch && roleMatch && isValidUser;
+        }).toList();
+
+        debugPrint('_loadPersonResponsible: Found ${filteredUsers.length} junior engineers in department ${departmentId.value}');
+
+        // Convert to LabelValue
+        userList.assignAll([
+          LabelValue(label: 'Select', value: ''),
+          ...filteredUsers.map((user) {
+            final firstName = user['FirstName']?.toString() ?? '';
+            final lastName = user['LastName']?.toString() ?? '';
+            final userName = (firstName + ' ' + lastName).trim();
+            return LabelValue(
+              label: userName,
+              value: user['UserId']?.toString() ?? '',
+            );
+          }),
+        ]);
+      } else {
+        // For other roles: use API
+        final failureService = FailureService();
+        final userId = await AuthManager().getUserId();
+        final response = await failureService.getUsersByDepartmentId(departmentId.value ?? 0, userId ?? '0');
+        if (response.users != null && response.users!.isNotEmpty) {
+          userList.assignAll([
+            LabelValue(label: 'Select', value: ''),
+            ...response.users!,
+          ]);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading person responsible: $e');
+    }
+  }
+
+  Future<void> _loadMasterUsersForPersonResponsible() async {
+    // Only load if not already loaded
+    if (isUsersLoaded.value && masterUsers.isNotEmpty) {
+      debugPrint('_loadMasterUsersForPersonResponsible: Users already loaded, skipping');
+      return;
+    }
+
+    debugPrint('_loadMasterUsersForPersonResponsible: Loading master users from SQLite');
+    final dbService = LocalDatabaseService();
+    final users = await dbService.getMasterUsers();
+
+    // Convert users to Map with consistent key names (PascalCase as in MasterUserModel.toJson())
+    masterUsers.assignAll(users.map((e) => e.toJson()).toList());
+    isUsersLoaded.value = true;
+    debugPrint('_loadMasterUsersForPersonResponsible: Loaded ${users.length} master users');
+
+    // Show sample data for debugging
+    if (masterUsers.isNotEmpty) {
+      debugPrint('_loadMasterUsersForPersonResponsible: Sample user data:');
+      for (int i = 0; i < masterUsers.length && i < 3; i++) {
+        final user = masterUsers[i];
+        debugPrint(
+            '  [$i] UserId: ${user['UserId']}, UserName: ${user['UserName']}, DeptId: ${user['DeptId']}, RoleDescr: ${user['RoleDescr']}');
+      }
+    }
+
+    // Force UI update
+    masterUsers.refresh();
+  }
+
+  Future<void> _loadNatureOfWorkData() async {
+    try {
+      // For now, use existing natureOfWorkList or load from API if needed
+      // This can be updated when the specific API is available
+      if (natureOfWorkList.isEmpty) {
+        natureOfWorkList.assignAll([
+          LabelValue(label: 'Select', value: ''),
+          LabelValue(label: 'Routine Maintenance', value: '1'),
+          LabelValue(label: 'Breakdown Maintenance', value: '2'),
+          LabelValue(label: 'Preventive Maintenance', value: '3'),
+        ]);
+      }
+    } catch (e) {
+      debugPrint('Error loading nature of work data: $e');
+    }
+  }
+
+  Future<void> onMaintenanceLocationChanged(String? value) async {
+    if (value == null || value.isEmpty) return;
+
+    // Reset functional location and dependent fields
+    selectedFunctionalLocation.value = '';
+    selectedFmecaSystem.value = '';
+    selectedFmecaSubsystem.value = '';
+    selectedEquipmentNumber.value = '';
+
+    fmecaSystemController.clear();
+    fmecaSubsystemController.clear();
+
+    functionalLocationList.clear();
+    fmecaSystemList.clear();
+    fmecaSubsystemList.clear();
+    equipmentList.clear();
+
+    // Filter functional locations from local database
+    _filterFunctionalLocations();
+  }
+
+  void _filterFunctionalLocations() {
+    try {
+      final locCode = _getLocationCode(selectedLocation.value);
+      final workCenter = getCurrentWorkCenterFromDept();
+
+      debugPrint('Filtering functional locations: locCode=$locCode, workCenter=$workCenter');
+
+      final filteredFuncs = masterFunctionalLocations.where((e) {
+        bool match = true;
+
+        if (locCode != null && locCode.isNotEmpty) {
+          final funcLoc = e['location']?.toString().trim().toUpperCase();
+          if (funcLoc != null && funcLoc.isNotEmpty) {
+            match = match && (funcLoc == locCode.trim().toUpperCase());
+          }
+        }
+
+        if (workCenter != null && workCenter.isNotEmpty) {
+          final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
+          if (funcWorkCenter != null && funcWorkCenter.isNotEmpty) {
+            match = match && (funcWorkCenter == workCenter.trim().toUpperCase());
+          }
+        }
+
+        return match;
+      }).toList();
+
+      functionalLocationList.assignAll([
+        LabelValue(label: 'Select', value: ''),
+        ...filteredFuncs.map((func) =>
+          LabelValue(
+            label: func['funcLocationName']?.toString() ?? func['funcLocation']?.toString() ?? '',
+            value: func['funcLocId']?.toString() ?? ''
+          )
+        ),
+      ]);
+
+      debugPrint('Filtered ${functionalLocationList.length} functional locations');
+    } catch (e) {
+      debugPrint('Error filtering functional locations: $e');
+    }
+  }
+
+  void _filterFunctionalLocationsByWorkCenter() {
+    try {
+      final workCenter = getCurrentWorkCenterFromDept();
+
+      debugPrint('Filtering functional locations by work center: workCenter=$workCenter');
+      debugPrint('masterFunctionalLocations count: ${masterFunctionalLocations.length}');
+
+      // Show sample data for debugging
+      if (masterFunctionalLocations.isNotEmpty) {
+        debugPrint('Sample masterFunctionalLocations data:');
+        for (int i = 0; i < masterFunctionalLocations.length && i < 3; i++) {
+          final func = masterFunctionalLocations[i];
+          debugPrint('  [$i] funcLocationName: ${func['funcLocationName']}, workCenter: ${func['workCenter']}, location: ${func['location']}');
+        }
+      }
+
+      final filteredFuncs = masterFunctionalLocations.where((e) {
+        bool match = true;
+
+        if (workCenter != null && workCenter.isNotEmpty) {
+          final funcWorkCenter = e['workCenter']?.toString().trim().toUpperCase();
+          // Only filter if funcWorkCenter is not empty - allow empty workCenter values
+          if (funcWorkCenter != null && funcWorkCenter.isNotEmpty) {
+            match = match && (funcWorkCenter == workCenter.trim().toUpperCase());
+          }
+        }
+
+        return match;
+      }).toList();
+
+      functionalLocationList.assignAll([
+        LabelValue(label: 'Select', value: ''),
+        ...filteredFuncs.map((func) =>
+          LabelValue(
+            label: func['funcLocationName']?.toString() ?? func['funcLocation']?.toString() ?? '',
+            value: func['funcLocId']?.toString() ?? ''
+          )
+        ),
+      ]);
+
+      debugPrint('Filtered ${functionalLocationList.length} functional locations by work center');
+    } catch (e) {
+      debugPrint('Error filtering functional locations by work center: $e');
+    }
+  }
+
+
+
+  String? _getLocationCode(String? locationLabel) {
+    if (locationLabel == null || locationLabel.isEmpty || locationLabel == 'Select') {
+      return null;
+    }
+    final loc = masterLocations.firstWhere(
+      (e) => e['label']?.toString() == locationLabel,
+      orElse: () => <String, dynamic>{},
+    );
+    return loc['value']?.toString() ?? loc['locationCode']?.toString();
+  }
+
+  Future<void> onMaintenanceFunctionalLocationChanged(String? value) async {
+    if (value == null || value.isEmpty) return;
+
+    try {
+      // Reset dependent fields
+      selectedFmecaSystem.value = '';
+      selectedFmecaSubsystem.value = '';
+      selectedEquipmentNumber.value = '';
+
+      fmecaSystemController.clear();
+      fmecaSubsystemController.clear();
+
+      fmecaSystemList.clear();
+      fmecaSubsystemList.clear();
+      equipmentList.clear();
+
+      // Load functional location details from API for other data
+      final failureService = FailureService();
+      final response = await failureService.getFunctionalLocationDetails(value);
+
+      if (response.details != null) {
+        final data = response.details!;
+
+        // Set Frequency (read-only, auto-calculated)
+        fmecaFrequency.value = data.frequency as int?;
+        fmecaFrequencyController.text = data.frequency?.toString() ?? '';
+
+        // Load System (FMECA) from API
+        fmecaSystemList.assignAll([
+          LabelValue(label: 'Select', value: ''),
+          ...data.systemList ?? [],
+        ]);
+
+        // Auto-select if only one system
+        if (fmecaSystemList.length == 2) { // Select + one system
+          selectedFmecaSystem.value = fmecaSystemList[1].label ?? '';
+          fmecaSystemController.text = fmecaSystemList[1].label ?? '';
+          await onMaintenanceFmecaSystemChanged(selectedFmecaSystem.value);
+        }
+
+        // Load Equipment from API
+        equipmentList.assignAll([
+          LabelValue(label: 'Select', value: ''),
+          ...data.equipmentList ?? [],
+        ]);
+
+        // Load Maintenance History
+        maintenanceHistoryList.assignAll(data.maintenanceHistory?.map((hist) =>
+          {'description': hist.description, 'date': hist.date}
+        ).toList() ?? []);
+
+        maintenanceHistoryListPrev.assignAll(data.maintenanceHistoryPrev?.map((hist) =>
+          {'description': hist.description, 'date': hist.date}
+        ).toList() ?? []);
+
+        // Load Measurement Points
+        final measurementData = data.measurementPoints ?? [];
+        if (measurementData.isNotEmpty) {
+          measurementPoints.assignAll(measurementData.map((point) => {
+            'measurementPoint': point.measurementPoint,
+            'description': point.description,
+            'unit': point.unit,
+            'isReadingRequired': false,
+          }).toList());
+          showMeasurementButton.value = true;
+        } else {
+          showMeasurementButton.value = false;
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading functional location details: $e');
+    }
+  }
+
+  Future<void> onMaintenanceFmecaSystemChanged(String? value) async {
+    if (value == null || value.isEmpty) return;
+
+    try {
+      selectedFmecaSubsystem.value = '';
+      fmecaSubsystemController.clear();
+      fmecaSubsystemList.clear();
+
+      // For now, use existing subsystem loading logic from functional location details
+      // The subsystems are typically loaded when functional location is selected
+      // This can be enhanced to call a specific subsystem API if needed
+
+      // Use existing fmecaSubsystemList if already populated
+      if (fmecaSubsystemList.isEmpty) {
+        // Load some default subsystems or wait for functional location selection
+        fmecaSubsystemList.assignAll([
+          LabelValue(label: 'Select', value: ''),
+          LabelValue(label: 'Subsystem 1', value: '1'),
+          LabelValue(label: 'Subsystem 2', value: '2'),
+        ]);
+      }
+
+      // Auto-select if only one subsystem
+      if (fmecaSubsystemList.length == 2) { // Select + one subsystem
+        selectedFmecaSubsystem.value = fmecaSubsystemList[1].label ?? '';
+        fmecaSubsystemController.text = fmecaSubsystemList[1].label ?? '';
+      }
+    } catch (e) {
+      debugPrint('Error loading subsystems: $e');
+    }
+  }
+
+  Future<void> onEquipmentChanged(String? value) async {
+    selectedEquipmentNumber.value = value ?? '';
+  }
+
+  Future<void> onJointInspectionDepartmentChanged(String? value) async {
+    if (value == null || value.isEmpty) return;
+
+    selectedJointDept.value = value;
+    selectedJointAssignTo.value = '';
+    jointUserList.clear();
+
+    // Load users for the selected department
+    await _loadJointInspectionUsers(value);
+  }
+
+  Future<void> _loadJointInspectionUsers(String department) async {
+    try {
+      final failureService = FailureService();
+      final response = await failureService.getPersonResponsible(departmentId.value!);
+      if (response.users != null && response.users!.isNotEmpty) {
+        jointUserList.assignAll([
+          LabelValue(label: 'Select', value: ''),
+          ...response.users!,
+        ]);
+      }
+    } catch (e) {
+      debugPrint('Error loading joint inspection users: $e');
     }
   }
 }

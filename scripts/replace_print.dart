@@ -1,7 +1,7 @@
 import 'dart:io';
 
 void main() {
-  final dir = Directory('lib');
+  final dir = Directory('lib2');
   int count = 0;
 
   for (final file in dir.listSync(recursive: true)) {

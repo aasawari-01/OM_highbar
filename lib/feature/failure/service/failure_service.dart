@@ -13,8 +13,6 @@ import '../model/failure_detail_response.dart';
 import '../model/joint_inspection_history.dart';
 import '../model/asset_qr_response.dart';
 
-
-
 class FailureService {
   final ApiClient _apiClient = ApiClient();
 
@@ -38,7 +36,7 @@ class FailureService {
           'StationId': stationId.toString(),
         },
       );
-      
+
       if (response.statusCode == 200) {
         final body = jsonDecode(response.body) as Map<String, dynamic>;
         return body['responseCode'] == 200 || body['success'] == true;
@@ -56,11 +54,12 @@ class FailureService {
   Future<int> getUserId() async =>
       int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
 
-  Future<String> _userName() async =>
-      await AuthManager().getUserName() ?? '';
+  Future<String> _userName() async => await AuthManager().getUserName() ?? '';
 
-  List<JointInspectionHistory> _mapJIHistory(List<dynamic> raw) =>
-      raw.map<JointInspectionHistory>((e) => JointInspectionHistory.fromJson(e as Map<String, dynamic>)).toList();
+  List<JointInspectionHistory> _mapJIHistory(List<dynamic> raw) => raw
+      .map<JointInspectionHistory>(
+          (e) => JointInspectionHistory.fromJson(e as Map<String, dynamic>))
+      .toList();
 
   // ── JE Failure ────────────────────────────────────────────────────────────
 
@@ -68,7 +67,7 @@ class FailureService {
   Future<FailureDetailResponse> getFailureDetails(String failureNo) async {
     final userId = await _userId();
     final body = {'AssignedUserId': userId, 'Id': failureNo};
-    
+
     debugPrint("========================================");
     debugPrint("JE CHANGE NOTIFICATION API CALL");
     debugPrint("========================================");
@@ -76,29 +75,31 @@ class FailureService {
     debugPrint("Request Body: $body");
     debugPrint("UserId: $userId");
     debugPrint("FailureNo: $failureNo");
-    
+
     final response = await _apiClient.post(
       AppUrls.jeChangeNotification,
       body: body,
     );
-    
+
     debugPrint("Response Status Code: ${response.statusCode}");
     debugPrint("Response Body: ${response.body}");
-    
+
     if (response.statusCode != 200) {
       debugPrint("API Error: Server returned status ${response.statusCode}");
       throw Exception('Server error: ${response.statusCode}');
     }
-    
+
     final parsedResponse = jsonDecode(response.body) as Map<String, dynamic>;
     debugPrint("Parsed Response: $parsedResponse");
 
     // Check inside responseOutput.getCreateVMModel first
-    final responseOutput = parsedResponse['responseOutput'] as Map<String, dynamic>?;
-    
+    final responseOutput =
+    parsedResponse['responseOutput'] as Map<String, dynamic>?;
+
     // Log the getCreateVMModel structure
     if (responseOutput != null) {
-      final createVMModel = responseOutput['getCreateVMModel'] as Map<String, dynamic>?;
+      final createVMModel =
+      responseOutput['getCreateVMModel'] as Map<String, dynamic>?;
       if (createVMModel != null) {
         debugPrint("=== getCreateVMModel keys ===");
         debugPrint(createVMModel.keys.toString());
@@ -109,45 +110,52 @@ class FailureService {
         debugPrint("SubSystem: ${createVMModel['SubSystem']}");
       }
     }
-    
+
     // Extract FailureRectificationJson from the response
     // It can be either a String or a List/Array
     String? failureRectificationJson;
     if (responseOutput != null) {
-      final createVMModel = responseOutput['getCreateVMModel'] as Map<String, dynamic>?;
+      final createVMModel =
+      responseOutput['getCreateVMModel'] as Map<String, dynamic>?;
       if (createVMModel != null) {
         final rcaValue = createVMModel['failureRectificationJson'];
         if (rcaValue != null) {
           if (rcaValue is String) {
             failureRectificationJson = rcaValue;
-            debugPrint("Service - Found failureRectificationJson inside getCreateVMModel (String): ${failureRectificationJson?.length ?? 0} chars");
+            debugPrint(
+                "Service - Found failureRectificationJson inside getCreateVMModel (String): ${failureRectificationJson?.length ?? 0} chars");
           } else if (rcaValue is List) {
             failureRectificationJson = jsonEncode(rcaValue);
-            debugPrint("Service - Found failureRectificationJson inside getCreateVMModel (List converted to String): ${failureRectificationJson?.length ?? 0} chars");
+            debugPrint(
+                "Service - Found failureRectificationJson inside getCreateVMModel (List converted to String): ${failureRectificationJson?.length ?? 0} chars");
           }
         }
       }
     }
-    
+
     // If not found in getCreateVMModel, try top-level as fallback
     if (failureRectificationJson == null) {
       final rcaValue = parsedResponse['FailureRectificationJson'];
       if (rcaValue != null) {
         if (rcaValue is String) {
           failureRectificationJson = rcaValue;
-          debugPrint("Service - Found failureRectificationJson at top-level (String): ${failureRectificationJson?.length ?? 0} chars");
+          debugPrint(
+              "Service - Found failureRectificationJson at top-level (String): ${failureRectificationJson?.length ?? 0} chars");
         } else if (rcaValue is List) {
           failureRectificationJson = jsonEncode(rcaValue);
-          debugPrint("Service - Found failureRectificationJson at top-level (List converted to String): ${failureRectificationJson?.length ?? 0} chars");
+          debugPrint(
+              "Service - Found failureRectificationJson at top-level (List converted to String): ${failureRectificationJson?.length ?? 0} chars");
         }
       }
     }
-    
-    debugPrint("Service - Final FailureRectificationJson: ${failureRectificationJson?.length ?? 0} chars");
-    
+
+    debugPrint(
+        "Service - Final FailureRectificationJson: ${failureRectificationJson?.length ?? 0} chars");
+
     // Create response with the extracted FailureRectificationJson
-    final failureDetailResponse = FailureDetailResponse.fromJson(parsedResponse);
-    
+    final failureDetailResponse =
+    FailureDetailResponse.fromJson(parsedResponse);
+
     // Override the failureRectificationJson with the extracted value
     final updatedResponse = FailureDetailResponse(
       responseCode: failureDetailResponse.responseCode,
@@ -155,46 +163,58 @@ class FailureService {
       responseOutput: failureDetailResponse.responseOutput,
       failureRectificationJson: failureRectificationJson,
     );
-    
-    debugPrint("FailureDetailResponse - responseCode: ${updatedResponse.responseCode}");
-    debugPrint("FailureDetailResponse - responseMessage: ${updatedResponse.responseMessage}");
-    debugPrint("FailureDetailResponse - responseOutput available: ${updatedResponse.responseOutput != null}");
-    debugPrint("FailureDetailResponse - failureRectificationJson available: ${updatedResponse.failureRectificationJson != null}");
-    
+
+    debugPrint(
+        "FailureDetailResponse - responseCode: ${updatedResponse.responseCode}");
+    debugPrint(
+        "FailureDetailResponse - responseMessage: ${updatedResponse.responseMessage}");
+    debugPrint(
+        "FailureDetailResponse - responseOutput available: ${updatedResponse.responseOutput != null}");
+    debugPrint(
+        "FailureDetailResponse - failureRectificationJson available: ${updatedResponse.failureRectificationJson != null}");
+
     if (updatedResponse.responseOutput != null) {
       final output = updatedResponse.responseOutput!;
       debugPrint("Response Output Details:");
       debugPrint("  - CreateVMModel: ${output.getCreateVMModel != null}");
-      debugPrint("  - DepartmentList: ${output.getDepartmentList?.length ?? 0} items");
+      debugPrint(
+          "  - DepartmentList: ${output.getDepartmentList?.length ?? 0} items");
       debugPrint("  - UserList: ${output.getUserList?.length ?? 0} items");
       debugPrint("  - ObjectData: ${output.getObjectData?.length ?? 0} items");
-      debugPrint("  - MaterialData: ${output.getMaterialData?.length ?? 0} items");
-      debugPrint("  - NotificationHistory: ${output.getNotificationHistory?.length ?? 0} items");
-      debugPrint("  - JoinInspectionHistory: ${output.getJoinInspectionHistory?.length ?? 0} items");
+      debugPrint(
+          "  - MaterialData: ${output.getMaterialData?.length ?? 0} items");
+      debugPrint(
+          "  - NotificationHistory: ${output.getNotificationHistory?.length ?? 0} items");
+      debugPrint(
+          "  - JoinInspectionHistory: ${output.getJoinInspectionHistory?.length ?? 0} items");
     }
-    
+
     if (failureDetailResponse.responseOutput != null) {
       final output = failureDetailResponse.responseOutput!;
       debugPrint("Response Output Details:");
       debugPrint("  - CreateVMModel: ${output.getCreateVMModel != null}");
-      debugPrint("  - DepartmentList: ${output.getDepartmentList?.length ?? 0} items");
+      debugPrint(
+          "  - DepartmentList: ${output.getDepartmentList?.length ?? 0} items");
       debugPrint("  - UserList: ${output.getUserList?.length ?? 0} items");
       debugPrint("  - ObjectData: ${output.getObjectData?.length ?? 0} items");
-      debugPrint("  - MaterialData: ${output.getMaterialData?.length ?? 0} items");
-      debugPrint("  - NotificationHistory: ${output.getNotificationHistory?.length ?? 0} items");
-      debugPrint("  - JoinInspectionHistory: ${output.getJoinInspectionHistory?.length ?? 0} items");
+      debugPrint(
+          "  - MaterialData: ${output.getMaterialData?.length ?? 0} items");
+      debugPrint(
+          "  - NotificationHistory: ${output.getNotificationHistory?.length ?? 0} items");
+      debugPrint(
+          "  - JoinInspectionHistory: ${output.getJoinInspectionHistory?.length ?? 0} items");
     }
-    
+
     debugPrint("========================================");
-    
+
     return updatedResponse;
   }
 
   /// Submits the JE failure update with optional image files.
   Future<void> updateJEFailure(
-    Map<String, dynamic> payload, {
-    List<http.MultipartFile> files = const [],
-  }) async {
+      Map<String, dynamic> payload, {
+        List<http.MultipartFile> files = const [],
+      }) async {
     final headers = await _authHeaders();
     final response = await _apiClient.postMultipart(
       AppUrls.updateChangeNotificationJE,
@@ -224,8 +244,7 @@ class FailureService {
 
   /// Returns root-cause and action-taken lists for a given object/fault pair.
   Future<({List<LabelValue> rootCauses, List<LabelValue> actionTaken})>
-      getRootCauseAndAction(
-          String objectCodeId, String faultCodeId) async {
+  getRootCauseAndAction(String objectCodeId, String faultCodeId) async {
     final response = await _apiClient.post(
       AppUrls.getRootCauseAndActionList,
       body: {'ObjectCodeId': objectCodeId, 'FaultCodeId': faultCodeId},
@@ -234,9 +253,8 @@ class FailureService {
         jsonDecode(response.body) as Map<String, dynamic>);
     if (result.responseCode == 200 && result.responseOutput != null) {
       return (
-        rootCauses:
-            result.responseOutput!.getRootCausetData ?? <LabelValue>[],
-        actionTaken: result.responseOutput!.getActionData ?? <LabelValue>[],
+      rootCauses: result.responseOutput!.getRootCausetData ?? <LabelValue>[],
+      actionTaken: result.responseOutput!.getActionData ?? <LabelValue>[],
       );
     }
     throw Exception(result.responseMessage ?? 'Failed to load RCA data');
@@ -244,12 +262,133 @@ class FailureService {
 
   // ── Station Failure ───────────────────────────────────────────────────────
 
+  /// Gets functional location details for maintenance form
+  Future<FunctionalLocationDetailsResponse> getFunctionalLocationDetails(
+      String functionLocationId) async {
+    print("functionLocationId==+$functionLocationId");
+    final response = await _apiClient.post(
+      AppUrls.getFunctionEqDetailsById,
+      body: {'FunctionLocationId': functionLocationId},
+    );
 
+    if (response.statusCode != 200) {
+      throw Exception(
+          'Failed to load functional location details: ${response.statusCode}');
+    }
+
+    final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+    return FunctionalLocationDetailsResponse.fromJson(responseBody);
+  }
+
+  /// Gets subsystems for a given system (reusing existing JE API)
+  Future<SubsystemsResponse> getSubsystems(String system) async {
+    final response = await _apiClient.post(
+      AppUrls.jeChangeNotification,
+      body: {'System': system},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load subsystems: ${response.statusCode}');
+    }
+
+    final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+    return SubsystemsResponse.fromJson(responseBody);
+  }
+
+  /// Gets person responsible users for a department (reusing existing API)
+  Future<PersonResponsibleResponse> getPersonResponsible(
+      int departmentId) async {
+    final response = await _apiClient.post(
+      AppUrls.getFunctionLocEquipmentNoByDeptId,
+      body: {'DeptId': departmentId},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception(
+          'Failed to load person responsible: ${response.statusCode}');
+    }
+
+    final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+    return PersonResponsibleResponse.fromJson(responseBody);
+  }
+
+  /// Gets users by department ID (reusing existing API)
+  Future<PersonResponsibleResponse> getUsersByDepartmentId(
+      int departmentId, String userId) async {
+    final response = await _apiClient.post(
+      AppUrls.getFunctionLocEquipmentNoByDeptId,
+      body: {'DeptId': departmentId, 'UserId': userId},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load users: ${response.statusCode}');
+    }
+
+    final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+    return PersonResponsibleResponse.fromJson(responseBody);
+  }
+
+  /// Gets nature of work data for department ID 3 (placeholder for now)
+  Future<NatureOfWorkResponse> getNatureOfWorkData(int departmentId) async {
+    // For now, return a mock response since the specific API may not exist
+    return NatureOfWorkResponse(
+      natureOfWorkList: [
+        LabelValue(label: 'Routine Maintenance', value: '1'),
+        LabelValue(label: 'Breakdown Maintenance', value: '2'),
+        LabelValue(label: 'Preventive Maintenance', value: '3'),
+      ],
+      failureTypeList: [
+        LabelValue(label: 'Major', value: '1'),
+        LabelValue(label: 'Minor', value: '2'),
+        LabelValue(label: 'Critical', value: '3'),
+      ],
+    );
+  }
+
+  /// Gets lookup data for creating a new notification
+  /// Returns getNatureOfWorkList and getNotificationTypeList for dropdowns
+  Future<FailureDetailResponse> getLookupCreateCorrNotification() async {
+    final userId = await _userId();
+    debugPrint(
+        "getLookupCreateCorrNotification: Starting API call with userId=$userId");
+
+    try {
+      final response = await _apiClient
+          .get(
+        '${AppUrls.getLookupCreateCorrNotification}?AssgineUserId=$userId',
+      )
+          .timeout(
+        const Duration(seconds: 60),
+        onTimeout: () {
+          debugPrint(
+              "getLookupCreateCorrNotification: Request timed out after 60 seconds");
+          throw Exception('Request timed out after 60 seconds');
+        },
+      );
+
+      debugPrint(
+          "getLookupCreateCorrNotification: Response status: ${response.statusCode}");
+      debugPrint(
+          "getLookupCreateCorrNotification: Response body: ${response.body}");
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to load lookup data: ${response.statusCode}');
+      }
+
+      return FailureDetailResponse.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>,
+      );
+    } catch (e) {
+      debugPrint("getLookupCreateCorrNotification: Error occurred: $e");
+      rethrow;
+    }
+  }
 
   /// Creates a new station failure. Returns the created failure number.
   Future<String?> createStationFailure(Map<String, dynamic> payload) async {
     final headers = await _authHeaders();
-    debugPrint("createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
+    debugPrint(
+        "createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
     debugPrint("createStationFailure: Request headers: $headers");
     debugPrint("createStationFailure: Request payload: $payload");
     final response = await _apiClient.postMultipart(
@@ -267,6 +406,132 @@ class FailureService {
     if (body['responseCode'] != 200) {
       throw Exception(
           body['responseMessage'] ?? 'Failed to create station failure');
+    }
+    return body['responseOutput']?.toString();
+  }
+
+  /// Dropdown data for the OCC failure create form (same call the web page
+  /// makes on load, with Id = 0 because nothing exists yet).
+  Future<Map<String, dynamic>> getOccCreateLookups() async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getOccFailureLookups,
+      headers: headers,
+      body: {
+        'Id': 0,
+        'UserId': userId,
+        'DepartmentIds': '',
+        'Action': '',
+        'LocationId': 0,
+        'deptNotificationId': 0,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load OCC failure lookups');
+    }
+    return body['responseOutput'] as Map<String, dynamic>;
+  }
+
+  /// FMC user's OCC failure inbox. Returns the raw rows; the response may be a
+  /// plain list or an object that holds the list, so both are handled.
+  Future<List<Map<String, dynamic>>> getOccFailureInbox() async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getOccFailureInbox,
+      headers: headers,
+      body: {
+        'action': 'FailureInboxList',
+        'userId': userId,
+        'startDate': null,
+        'endDate': null,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load failures');
+    }
+    final out = body['responseOutput'];
+    Iterable? rows;
+    if (out is List) {
+      rows = out;
+    } else if (out is Map) {
+      for (final k in const [
+        'failureInboxList', 'failureList', 'inboxList', 'getFailureList', 'list'
+      ]) {
+        if (out[k] is List) {
+          rows = out[k] as List;
+          break;
+        }
+      }
+      if (rows == null) {
+        final lists = out.values.whereType<List>().toList();
+        if (lists.isNotEmpty) rows = lists.first;
+      }
+    }
+    return (rows ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// Loads one OCC failure (plus its lookups, history and images) for the FMC
+  /// update screen. `id` is the failure's id string from the list.
+  Future<Map<String, dynamic>> getOccFailureById(String id) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getOccFailureLookups,
+      headers: headers,
+      body: {
+        'Id': id,
+        'UserId': userId,
+        'DepartmentIds': '',
+        'Action': '',
+        'LocationId': 0,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load OCC failure details');
+    }
+    return body['responseOutput'] as Map<String, dynamic>;
+  }
+
+  /// Creates an OCC failure. Mirrors the web page: the JSON goes in the
+  /// `FailureCreationDetails` field and "before" images in `beforImage`
+  /// (spelling is the server's). Returns the generated failure number.
+  Future<String?> createOccFailure(
+    Map<String, dynamic> payload, {
+    List<http.MultipartFile> files = const [],
+  }) async {
+    final headers = await _authHeaders();
+    final response = await _apiClient.postMultipart(
+      AppUrls.createOccFailure,
+      headers: headers,
+      fields: {'FailureCreationDetails': jsonEncode(payload)},
+      files: files,
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to create OCC failure: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseMessage'] != 'Success' && body['responseCode'] != 200) {
+      throw Exception(
+          body['responseMessage']?.toString() ?? 'Failed to create OCC failure');
     }
     return body['responseOutput']?.toString();
   }
@@ -296,11 +561,14 @@ class FailureService {
       final dbService = LocalDatabaseService();
       final localStations = await dbService.getStations();
       if (localStations.isNotEmpty) {
-        debugPrint("getStationNames: Loaded ${localStations.length} stations from local DB");
-        return localStations.map((e) => LabelValue(
+        debugPrint(
+            "getStationNames: Loaded ${localStations.length} stations from local DB");
+        return localStations
+            .map((e) => LabelValue(
           label: e['stationLabel']?.toString() ?? '',
           value: e['stationValue']?.toString() ?? '',
-        )).toList();
+        ))
+            .toList();
       }
     } catch (e) {
       debugPrint("getStationNames: Error loading from local DB: $e");
@@ -309,45 +577,86 @@ class FailureService {
     // Fallback to API if local data is not available
     debugPrint("getStationNames: No local data, fetching from API");
     final userId = await AuthManager().getUserId() ?? '1';
-    final response = await _apiClient
-        .get('${AppUrls.getStationName}?AssgineUserId=$userId');
+    final response =
+    await _apiClient.get('${AppUrls.getStationName}?AssgineUserId=$userId');
     if (response.statusCode != 200) return [];
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     if (body['responseCode'] == 200 && body['responseOutput'] != null) {
       final stations = (body['responseOutput'] as List)
           .map((e) => LabelValue(
-                label: e['label']?.toString() ?? '',
-                value: e['value']?.toString() ?? '',
-              ))
+        label: e['label']?.toString() ?? '',
+        value: e['value']?.toString() ?? '',
+      ))
           .toList();
-      
+
       // Save stations to local database for offline access
       try {
         final dbService = LocalDatabaseService();
-        final stationMaps = stations.map((s) => {
+        final stationMaps = stations
+            .map((s) => {
           'label': s.label,
           'value': s.value,
-        }).toList();
+        })
+            .toList();
         await dbService.insertStations(stationMaps);
-        debugPrint("getStationNames: Saved ${stations.length} stations to local DB");
+        debugPrint(
+            "getStationNames: Saved ${stations.length} stations to local DB");
       } catch (e) {
         debugPrint("getStationNames: Error saving to local DB: $e");
       }
-      
+
       return stations;
     }
     return [];
   }
 
-  /// Returns station failure details for a given failure ID.
-  Future<Map<String, dynamic>> getStationFailureDetails(String id) async {
+  // ── Depot Failure (DCC) ───────────────────────────────────────────────────
+
+  /// Returns depots for the depot picker popup.
+  Future<List<LabelValue>> getDepotNames() async {
+    final userId = await _userId();
+    final response =
+    await _apiClient.get('${AppUrls.getDepotLookup}?UserId=$userId');
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] == 200 && body['responseOutput'] is List) {
+      return (body['responseOutput'] as List)
+          .whereType<Map>()
+          .map((e) => LabelValue(
+        label: e['label']?.toString() ?? '',
+        value: e['value']?.toString() ?? '',
+      ))
+          .toList();
+    }
+    return [];
+  }
+
+  /// Saves the depot the DCC user picked.
+  Future<bool> saveUserDepot(int depotId) async {
     final userId = await _userId();
     final response = await _apiClient.post(
-      AppUrls.insertChangeDepartmentFailure,
+      AppUrls.insertUserDepotSelection,
+      body: {'CreatedBy': userId, 'DepotId': depotId},
+    );
+    if (response.statusCode != 200) return false;
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return body['responseCode'] == 200 || body['success'] == true;
+  }
+
+  /// Loads one depot failure (details, history, images). `id` is the
+  /// encrypted failure id from the depot list.
+  Future<Map<String, dynamic>> getDepotFailureById(String id) async {
+    final userId = await _userId();
+    final response = await _apiClient.post(
+      AppUrls.getDepotFailureById,
       body: {
         'Id': id,
         'UserId': userId,
-        'Action': 'GetStationFailureDetails'
+        'DepartmentIds': '',
+        'Action': '',
+        'LocationId': 0,
       },
     );
     if (response.statusCode != 200) {
@@ -355,62 +664,167 @@ class FailureService {
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     if (body['responseCode'] != 200 || body['responseOutput'] == null) {
-      throw Exception(body['responseMessage'] ?? 'Failed to load station failure details');
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load depot failure details');
+    }
+    return body['responseOutput'] as Map<String, dynamic>;
+  }
+
+  /// Creates a depot failure. The JSON goes in `DepotFailureCreationDetails`
+  /// and "before" images in `beforImage` (spelling is the server's).
+  Future<String?> createDepotFailure(
+      Map<String, dynamic> payload, {
+        List<http.MultipartFile> files = const [],
+      }) async {
+    final headers = await _authHeaders();
+    final response = await _apiClient.postMultipart(
+      AppUrls.createDepotFailure,
+      headers: headers,
+      fields: {'DepotFailureCreationDetails': jsonEncode(payload)},
+      files: files,
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to create depot failure: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseMessage'] != 'Success' && body['responseCode'] != 200) {
+      throw Exception(
+          body['responseMessage']?.toString() ?? 'Failed to create depot failure');
+    }
+    return body['responseOutput']?.toString();
+  }
+
+  /// Depot failure list for the selected depot. Returns the raw rows; the
+  /// response may be a plain list or an object holding the list.
+  Future<List<Map<String, dynamic>>> getDepotFailureList(int depotId) async {
+    final userId = await _userId();
+    final response = await _apiClient.post(
+      AppUrls.getDepotFailureList,
+      body: {
+        'locationId': 0,
+        'depotId': depotId,
+        'userId': userId,
+        'departmentIds': '',
+        'action': '',
+        'id': '',
+        'startDate': null,
+        'endDate': null,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load depot failures');
+    }
+    final out = body['responseOutput'];
+    Iterable? rows;
+    if (out is List) {
+      rows = out;
+    } else if (out is Map) {
+      for (final k in const [
+        'depotFailureList', 'failureList', 'failureInboxList', 'list'
+      ]) {
+        if (out[k] is List) {
+          rows = out[k] as List;
+          break;
+        }
+      }
+      if (rows == null) {
+        final lists = out.values.whereType<List>().toList();
+        if (lists.isNotEmpty) rows = lists.first;
+      }
+    }
+    return (rows ?? const [])
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// Returns station failure details for a given failure ID.
+  Future<Map<String, dynamic>> getStationFailureDetails(String id) async {
+    final userId = await _userId();
+    final response = await _apiClient.post(
+      AppUrls.insertChangeDepartmentFailure,
+      body: {'Id': id, 'UserId': userId, 'Action': 'GetStationFailureDetails'},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load station failure details');
     }
     return body['responseOutput'] as Map<String, dynamic>;
   }
 
   /// Fetches station failure list from API with data
   /// If lastSyncDate is null, fetches all data. If provided, fetches only data after that date.
-  Future<List<Map<String, dynamic>>> getStationFailureListWithData({String? lastSyncDate}) async {
+  Future<List<Map<String, dynamic>>> getStationFailureListWithData(
+      {String? lastSyncDate}) async {
     final userId = await _userId();
-    debugPrint("getStationFailureListWithData: Calling API with UserId=$userId, lastSyncDate=$lastSyncDate");
-    debugPrint("getStationFailureListWithData: API endpoint: ${AppUrls.getStationFailureListWithData}");
-    
+    debugPrint(
+        "getStationFailureListWithData: Calling API with UserId=$userId, lastSyncDate=$lastSyncDate");
+    debugPrint(
+        "getStationFailureListWithData: API endpoint: ${AppUrls.getStationFailureListWithData}");
+
     final body = <String, dynamic>{'UserId': userId};
-    if (lastSyncDate != null) {
-      body['lastSyncDate'] = lastSyncDate;
-    }
-    
+    // if (lastSyncDate != null) {
+    //   body['lastSyncDate'] = lastSyncDate;
+    // }
+
     try {
-      debugPrint("getStationFailureListWithData: About to call _apiClient.post() with 10 second timeout");
-      final response = await _apiClient.post(
+      debugPrint(
+          "getStationFailureListWithData: About to call _apiClient.post() with 10 second timeout");
+      final response = await _apiClient
+          .post(
         AppUrls.getStationFailureListWithData,
         body: body,
-      ).timeout(const Duration(seconds: 10), onTimeout: () {
+      )
+          .timeout(const Duration(seconds: 10), onTimeout: () {
         debugPrint("getStationFailureListWithData: TIMEOUT after 10 seconds");
         throw Exception('Request timed out after 10 seconds');
       });
       debugPrint("getStationFailureListWithData: API call completed");
-      
-      debugPrint("getStationFailureListWithData: Response status: ${response.statusCode}");
-      debugPrint("getStationFailureListWithData: Response body: ${response.body}");
-      
+
+      debugPrint(
+          "getStationFailureListWithData: Response status: ${response.statusCode}");
+      debugPrint(
+          "getStationFailureListWithData: Response body: ${response.body}");
+
       if (response.statusCode != 200) {
-        debugPrint("getStationFailureListWithData: API call failed with status ${response.statusCode}");
+        debugPrint(
+            "getStationFailureListWithData: API call failed with status ${response.statusCode}");
         throw Exception('Server error: ${response.statusCode}');
       }
-      
+
       final bodyJson = jsonDecode(response.body) as Map<String, dynamic>;
-      debugPrint("getStationFailureListWithData: Parsed response: success=${bodyJson['success']}, message=${bodyJson['message']}");
-      
+      debugPrint(
+          "getStationFailureListWithData: Parsed response: success=${bodyJson['success']}, message=${bodyJson['message']}");
+
       // Handle the actual response structure: {success: true, message: "...", data: {stationFailureList: []}}
       if (bodyJson['success'] == true && bodyJson['data'] != null) {
         final data = bodyJson['data'] as Map<String, dynamic>;
         final failureList = data['stationFailureList'];
-        debugPrint("getStationFailureListWithData: stationFailureList type: ${failureList.runtimeType}");
-        
+        debugPrint(
+            "getStationFailureListWithData: stationFailureList type: ${failureList.runtimeType}");
+
         if (failureList is List) {
-          debugPrint("getStationFailureListWithData: Returning list with ${failureList.length} items");
+          debugPrint(
+              "getStationFailureListWithData: Returning list with ${failureList.length} items");
           return failureList.cast<Map<String, dynamic>>();
         }
       }
-      
-      debugPrint("getStationFailureListWithData: No valid data found in response");
+
+      debugPrint(
+          "getStationFailureListWithData: No valid data found in response");
       return [];
     } catch (e) {
       debugPrint("getStationFailureListWithData: Exception occurred: $e");
-      debugPrint("getStationFailureListWithData: Exception type: ${e.runtimeType}");
+      debugPrint(
+          "getStationFailureListWithData: Exception type: ${e.runtimeType}");
       rethrow;
     }
   }
@@ -503,7 +917,7 @@ class FailureService {
     final userId = await _userId();
     final response = await _apiClient.get(
       '${AppUrls.getJointInspectionJEScreenDetails}'
-      '?notificationID=$failureNo&userId=$userId',
+          '?notificationID=$failureNo&userId=$userId',
     );
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
@@ -511,7 +925,18 @@ class FailureService {
     return FailureDetailResponse.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
-
+  /// Raw JSON version so jeScreenDetails is not lost.
+  Future<Map<String, dynamic>> getJIScreenDetailsRaw(String failureNo) async {
+    final userId = await _userId();
+    final response = await _apiClient.get(
+      '${AppUrls.getJointInspectionJEScreenDetails}'
+          '?notificationID=$failureNo&userId=$userId',
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
   /// Submits joint-inspection JE screen data. Returns the response message.
   Future<String> submitJIScreenData(Map<String, dynamic> payload) async {
     final headers = await _authHeaders();
@@ -536,7 +961,7 @@ class FailureService {
     final createdBy = await _userId();
     final response = await _apiClient.get(
       '${AppUrls.getFunctionLocEquipmentNoByDeptIdJI}'
-      '?deptId=$deptId&createdBy=$createdBy',
+          '?deptId=$deptId&createdBy=$createdBy',
     );
     if (response.statusCode != 200) return [];
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -553,8 +978,7 @@ class FailureService {
     return userListJson
         .map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
         .where((u) =>
-            u.value != '0' &&
-            u.label?.trim().toLowerCase() != 'select user')
+    u.value != '0' && u.label?.trim().toLowerCase() != 'select user')
         .toList();
   }
 
@@ -626,7 +1050,8 @@ class FailureService {
   }
 
   /// Returns the full RST failure response (rstFetchData + related lists)
-  Future<RstFailureFullResponse> getRstFailureFullData(int notificationId) async {
+  Future<RstFailureFullResponse> getRstFailureFullData(
+      int notificationId) async {
     final response = await _apiClient.post(
       '${AppUrls.getRSTFailureData}?NotificationId=$notificationId',
       body: {},
@@ -640,11 +1065,13 @@ class FailureService {
     if (body['success'] != true || body['data'] == null) {
       throw Exception(body['message'] ?? 'Failed to load RST failure data');
     }
-    return RstFailureFullResponse.fromJson(body['data'] as Map<String, dynamic>);
+    return RstFailureFullResponse.fromJson(
+        body['data'] as Map<String, dynamic>);
   }
 
   /// Returns MCD required quantity for RST material selection
-  Future<Map<String, dynamic>> getMCDRequiredQuantity(int objectCodeId, int faultCodeId) async {
+  Future<Map<String, dynamic>> getMCDRequiredQuantity(
+      int objectCodeId, int faultCodeId) async {
     final response = await _apiClient.post(
       AppUrls.getMCDRequiredQuantity,
       body: {'ObjectCodeId': objectCodeId, 'FaultCodeId': faultCodeId},
@@ -654,13 +1081,15 @@ class FailureService {
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     if (body['responseCode'] != 200 || body['responseOutput'] == null) {
-      throw Exception(body['responseMessage'] ?? 'Failed to load MCD required quantity');
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load MCD required quantity');
     }
     return body['responseOutput'] as Map<String, dynamic>;
   }
 
   /// Returns material balanced quantity for RST store location selection
-  Future<Map<String, dynamic>> getMaterialBalancedQty(int materialId, int storageLocationId, int userId) async {
+  Future<Map<String, dynamic>> getMaterialBalancedQty(
+      int materialId, int storageLocationId, int userId) async {
     final response = await _apiClient.post(
       AppUrls.getMaterialBalancedQty,
       body: {
@@ -675,7 +1104,8 @@ class FailureService {
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     if (body['responseCode'] != 200 || body['responseOutput'] == null) {
-      throw Exception(body['responseMessage'] ?? 'Failed to load material balanced quantity');
+      throw Exception(body['responseMessage'] ??
+          'Failed to load material balanced quantity');
     }
     return body['responseOutput'] as Map<String, dynamic>;
   }
@@ -807,10 +1237,15 @@ class FailureService {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     debugPrint("body---$body");
     if (body['responseCode'] == 200 || body['success'] == true) {
-      return (body['responseMessage'] ?? body['message'] ?? 'Submitted successfully').toString();
+      return (body['responseMessage'] ??
+          body['message'] ??
+          'Submitted successfully')
+          .toString();
     }
-    throw Exception(body['responseMessage'] ?? body['message'] ?? 'Submission failed');
+    throw Exception(
+        body['responseMessage'] ?? body['message'] ?? 'Submission failed');
   }
+
   /// Submits Part D (RCA + material required/dismantle/swapped) for an RST notification.
   Future<String> updateNotificationRSTRCAMaterialJE(
       Map<String, dynamic> payload) async {
@@ -827,9 +1262,13 @@ class FailureService {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     debugPrint("updateNotificationRSTRCAMaterialJE response---$body");
     if (body['responseCode'] == 200 || body['success'] == true) {
-      return (body['responseMessage'] ?? body['message'] ?? 'Submitted successfully').toString();
+      return (body['responseMessage'] ??
+          body['message'] ??
+          'Submitted successfully')
+          .toString();
     }
-    throw Exception(body['responseMessage'] ?? body['message'] ?? 'Submission failed');
+    throw Exception(
+        body['responseMessage'] ?? body['message'] ?? 'Submission failed');
   }
 
   String _formatDdMmYyyyHm(DateTime dt) {
@@ -872,9 +1311,13 @@ class FailureService {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     debugPrint("updateRstNotificationCompletion response---$body");
     if (body['responseCode'] == 200 || body['success'] == true) {
-      return (body['responseMessage'] ?? body['message'] ?? 'Submitted successfully').toString();
+      return (body['responseMessage'] ??
+          body['message'] ??
+          'Submitted successfully')
+          .toString();
     }
-    throw Exception(body['responseMessage'] ?? body['message'] ?? 'Submission failed');
+    throw Exception(
+        body['responseMessage'] ?? body['message'] ?? 'Submission failed');
   }
 
   /// Fetches all RST master data
@@ -891,20 +1334,18 @@ class FailureService {
   /// Fetches asset data by functional location ID for QR scan
   Future<AssetQrResponse> getAssetDataByFuncLocId(String funcLocId) async {
     final userId = await _userId();
-    debugPrint("getAssetDataByFuncLocId: Calling API with funcLocId=$funcLocId, userId=$userId");
-    
+    debugPrint(
+        "getAssetDataByFuncLocId: Calling API with funcLocId=$funcLocId, userId=$userId");
+
     final response = await _apiClient.post(
       AppUrls.getAllDataByFuncLocId,
-      body: {
-        "CreatedBy": userId,
-        "FuncLocId": funcLocId,
-        "IsSearchFilter": 0
-      },
+      body: {"CreatedBy": userId, "FuncLocId": funcLocId, "IsSearchFilter": 0},
     );
-    
-    debugPrint("getAssetDataByFuncLocId: Response status: ${response.statusCode}");
+
+    debugPrint(
+        "getAssetDataByFuncLocId: Response status: ${response.statusCode}");
     debugPrint("getAssetDataByFuncLocId: Response body: ${response.body}");
-    
+
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
     }
@@ -916,7 +1357,7 @@ class FailureService {
 
   /// Assign user to notification
   Future<bool> assignUserNotification({
-    required int notificationId,
+    required String notificationId,
     required int assignedUserId,
     required String description,
   }) async {
@@ -938,7 +1379,8 @@ class FailureService {
       body: body,
     );
 
-    debugPrint("assignUserNotification: Response status: ${response.statusCode}");
+    debugPrint(
+        "assignUserNotification: Response status: ${response.statusCode}");
     debugPrint("assignUserNotification: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
@@ -946,7 +1388,8 @@ class FailureService {
     }
 
     final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
-    return responseBody['responseCode'] == 200 && responseBody['responseOutput'] == true;
+    return responseBody['responseCode'] == 200 &&
+        responseBody['responseOutput'] == true;
   }
 
   /// Reject notification for duplicate
@@ -979,131 +1422,8 @@ class FailureService {
     }
 
     final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
-    return responseBody['responseCode'] == 200 && responseBody['responseOutput'] == true;
-  }
-
-  // ── Maintenance Form API Methods ─────────────────────────────────────────────
-
-  /// Returns person responsible list for a given department
-  Future<({List<LabelValue>? users, String? errorMessage})> getPersonResponsible(int departmentId) async {
-    try {
-      final response = await _apiClient.post(
-        AppUrls.getMasterData,
-        body: {'action': 'GetUserListByDept', 'deptId': departmentId},
-      );
-      if (response.statusCode != 200) {
-        throw Exception('Server error: ${response.statusCode}');
-      }
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (body['responseCode'] == 200 && body['responseOutput'] != null) {
-        final users = (body['responseOutput'] as List?)
-            ?.map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-            .toList();
-        return (users: users, errorMessage: null);
-      }
-      return (users: null, errorMessage: body['responseMessage']?.toString());
-    } catch (e) {
-      return (users: null, errorMessage: e.toString());
-    }
-  }
-
-  /// Returns functional location details including system, equipment, history, measurement points
-  Future<({FunctionalLocationDetails? details, String? errorMessage})> getFunctionalLocationDetails(
-    String functionalLocation,
-  ) async {
-    try {
-      final response = await _apiClient.post(
-        AppUrls.getFunctionalLocationDetails,
-        body: {'functionalLocation': functionalLocation},
-      );
-      if (response.statusCode != 200) {
-        throw Exception('Server error: ${response.statusCode}');
-      }
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (body['responseCode'] == 200 && body['responseOutput'] != null) {
-        final details = FunctionalLocationDetails.fromJson(
-          body['responseOutput'] as Map<String, dynamic>
-        );
-        return (details: details, errorMessage: null);
-      }
-      return (details: null, errorMessage: body['responseMessage']?.toString());
-    } catch (e) {
-      return (details: null, errorMessage: e.toString());
-    }
-  }
-
-  /// Returns subsystems filtered by selected system
-  Future<({List<LabelValue>? subsystems, String? errorMessage})> getSubsystems(String system) async {
-    try {
-      final response = await _apiClient.post(
-        AppUrls.getMasterData,
-        body: {'action': 'GetSubSystemData', 'system': system},
-      );
-      if (response.statusCode != 200) {
-        throw Exception('Server error: ${response.statusCode}');
-      }
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (body['responseCode'] == 200 && body['responseOutput'] != null) {
-        final subsystems = (body['responseOutput'] as List?)
-            ?.map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-            .toList();
-        return (subsystems: subsystems, errorMessage: null);
-      }
-      return (subsystems: null, errorMessage: body['responseMessage']?.toString());
-    } catch (e) {
-      return (subsystems: null, errorMessage: e.toString());
-    }
-  }
-
-  /// Returns nature of work and failure type data for department ID 3
-  Future<({List<LabelValue>? natureOfWorkList, List<LabelValue>? failureTypeList, String? errorMessage})> getNatureOfWorkData(int departmentId) async {
-    try {
-      final response = await _apiClient.post(
-        AppUrls.getMasterData,
-        body: {'action': 'GetNatureOfWorkData', 'deptId': departmentId},
-      );
-      if (response.statusCode != 200) {
-        throw Exception('Server error: ${response.statusCode}');
-      }
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (body['responseCode'] == 200 && body['responseOutput'] != null) {
-        final output = body['responseOutput'] as Map<String, dynamic>;
-        final natureOfWorkList = (output['natureOfWorkList'] as List?)
-            ?.map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-            .toList();
-        final failureTypeList = (output['failureTypeList'] as List?)
-            ?.map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
-            .toList();
-        return (natureOfWorkList: natureOfWorkList, failureTypeList: failureTypeList, errorMessage: null);
-      }
-      return (natureOfWorkList: null, failureTypeList: null, errorMessage: body['responseMessage']?.toString());
-    } catch (e) {
-      return (natureOfWorkList: null, failureTypeList: null, errorMessage: e.toString());
-    }
-  }
-
-  /// Submits maintenance form with optional attachments
-  Future<({bool success, String? errorMessage})> submitMaintenanceForm(
-    Map<String, dynamic> formData,
-  ) async {
-    try {
-      final headers = await _authHeaders();
-      final response = await _apiClient.postMultipart(
-        AppUrls.submitMaintenanceForm,
-        headers: headers,
-        fields: {'MaintenanceFormData': jsonEncode(formData)},
-      );
-      if (response.statusCode != 200) {
-        throw Exception('Server error: ${response.statusCode}');
-      }
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      if (body['responseCode'] == 200 || body['success'] == true) {
-        return (success: true, errorMessage: null);
-      }
-      return (success: false, errorMessage: body['responseMessage']?.toString() ?? body['message']?.toString());
-    } catch (e) {
-      return (success: false, errorMessage: e.toString());
-    }
+    return responseBody['responseCode'] == 200 &&
+        responseBody['responseOutput'] == true;
   }
 
   /// Delete notification
@@ -1136,7 +1456,8 @@ class FailureService {
     }
 
     final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
-    return responseBody['responseCode'] == 200 && responseBody['responseOutput'] == true;
+    return responseBody['responseCode'] == 200 &&
+        responseBody['responseOutput'] == true;
   }
 
   /// Send for correction with user assignment
@@ -1171,6 +1492,224 @@ class FailureService {
     }
 
     final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
-    return responseBody['responseCode'] == 200 && responseBody['responseOutput'] == true;
+    return responseBody['responseCode'] == 200 &&
+        responseBody['responseOutput'] == true;
+  }
+
+  // ── Maintenance Form Submission (Section Incharge) ────────────────────────────────────────
+
+  /// Submits maintenance failure notification for Section Incharge
+  Future<Map<String, dynamic>> submitMaintenanceNotificationForm(
+      Map<String, dynamic> formData) async {
+    final userId = await _userId();
+    final userName = await _userName();
+
+    debugPrint("========================================");
+    debugPrint("MAINTENANCE FORM SUBMISSION API CALL");
+    debugPrint("========================================");
+    debugPrint("API URL: ${AppUrls.createNotificationDetails}");
+    debugPrint("Request Body: $formData");
+    debugPrint("UserId: $userId, UserName: $userName");
+
+    final requestBody = {
+      'Description': formData['failureDescription'] ?? '',
+      'NatureOfWorkId': formData['natureOfWorkId'] ?? 0,
+      'TrainRunningKM': formData['trainRunningKM'],
+      'NotificationTypeId': formData['notificationTypeId'] ?? 0,
+      'FunctionLocationId': formData['functionLocationId'] ?? 0,
+      'EquipmentId': formData['equipmentId'] ?? 0,
+      'ActualFailureOccuranceOn':
+      formData['actualFailureOccuranceOn'] ?? '',
+      'AssignedUserId': formData['assignedUserId'] ?? userId,
+      'IsServiceAffected': formData['isServiceAffected'] ?? false,
+      'TrainDelayInMin': formData['trainDelayInMin'] ?? 0,
+      'TrainDelayInNo': formData['trainDelayInNo'] ?? 0,
+      'NoOfTranWithdrawal': formData['noOfTranWithdrawal'] ?? 0,
+      'NoOfTranCancel': formData['noOfTranCancel'] ?? 0,
+      'NoOfTrainReplace': formData['noOfTrainReplace'] ?? 0,
+      'IsPassengerDeboarding':
+      formData['isPassengerDeboarding'] ?? false,
+      'NoofTrainDeboarded':
+      formData['noofTrainDeboarded'] ?? 0,
+      'IsOHEReq': formData['isOHEReq'] ?? false,
+      'IsSICReq': formData['isSICReq'] ?? false,
+      'IsJointInspectionReq':
+      formData['isJointInspectionReq'] ?? false,
+      'AssignedUserId_JI':
+      formData['assignedUserId_JI'],
+      'DeptId_JI':
+      formData['deptId_JI'],
+      'DeptId': formData['deptId'] ?? 0,
+      'Remark_JE': formData['remarkJE'] ?? 0,
+      'CreatedBy': userId,
+      'IsPassengerAffected':
+      formData['isPassengerAffected'] ?? false,
+      'NoOfPassengerAffected':
+      formData['noOfPassengerAffected'],
+      'TrappedDuration':
+      formData['trappedDuration'],
+      'RescuedDuration':
+      formData['rescuedDuration'],
+      'LocationTypeId':
+      formData['locationTypeId'] ?? '',
+      'SystemDowntime':
+      formData['systemDowntime'] ?? '',
+      'MeasurementPointIds':
+      formData['measurementPointIds'] ?? '',
+      'PriorityId':
+      formData['priorityId'] ?? 0,
+      'AssignedUseeName':
+      formData['assignedUseeName'] ?? userName,
+      'LocationFailure':
+      formData['locationFailure'] ?? '',
+      'Corr_NotificationTypeId':
+      formData['corrNotificationTypeId'] ?? 0,
+      'System':
+      formData['system'] ?? '',
+      'SubSystem':
+      formData['subSystem'] ?? '',
+      'Frequency':
+      formData['frequency'] ?? 0,
+    };
+
+    debugPrint("Formatted Request Body: $requestBody");
+
+    // ACTUAL API CALL
+    final failureNo = await createMaintenanceFailure(requestBody);
+
+    debugPrint("Created Maintenance Failure No: $failureNo");
+
+    return {
+      'responseCode': 200,
+      'responseMessage': 'Success',
+      'responseOutput': failureNo,
+    };
+  }
+
+
+  Future<FailureDetailResponse> getMaintenanceFailureDetails(
+      List<String> ids) async {
+    final userId = await _userId();
+    FailureDetailResponse? last;
+    for (final id in ids.where((e) => e.trim().isNotEmpty).toSet()) {
+      for (final uid in {userId, 0}) {
+        final body = {'AssignedUserId': uid, 'Id': id};
+        debugPrint('SI details try: $body');
+        final response =
+        await _apiClient.post(AppUrls.jeChangeNotification, body: body);
+        if (response.statusCode != 200) continue;
+        final parsed = FailureDetailResponse.fromJson(
+            jsonDecode(response.body) as Map<String, dynamic>);
+        last = parsed;
+        if (parsed.responseOutput?.getCreateVMModel != null) {
+          debugPrint('SI details: model found with $body');
+          return parsed;
+        }
+      }
+    }
+    if (last != null) return last;
+    throw Exception('No response for failure details');
+  }
+
+
+  Future<Map<String, dynamic>> updateMaintenanceFailure(
+      Map<String, dynamic> payload) async {
+    final headers = await _authHeaders();
+
+    debugPrint("updateMaintenanceFailure: API endpoint: ${AppUrls.editNotificationDetails}");
+    debugPrint("updateMaintenanceFailure: Request payload: $payload");
+
+    final response = await _apiClient.postMultipart(
+      AppUrls.editNotificationDetails,
+      headers: headers,
+      fields: {
+        'CreateNotificationVM': jsonEncode(payload),
+      },
+    );
+
+    debugPrint("updateMaintenanceFailure: Response status: ${response.statusCode}");
+    debugPrint("updateMaintenanceFailure: Response body: ${response.body}");
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to update maintenance failure: ${response.body}');
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200) {
+      throw Exception(
+        body['responseMessage'] ?? 'Failed to update maintenance failure',
+      );
+    }
+    return body;
+  }
+
+  Future<String?> createMaintenanceFailure(
+      Map<String, dynamic> payload) async {
+    final headers = await _authHeaders();
+
+    debugPrint(
+        "createMaintenanceFailure: API endpoint: ${AppUrls.createNotificationDetails}");
+    debugPrint("createMaintenanceFailure: Request headers: $headers");
+    debugPrint("createMaintenanceFailure: Request payload: $payload");
+
+    final response = await _apiClient.postMultipart(
+      AppUrls.createNotificationDetails,
+      headers: headers,
+      fields: {
+        'CreateNotificationVM': jsonEncode(payload),
+      },
+    );
+
+    debugPrint(
+        "createMaintenanceFailure: Response status: ${response.statusCode}");
+    debugPrint(
+        "createMaintenanceFailure: Response body: ${response.body}");
+
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Failed to create maintenance failure: ${response.body}',
+      );
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+
+    if (body['responseCode'] != 200) {
+      throw Exception(
+        body['responseMessage'] ??
+            'Failed to create maintenance failure',
+      );
+    }
+
+    return body['responseOutput']?.toString();
+  }
+
+  /// Updates Station Acknowledge Status (Accept / Deny / Re-open / Close)
+  Future<Map<String, dynamic>> updateStationAcknowledgeStatus({
+    required int id,
+    required String action,
+    required String description,
+    required int statusId,
+    required int createdBy,
+    required String createdByName,
+  }) async {
+    final response = await _apiClient.post(
+      AppUrls.updateStationAcknowledgeStatus,
+      body: {
+        "Id": id,
+        "StatusId": statusId,
+        "Action": action,
+        "CreatedBy": createdBy,
+        "CreatedByName": createdByName,
+        "Description": description,
+      },
+    );
+
+    debugPrint(
+        "updateStationAcknowledgeStatus: Status ${response.statusCode}, Body: ${response.body}");
+
+    if (response.statusCode == 200) {
+      return jsonDecode(response.body) as Map<String, dynamic>;
+    }
+    throw Exception('Server error: ${response.statusCode}');
   }
 }

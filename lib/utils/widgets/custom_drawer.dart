@@ -194,7 +194,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return _drawerItem('Failure List', 'section_incharge_failure', const FailureListScreen(failureType: 'Maintenance'));
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC')) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('Maintenance JE Inbox', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance'));
@@ -207,6 +207,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       }
 
                       print("role is $role");
+                      // DCC sees Depot Failure in place of Station Failure.
+                      if (role.toUpperCase().contains('DCC')) {
+                        return _drawerItem('Depot Failure', 'dcc_depot_failure', const FailureListScreen(failureType: 'Depot'));
+                      }
                       final canAccessStationFailure =
                           role.contains('Station Controller') || role.contains('Junior Engineer');
                       if (!canAccessStationFailure) {
@@ -221,7 +225,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return const SizedBox.shrink(); // Section Incharge already has unified Failure List
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC')) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('OCC JE Inbox', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
@@ -233,7 +237,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return const SizedBox.shrink(); // Section Incharge already has unified Failure List
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC')) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('Depot JE Inbox', 'depot_failure', const FailureListScreen(failureType: 'Depot'));
@@ -245,7 +249,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return const SizedBox.shrink(); // Section Incharge already has unified Failure List
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC')) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('RST JE Inbox', 'rst_failure', const RstListScreen());

@@ -20,6 +20,7 @@ import '../../../service/master_data_sync_service.dart';
 import '../../../utils/widgets/cust_loader.dart';
 import '../../filter/view/filter.dart';
 import '../service/failure_service.dart';
+import 'shared/depot_selection_popup.dart';
 
 class FailureListScreen extends StatefulWidget {
   final String failureType;
@@ -69,6 +70,14 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // DCC depot list: pick a depot (saved via API) before loading the list.
+      if (widget.failureType == 'Depot' && controller.isDcc) {
+        final selected = await showDepotSelectionPopup();
+        if (!selected) {
+          if (mounted) Navigator.pop(context);
+          return;
+        }
+      }
       controller.fetchFailures();
     });
   }
@@ -198,7 +207,12 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         final isStationController = role.contains("Station Controller");
         final isSectionIncharge = role.contains("Section Incharge");
 
-        if (isJE || isTechnician) {
+        if (isJE || isTechnician || role.contains("FMC")) {
+          return const SizedBox.shrink();
+        }
+
+        // DCC can only create depot failures.
+        if (role.toUpperCase().contains("DCC") && widget.failureType != 'Depot') {
           return const SizedBox.shrink();
         }
 
@@ -218,17 +232,10 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
           elevation: 4,
           child: const Icon(Icons.add, color: Colors.white),
           onPressed: () {
-            if (widget.failureType == 'Maintenance') {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => const CreateMaintenanceForm()),
-              );
-            } else {
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (context) => CreateFailureScreen(failureType: widget.failureType)),
-              );
-            }
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => CreateFailureScreen(failureType: widget.failureType)),
+            );
           },
         );
       }),
@@ -288,7 +295,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => CreateFailureScreen(
-            failureNo: failure.failureNo, 
+            failureNo: failure.failureNo,
             notificationCode: failure.notificationCode, 
             failureType: widget.failureType,
             isFromJointInspection: isJI,
@@ -335,12 +342,10 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildLabelValue('Failure No:', failure.notificationCode ?? ''),
+                        _buildLabelValue('Failure No:', failure.notificationCode ?? failure.failureNo!),
                         const SizedBox(height: 12),
-                        _buildLabelValue('Created On:', failure.failureOccuranceDateTime ?? ''),
-                        const SizedBox(height: 12),
-                        _buildLabelValue('Location:', failure.locationName ?? ''),
-                      ],
+                        _buildLabelValue('Failure description:', failure.failureDescription ?? ''),
+                       ],
                     ),
                   ),
                   Container(
@@ -361,23 +366,16 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ),
                 ],
               ),
-              if ((failure.statusName ?? '').contains('Work Complete') && _isStationController) ...[
+              if ((failure.statusName ?? '').toLowerCase().contains('confirm') && _isStationController) ...[
+                const SizedBox(height: 12),
+                const Divider(color: AppColors.dividerColor3, height: 1),
+                const SizedBox(height: 12),
                 ActionChip(
-                  label: const Text('Update', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-                  onPressed: () async {
-                    final result = await Get.to(() => CreateFailureScreen(
-                      failureNo: failure.failureNo,
-                      notificationCode: failure.notificationCode,
-                      failureType: widget.failureType,
-                      isUpdate: true,
-                    ));
-                    if (result == true) {
-                      controller.fetchFailures();
-                    }
-                  },
+                  label: const Text('Acknowledge', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                  onPressed: () => _showAcknowledgePopup(failure),
                   backgroundColor: AppColors.white1,
-                  labelStyle: const TextStyle(color: AppColors.orangeColor),
-                  side: const BorderSide(color: AppColors.orangeColor),
+                  labelStyle: const TextStyle(color: AppColors.green),
+                  side: const BorderSide(color: AppColors.green),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
               ],
@@ -513,8 +511,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         message: "Please provide a reason for re-opening this failure:",
         icon: TablerIcons.refresh,
         iconColor: AppColors.green,
-        confirmText: "Submit",
-        cancelText: "Cancel",
+        onCancel:() =>  Get.back() ,
+        // confirmText: "Submit",
+        // cancelText: "Cancel",
         customContent: Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
@@ -574,6 +573,179 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         cancelText: "Cancel",
         onConfirm: () {
           controller.reOpenFailure(failureId, remark);
+        },
+      ),
+    );
+  }
+
+  void _showAcknowledgePopup(FailureItem failure) {
+    final TextEditingController remarkController = TextEditingController();
+    final notifCode = failure.notificationCode ?? failure.failureNo ?? failure.id.toString();
+    final failureId = failure.id ?? 0;
+    String? remarkError;
+
+    Get.dialog(
+      CustPopup(
+        title: "Acknowledge For Failure",
+        showIcon: true,
+        icon: TablerIcons.circle_check,
+        iconColor: AppColors.green,
+        onCancel: () => Get.back(),
+        customContent: StatefulBuilder(
+          builder: (context, setPopupState) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: CustText(
+                    name: "Acknowledge For Failure",
+                    size: AppConstants.headerSize,
+                    color: AppColors.textMutedLight,
+                    fontWeightName: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Center(
+                  child: CustText(
+                    name: "Please enter remark to continue.",
+                    size: 13,
+                    color: AppColors.textDarkSecondary,
+                  ),
+                ),
+                if (notifCode.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Center(
+                    child: CustText(
+                      name: "Failure No: $notifCode",
+                      size: 13,
+                      color: AppColors.orangeColor,
+                      fontWeightName: FontWeight.w600,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                CustText(
+                  name: "Remark *",
+                  size: AppConstants.formLabelSize,
+                  fontWeightName: FontWeight.w500,
+                ),
+                const SizedBox(height: 8),
+                CustomTextField(
+                  controller: remarkController,
+                  hintText: "Enter remark",
+                  maxLines: 3,
+                  maxLength: 250,
+                  onChanged: (val) {
+                    if (remarkError != null && val.trim().isNotEmpty) {
+                      setPopupState(() {
+                        remarkError = null;
+                      });
+                    }
+                  },
+                ),
+                if (remarkError != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    remarkError!,
+                    style: const TextStyle(color: AppColors.red, fontSize: 12),
+                  ),
+                ],
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: CustOutlineButton(
+                        name: "Close",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        onSelected: (_) => Get.back(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: CustButton(
+                        name: "Deny",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        color1: AppColors.red,
+                        color2: AppColors.red,
+                        onSelected: (_) {
+                          final remark = remarkController.text.trim();
+                          if (remark.isEmpty) {
+                            setPopupState(() {
+                              remarkError = "Please enter remark.";
+                            });
+                            return;
+                          }
+                          _confirmAndSubmitAcknowledge(
+                            failureId: failureId,
+                            notificationCode: notifCode,
+                            remark: remark,
+                            submitStatus: "deny",
+                            confirmMessage: "Do you want acknowledge deny failure?",
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: CustButton(
+                        name: "Accept",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        color1: AppColors.green,
+                        color2: AppColors.green,
+                        onSelected: (_) {
+                          final remark = remarkController.text.trim();
+                          _confirmAndSubmitAcknowledge(
+                            failureId: failureId,
+                            notificationCode: notifCode,
+                            remark: remark,
+                            submitStatus: "accept",
+                            confirmMessage: "Do you want acknowledge accept failure?",
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  void _confirmAndSubmitAcknowledge({
+    required int failureId,
+    required String notificationCode,
+    required String remark,
+    required String submitStatus,
+    required String confirmMessage,
+  }) {
+    Get.dialog(
+      CustPopup(
+        title: "Confirm",
+        message: confirmMessage,
+        icon: submitStatus == "accept" ? TablerIcons.circle_check : TablerIcons.alert_triangle,
+        iconColor: submitStatus == "accept" ? AppColors.green : AppColors.orangeColor,
+        confirmText: submitStatus == "accept" ? "Accept" : "Deny",
+        cancelText: "Cancel",
+        onCancel: () => Get.back(),
+        onConfirm: () async {
+          Get.back(); // close confirm dialog
+          Get.back(); // close acknowledge popup
+          await controller.acknowledgeFailure(
+            failureId,
+            remark,
+            submitStatus,
+            failureNo: notificationCode,
+          );
         },
       ),
     );
@@ -792,7 +964,16 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     if (notificationId == null || notificationId == 0) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid Notification ID"))
+            const SnackBar(content: Text("Invalid Notification ID — cannot assign"))
+        );
+      }
+      return;
+    }
+
+    if (failure.assignedUserId == null || failure.assignedUserId == 0) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Please select a user before assigning"))
         );
       }
       return;
@@ -800,32 +981,32 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     try {
       final success = await _failureService.assignUserNotification(
-        notificationId: notificationId,
+        notificationId: failure.failureNo!,
         assignedUserId: failure.assignedUserId ?? 0,
-        description: actionText,
+        description: actionText.toLowerCase(), // "assign" or "reassign"
       );
 
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("$actionText successful"))
+              SnackBar(content: Text("$actionText successful"))
           );
           controller.fetchFailures();
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Operation failed"))
+              const SnackBar(content: Text("Operation failed — please try again"))
           );
         }
       }
     } catch (e) {
+      debugPrint("_handleAssignAction error: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"))
+            SnackBar(content: Text("Error: $e"))
         );
       }
     }
   }
-
   void _showCorrectionPopup(FailureItem failure) {
     // First show detail popup (user selection + remark)
     _showCorrectionDetailPopup(failure);
