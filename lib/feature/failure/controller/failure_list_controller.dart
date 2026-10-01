@@ -122,10 +122,11 @@ class FailureListController extends GetxController {
     return result;
   }
 
-  /// FMC users get the OCC failures assigned to them from a dedicated API.
+  /// FMC / TPC / CSS / RSC users get the OCC failures reported to them from a
+  /// dedicated API.
   bool get _isFmc {
     final role = _sessionController.selectedRole.value?.roleDescr ?? '';
-    return role.toUpperCase().contains('FMC');
+    return SessionController.isOccDelegateRole(role);
   }
 
   /// DCC users see depot failures for the depot they selected.
@@ -133,6 +134,15 @@ class FailureListController extends GetxController {
     final role = _sessionController.selectedRole.value?.roleDescr ?? '';
     return role.toUpperCase().contains('DCC');
   }
+
+  /// OCC role (not FMC) sees the OCC failures from getFailureList.
+  bool get _isOccRole {
+    final role = _sessionController.selectedRole.value?.roleDescr ?? '';
+    return role.toUpperCase().contains('OCC') && !_isFmc;
+  }
+
+  bool get _useOccFailureListApi =>
+      failureType.toLowerCase() == 'occ' && _isOccRole;
 
   bool get _useDepotFailureListApi => failureType.toLowerCase() == 'depot' && isDcc;
 
@@ -160,6 +170,8 @@ class FailureListController extends GetxController {
     if (_isFmc) return true;
 
     if (_useDepotFailureListApi) return true;
+
+    if (_useOccFailureListApi) return true;
 
     if (_useStationFailureListApi) return true;
 
@@ -206,6 +218,8 @@ class FailureListController extends GetxController {
         await _fetchFmcFailures();
       } else if (_useDepotFailureListApi) {
         await _fetchDepotFailures();
+      } else if (_useOccFailureListApi) {
+        await _fetchOccRoleFailures();
       } else if (_isJE) {
         // JE users fetch from API with offline fallback (same pattern as Station Controller)
         debugPrint("fetchFailures: JE user - fetching from API with offline fallback");
@@ -415,6 +429,42 @@ class FailureListController extends GetxController {
     }
   }
 
+  /// OCC role list (OCCMaintainance/getFailureList, action FailureList):
+  /// online first, cached copy when offline.
+  Future<void> _fetchOccRoleFailures() async {
+    const cacheKey = 'OCC_role_list';
+    try {
+      final rows = await _failureService.getOccFailureInbox(action: 'FailureList');
+      final items = <FailureItem>[];
+      for (final r in rows) {
+        try {
+          items.add(_fmcItemFromRow(r));
+        } catch (e) {
+          debugPrint('_fetchOccRoleFailures: skipped bad row: $e');
+        }
+      }
+      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      failures.assignAll(items);
+      await _dbService.clearFailureList(cacheKey);
+      if (items.isNotEmpty) {
+        await _dbService.insertFailureList(
+            items.map((e) => e.toJson()).toList(), cacheKey);
+      } else {
+        errorMessage.value = 'No failures found.';
+      }
+    } catch (e) {
+      debugPrint('_fetchOccRoleFailures: API failed, using local copy: $e');
+      isOfflineMode.value = true;
+      final local = await _dbService.getFailureList(cacheKey);
+      if (local.isNotEmpty) {
+        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
+      } else {
+        errorMessage.value =
+        'No data available. Please check your internet connection.';
+      }
+    }
+  }
+
   /// DCC depot failures for the selected depot: online first, cached copy
   /// (per depot) when offline.
   Future<void> _fetchDepotFailures() async {
@@ -498,6 +548,8 @@ class FailureListController extends GetxController {
       createdDate: first(['createdDate', 'createdSystemDate']),
       lineName: s('lineName'),
       statusId: i('statusId'),
+      occRequestStatusName:
+      creationType == 'Depot' ? first(['occRequestStatusName']) : null,
       createdByName: s('createdByName'),
       currentlyWith: s('currentlyWith'),
       syncStatus: 'online',
@@ -616,6 +668,53 @@ class FailureListController extends GetxController {
       debugPrint("_fetchFromApi: Error fetching from API: $e");
       errorMessage.value = "Error: $e";
       isOfflineMode.value = true;
+    }
+  }
+
+  /// DCC depot list: Re-open / Close (web: updateDepotAcknowledgeStatus).
+  Future<void> reOpenDepotFailure(int id, String remark, {String? failureNo}) =>
+      _updateDepotStatus(id, 'UPDATE_REOPEN_OCC_DEPOT', remark,
+          successMessage: 'Failure No.${failureNo ?? id} re-open successfully.');
+
+  Future<void> closeDepotFailure(int id, {String? failureNo}) =>
+      _updateDepotStatus(id, 'UPDATE_CLOSED_OCC_DEPOT', 'Closed Request',
+          successMessage: 'Failure No.${failureNo ?? id} closed successfully.');
+
+  /// Acknowledge accept (StatusId 197) / deny (198), like the web depot list.
+  Future<void> acknowledgeDepotFailure(int id, String remark,
+      {required bool accept, String? failureNo}) =>
+      _updateDepotStatus(id, 'UPDATE_Acknowledge_OCC_DEPOT', remark,
+          statusId: accept ? 197 : 198,
+          successMessage:
+          'Failure No.${failureNo ?? id} acknowledge ${accept ? 'accepted' : 'denied'} successfully.');
+
+  Future<void> _updateDepotStatus(int id, String action, String description,
+      {required String successMessage, int statusId = 202}) async {
+    try {
+      isLoading.value = true;
+      errorMessage.value = '';
+      final response = await _failureService.updateDepotStatus(
+        id: id,
+        action: action,
+        description: description,
+        statusId: statusId,
+      );
+      final ok = response['responseCode'] == 200 ||
+          response['responseMessage']?.toString().toLowerCase() == 'success';
+      if (ok) {
+        Get.snackbar('Success', successMessage,
+            backgroundColor: AppColors.green, colorText: AppColors.white1);
+        await fetchFailures();
+      } else {
+        Get.snackbar('Error',
+            response['responseMessage']?.toString() ?? 'Failed to perform action',
+            backgroundColor: AppColors.red, colorText: AppColors.white1);
+      }
+    } catch (e) {
+      Get.snackbar('Error', e.toString(),
+          backgroundColor: AppColors.red, colorText: AppColors.white1);
+    } finally {
+      isLoading.value = false;
     }
   }
 

@@ -410,21 +410,19 @@ class FailureService {
     return body['responseOutput']?.toString();
   }
 
-  /// Dropdown data for the OCC failure create form (same call the web page
-  /// makes on load, with Id = 0 because nothing exists yet).
-  Future<Map<String, dynamic>> getOccCreateLookups() async {
+  /// Reported To (getRoleList), Line (getLineList) and Train Set
+  /// (getTrainSetList) for the OCC create / update forms.
+  Future<Map<String, dynamic>> getOccDeptLocationLookups() async {
     final userId = await _userId();
     final headers = await _authHeaders();
     final response = await _apiClient.post(
-      AppUrls.getOccFailureLookups,
+      AppUrls.getOccDeptLocationLookups,
       headers: headers,
       body: {
-        'Id': 0,
+        'LocationId': 0,
         'UserId': userId,
         'DepartmentIds': '',
-        'Action': '',
-        'LocationId': 0,
-        'deptNotificationId': 0,
+        'Action': 'Get_Failure_Dept_Location_User',
       },
     );
     if (response.statusCode != 200) {
@@ -432,22 +430,58 @@ class FailureService {
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     if (body['responseCode'] != 200 || body['responseOutput'] == null) {
-      throw Exception(
-          body['responseMessage'] ?? 'Failed to load OCC failure lookups');
+      throw Exception(body['responseMessage'] ?? 'Failed to load OCC lookups');
     }
     return body['responseOutput'] as Map<String, dynamic>;
   }
 
+  /// System -> Sub System options for the OCC role. Returns the
+  /// `subsystemsForOccs` rows: [{system: "...", subSystem: ["...", ...]}].
+  Future<List<Map<String, dynamic>>> getOccSystemSubsystems(
+      {String departmentIds = ''}) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getFailureStandDropDownData,
+      headers: headers,
+      body: {
+        'userId': userId,
+        'system': '',
+        'locationTypeId': 0,
+        'funcLocId': 0,
+        'action': 'GetSystemSubSystemForOcc',
+        'failureCategoryId': 0,
+        'causeOfFailureId': 0,
+        'departmentIds': departmentIds,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = body['data'];
+    final rows = data is Map ? data['subsystemsForOccs'] : null;
+    if (rows is! List) return [];
+    return rows
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
   /// FMC user's OCC failure inbox. Returns the raw rows; the response may be a
   /// plain list or an object that holds the list, so both are handled.
-  Future<List<Map<String, dynamic>>> getOccFailureInbox() async {
+  ///
+  /// [action] defaults to the FMC inbox ('FailureInboxList'); the OCC role's
+  /// own list uses 'FailureList'.
+  Future<List<Map<String, dynamic>>> getOccFailureInbox(
+      {String action = 'FailureInboxList'}) async {
     final userId = await _userId();
     final headers = await _authHeaders();
     final response = await _apiClient.post(
       AppUrls.getOccFailureInbox,
       headers: headers,
       body: {
-        'action': 'FailureInboxList',
+        'action': action,
         'userId': userId,
         'startDate': null,
         'endDate': null,
@@ -643,6 +677,33 @@ class FailureService {
     if (response.statusCode != 200) return false;
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return body['responseCode'] == 200 || body['success'] == true;
+  }
+
+  /// Depot Re-open / Close (same endpoint the web depot list uses).
+  /// [action] is UPDATE_REOPEN_OCC_DEPOT or UPDATE_CLOSED_OCC_DEPOT.
+  Future<Map<String, dynamic>> updateDepotStatus({
+    required int id,
+    required String action,
+    required String description,
+    required int statusId,
+  }) async {
+    final userId = await _userId();
+    final userName = await _userName();
+    final response = await _apiClient.post(
+      AppUrls.updateDepotAcknowledgeStatus,
+      body: {
+        'Action': action,
+        'Id': id,
+        'CreatedBy': userId,
+        'Description': description,
+        'CreatedByName': userName,
+        'StatusId': statusId,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
   /// Loads one depot failure (details, history, images). `id` is the
@@ -1711,5 +1772,37 @@ class FailureService {
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
     throw Exception('Server error: ${response.statusCode}');
+  }
+
+
+  Future<bool> closeNotification({
+    required String jobCardNo,
+    required int assignedUserId,
+  }) async {
+    final userId = await _userId();
+
+    final body = {
+      'JobCardNo': jobCardNo,
+      'AssignedUserId': assignedUserId,
+      'CreatedBy': userId,
+    };
+
+    debugPrint("closeNotification: Request body: $body");
+
+    final response = await _apiClient.post(
+      AppUrls.updateCloseStatusNotification,
+      body: body,
+    );
+
+    debugPrint("closeNotification: Response status: ${response.statusCode}");
+    debugPrint("closeNotification: Response body: ${response.body}");
+
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+
+    final responseBody = jsonDecode(response.body) as Map<String, dynamic>;
+    return responseBody['responseCode'] == 200 &&
+        responseBody['responseOutput'] == true;
   }
 }

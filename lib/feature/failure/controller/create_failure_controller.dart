@@ -17,6 +17,7 @@ import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/app_urls.dart';
+import '../../../utils/widgets/success_popup.dart';
 import '../../../service/network_service/api_client.dart';
 import '../../../core/controller/session_controller.dart';
 import '../../../core/controller/global_master_data_controller.dart';
@@ -123,12 +124,33 @@ class CreateFailureController extends GetxController
     return role.contains('OCC');
   }
 
-  /// FMC user: role name contains "FMC" (same rule the web role uses).
+  /// OCC role user (not FMC): creates OCC failures and updates / closes the
+  /// ones in the OCC failure list.
+  bool get isOccRoleUser => isOccController && !isFmcUser;
+
+  /// Web rule: only when "Reported To" is OCC can the OCC user enter the
+  /// completed date/time and close the failure.
+  bool get occReportedToIsOcc =>
+      (selectedOccReportedTo.value ?? '').trim().toUpperCase() == 'OCC';
+
+  /// FMC / TPC / CSS / RSC user: a role an OCC failure can be reported to.
+  /// (Name kept from when FMC was the only one.)
   bool get isFmcUser {
     final role =
         Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
-    return role.toUpperCase().contains('FMC');
+    return SessionController.isOccDelegateRole(role);
   }
+
+  /// Whether the loaded OCC failure was reported to OCC itself. If it was
+  /// reported to FMC / TPC / CSS / RSC, that role owns the update and the OCC
+  /// role can only view it.
+  final occLoadedReportedToIsOcc = true.obs;
+
+  bool get occRoleViewOnly => isOccRoleUser && !occLoadedReportedToIsOcc.value;
+
+  /// System / Sub System are fixed on the update form (set when OCC created
+  /// the failure), so a functional-location change must not reset them.
+  bool get _occSystemFixed => isOccRoleUser || isFmcUser;
 
   /// The web treats Failure Category Type id 3 ("Other") as needing free text.
   bool get occIsCategoryOther {
@@ -192,8 +214,21 @@ class CreateFailureController extends GetxController
     final role = session.selectedRole.value?.roleDescr ?? '';
     final isJE = role.contains('Junior Engineer');
     final isStationController = role.contains('Station Controller');
+    final isSectionIncharge = role.contains('Section Incharge');
 
-    if (isStationController) {
+    if (isSectionIncharge) {
+      // Section Incharge's list (opened as 'Maintenance') shows all failures.
+      if (Get.isRegistered<FailureListController>(tag: 'Maintenance')) {
+        Future.microtask(() async {
+          try {
+            await Get.find<FailureListController>(tag: 'Maintenance')
+                .fetchFailures();
+          } catch (e) {
+            debugPrint("Error refreshing Section Incharge failure list: $e");
+          }
+        });
+      }
+    } else if (isStationController) {
       // For Station Controller, call API to get updated station failure list
       if (Get.isRegistered<MasterDataSyncService>()) {
         Future.microtask(() async {
@@ -214,17 +249,20 @@ class CreateFailureController extends GetxController
         });
       }
     } else if (isJE) {
-      // For JE users, refresh the appropriate controller based on failure type
-      final controllerTag = isStation ? 'Station' : 'Maintenance';
-      if (Get.isRegistered<FailureListController>(tag: controllerTag)) {
-        Future.microtask(() async {
-          try {
-            await Get.find<FailureListController>(tag: controllerTag)
-                .fetchFailures();
-          } catch (e) {
-            debugPrint("Error refreshing JE failure list: $e");
-          }
-        });
+      // A JE has several inbox lists (Maintenance, Station, OCC, Depot) and
+      // the failure may be opened from any of them, so refresh every one that
+      // is currently open.
+      for (final controllerTag in const ['Maintenance', 'Station', 'OCC', 'Depot']) {
+        if (Get.isRegistered<FailureListController>(tag: controllerTag)) {
+          Future.microtask(() async {
+            try {
+              await Get.find<FailureListController>(tag: controllerTag)
+                  .fetchFailures();
+            } catch (e) {
+              debugPrint("Error refreshing JE failure list ($controllerTag): $e");
+            }
+          });
+        }
       }
     }
   }
@@ -675,7 +713,7 @@ class CreateFailureController extends GetxController
       isPopupStationLoading.value = false;
     }
   }
-
+  Map<String, dynamic> _jeScreenRaw = {};
   Future<void> loadJointInspectionDetails(String failureNo) async {
     encryptedId.value = failureNo;
     notificationId.value = 0;
@@ -743,7 +781,7 @@ class CreateFailureController extends GetxController
       errorMessage.value = "No JE screen details returned.";
       return;
     }
-
+    _jeScreenRaw = Map<String, dynamic>.from(je);
     // ---- ids / header -------------------------------------------------------
     encryptedId.value = failureNo;
     notificationId.value = int.tryParse(je['failureNo']?.toString() ?? '') ?? 0;
@@ -1025,28 +1063,30 @@ class CreateFailureController extends GetxController
     try {
       EasyLoading.show(status: 'Submitting...');
 
-      // Joint Inspection API disabled - manage from frontend
-      // Add to local history and return success
-      debugPrint("submitJointInspection: API disabled, managing from frontend");
 
-      // Add to joint inspection history list
       final String? userIdStr = await AuthManager().getUserId();
-      final String? userName = await AuthManager().getUserName();
+      // final String? userName = await AuthManager().getUserName();
       final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
 
-      jointInspectionHistoryList.add(JointInspectionHistory(
-        jiId: DateTime.now().millisecondsSinceEpoch,
-        remark: jiUserRemarkController.text.trim(),
-        assignedTo: int.tryParse(jiAssignTo.value ?? "0"),
-        deptId: int.tryParse(jiDepartment.value ?? "0") ?? 0,
-        notificationId: resolveNotificationId(),
-        createdBy: userId,
-        createdByName: userName ?? "",
-        type: "AddNewJointInspection",
-      ));
+      final payload = <String, dynamic>{
+        ..._jeScreenRaw,
+        'NotificationId': resolveNotificationId(),
+        'userRemark_JI': jiUserRemarkController.text.trim(),
+        'FunctionLocation_JI':
+        int.tryParse(jiFunctionalLocationId.value ?? '0') ?? 0,
+        'EquipmentId_JI': jiEquipmentId.value ?? 0,
+        'AssignedUserId_JI': int.tryParse(jiAssignTo.value ?? '0') ?? 0,
+        'DeptId_JI': int.tryParse(jiDepartment.value ?? '0') ?? 0,
+        'CreatedBy': userId,
+        'UpdatedUserId': userId,
+      };
+      debugPrint("submitJointInspection: payload=$payload");
+
+      final message = await _failureService.submitJIScreenData(payload);
+
 
       Get.back(result: true);
-      Get.snackbar(AppStrings.success, "Joint Inspection added successfully",
+      Get.snackbar(AppStrings.success, message,
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
           snackPosition: SnackPosition.BOTTOM);
@@ -2622,6 +2662,11 @@ class CreateFailureController extends GetxController
 
     _updateFunctionalLocationAndEquipmentOptions();
     await filterRcaFailureCategoriesBySystem();
+
+    // OCC role: the System / Sub System options depend on the department.
+    if (isOccRoleUser && failureCategory.value.toLowerCase() == 'occ') {
+      await loadOccSystemSubsystems();
+    }
   }
 
   int get selectedLocationTypeId {
@@ -4285,6 +4330,8 @@ class CreateFailureController extends GetxController
 
     isPassengerAffected.value = hasPassengerData;
     numberOfPassengerAffectedController.text = count?.toString() ?? '';
+    // The Section Incharge maintenance form reads this controller instead.
+    passengersAffectedCountController.text = count?.toString() ?? '';
     trappedDurationController.text = trapped ?? '';
     rescuedDurationController.text = rescued ?? '';
   }
@@ -5279,8 +5326,54 @@ class CreateFailureController extends GetxController
         output: output,
       );
 
+      // Person Responsible options come from the details API (getUserList),
+      // not the local master users. Done after the department step above,
+      // which resets userList.
+      final apiUsers = (output.getUserList ?? const <LabelValue>[])
+          .where((u) =>
+      (u.label ?? '').trim().isNotEmpty &&
+          u.value != null &&
+          u.value != '0' &&
+          (u.label ?? '').trim().toLowerCase() != 'select user')
+          .toList();
+      if (apiUsers.isNotEmpty) {
+        userList.assignAll([LabelValue(label: 'Select', value: ''), ...apiUsers]);
+      }
+
       if ((model.frequency ?? 0) > 0) {
         fmecaFrequencyController.text = model.frequency.toString();
+      }
+
+      // Equipment options depend on the functional location. For an existing
+      // failure nothing has loaded them yet, so load them now (same as JE).
+      final funcSelected = selectedFunctionalLocation.value;
+      if (funcSelected != null &&
+          funcSelected.isNotEmpty &&
+          funcSelected != 'Select') {
+        final keepEquipment = selectedEquipmentNumber.value;
+        await _refilterEquipmentForCurrentSelections();
+        if (equipmentList.length <= 1) {
+          final cleanCode = funcSelected.contains(' - ')
+              ? funcSelected.split(' - ').first.trim()
+              : funcSelected.trim();
+          await loadEquipmentsOnDemand(
+              functionalLocationId:
+              _funcLocationCodeForLabel(funcSelected) ?? cleanCode);
+        }
+        // Re-select the saved equipment now that the options exist.
+        final savedName = model.equipmentName ??
+            _labelFromValueList(equipmentList, model.equipmentId) ??
+            _masterEquipmentName(model.equipmentId);
+        if (savedName != null && savedName.isNotEmpty) {
+          ensureDropdownOption(
+              equipmentList, savedName, model.equipmentId?.toString() ?? '');
+          selectedEquipmentNumber.value = savedName;
+          equipmentDisplayController.text = savedName;
+        } else if (keepEquipment != null &&
+            keepEquipment.isNotEmpty &&
+            keepEquipment != 'Select') {
+          selectedEquipmentNumber.value = keepEquipment;
+        }
       }
 
       // final eqLabel = _resolveLabel(
@@ -5336,6 +5429,29 @@ class CreateFailureController extends GetxController
         for (final img in model.imagesPaths!.split(',')) {
           beforeFiles
               .add({'name': img.split('/').last, 'size': 'N/A', 'path': img});
+        }
+      }
+
+      // Images already uploaded (e.g. by a DCC when creating a depot failure)
+      // come in getImageBefor; show them in "Display Uploaded Images".
+      beforeImagesList.clear();
+      afterImagesList.clear();
+      rcaImagesList.clear();
+      for (final img in output.getImageBefor ?? const <Map<String, dynamic>>[]) {
+        final fileName = img['fileName']?.toString() ?? '';
+        if (fileName.isEmpty) continue;
+        final imgMap = {
+          'name': fileName.split('/').last,
+          'path': fileName,
+          'isNetwork': true
+        };
+        final docType = img['documentType']?.toString() ?? '';
+        if (docType == 'AFTER_NOT') {
+          afterImagesList.add(imgMap);
+        } else if (docType == 'RCA_NOT') {
+          rcaImagesList.add(imgMap);
+        } else {
+          beforeImagesList.add(imgMap);
         }
       }
     } catch (e, st) {
@@ -5457,8 +5573,8 @@ class CreateFailureController extends GetxController
   /// Loads everything the OCC create form needs. Priority / Department /
   /// Location / Functional Location come from the local master data (same as
   /// Station); Line, Train Set, Reported To, Train Operator, Reported By and
-  /// Failure Category Type come from the OCC lookup API, with local fallbacks
-  /// where a local list exists.
+  /// Failure Category Type come from getFailureCreationDeptLocation, with
+  /// local fallbacks where a local list exists.
   Future<void> loadOccCreateDropdowns() async {
     pushLoading();
     try {
@@ -5475,30 +5591,29 @@ class CreateFailureController extends GetxController
         await loadMasterDropdownsFromDb(refreshIfEmpty: true);
       }
 
-      Map<String, dynamic> output = <String, dynamic>{};
+      // Reported To, Line, Train Set, Reported By, Train Operator and Failure
+      // Category Type all come from this one API.
+      Map<String, dynamic> deptLoc = <String, dynamic>{};
       try {
-        output = await _failureService.getOccCreateLookups();
+        deptLoc = await _failureService.getOccDeptLocationLookups();
       } catch (e) {
-        debugPrint('loadOccCreateDropdowns: lookup API failed: $e');
-        Get.snackbar(
-          'Offline',
-          'Could not load OCC lookups. Some dropdowns may be empty.',
-          backgroundColor: AppColors.orangeColor,
-          colorText: AppColors.white1,
-          snackPosition: SnackPosition.BOTTOM,
-        );
+        debugPrint('loadOccCreateDropdowns: dept/location lookup failed: $e');
       }
+      List<LabelValue> pick(Map<String, dynamic> src, List<String> keys) =>
+          _occParseList(src, keys).where((e) => e.value != '0').toList();
 
-      occLineList.assignAll(_occParseList(output, ['getLineList', 'GetLineList', 'lineList']));
-      occTrainSetList.assignAll(_occParseList(output, ['getTrainSetList', 'GetTrainSetList', 'trainSetList']));
-      occReportedToList.assignAll(_occParseList(output, ['getReportedToList', 'GetReportedToList', 'reportedToList']));
-      occTrainOperatorList.assignAll(_occParseList(output, ['getTrainOpeartorList', 'getTrainOperatorList', 'trainOperatorList']));
+      occLineList.assignAll(pick(deptLoc, ['getLineList']));
+      occTrainSetList.assignAll(pick(deptLoc, ['getTrainSetList']));
+      occReportedToList.assignAll(pick(deptLoc, ['getRoleList']));
+      occTrainOperatorList.assignAll(
+          pick(deptLoc, ['getTrainOpeartorList', 'getTrainOperatorList']));
 
-      final reportedBy = _occParseList(output, ['getFailureReportedbyList', 'getFailureReportedByList']);
+      // Failure Reported by; falls back to the local users.
+      final reportedBy = pick(deptLoc, ['getFailureReportedbyList']);
       occReportedByList.assignAll(
           reportedBy.isNotEmpty ? reportedBy : _occWithoutSelect(userList));
 
-      final categories = _occParseList(output, ['getFailureCategoryType', 'getFailureCategoryTypeList']);
+      final categories = pick(deptLoc, ['getFailureCategoryType']);
       occFailureCategoryList.assignAll(categories.isNotEmpty
           ? categories
           : _occWithoutSelect(failureCategoryTypeList.isNotEmpty
@@ -5514,6 +5629,9 @@ class CreateFailureController extends GetxController
             .firstWhereOrNull((e) => e.value == currentUserId);
         if (me != null) selectedFailureReportedBy.value = me.label;
       }
+
+      // OCC role: System / Sub System options (no-op for other roles).
+      await loadOccSystemSubsystems();
     } catch (e) {
       debugPrint('loadOccCreateDropdowns error: $e');
     } finally {
@@ -5540,9 +5658,12 @@ class CreateFailureController extends GetxController
 
     occFailureFrequency.value = null;
     occFailureFrequencyController.clear();
-    occSystemDisplayController.clear();
+    // System / Sub System are not tied to the functional location for the OCC
+    // role (picked freely) nor for FMC / TPC / CSS / RSC (fixed by OCC), so
+    // the functional location must not reset or refill them.
+    if (!_occSystemFixed) occSystemDisplayController.clear();
     if (label == null || label.isEmpty || label == 'Select') {
-      _applyFmecaSystemSubsystemPairs([]);
+      if (!_occSystemFixed) _applyFmecaSystemSubsystemPairs([]);
       return;
     }
 
@@ -5551,6 +5672,8 @@ class CreateFailureController extends GetxController
     occFailureFrequency.value = f is int ? f : int.tryParse(f?.toString() ?? '');
     occFailureFrequencyController.text =
         occFailureFrequency.value?.toString() ?? '';
+
+    if (_occSystemFixed) return; // System / Sub System are not tied to it
 
     final funcLocId =
         row['funcLocId']?.toString() ?? row['funcLocation']?.toString() ?? '';
@@ -5642,6 +5765,66 @@ class CreateFailureController extends GetxController
     isPassengerAffected.value = value;
   }
 
+  /// OCC role: System / Sub System are free dropdowns (not tied to the
+  /// functional location), fed by subsystemsForOccs for the chosen
+  /// department. A previous selection is kept when it is still offered.
+  Future<void> loadOccSystemSubsystems() async {
+    if (!isOccRoleUser) return;
+    try {
+      final rows = await _failureService.getOccSystemSubsystems(
+          departmentIds: departmentId.value?.toString() ?? '');
+
+      final pairs = <Map<String, dynamic>>[];
+      final systems = <String>[];
+      for (final r in rows) {
+        final system = _occStr(r['system']);
+        if (system.isEmpty) continue; // rows without a system can't be picked
+        final subs = r['subSystem'];
+        if (!systems.contains(system)) systems.add(system);
+        if (subs is List) {
+          for (final s in subs) {
+            final sub = _occStr(s);
+            if (sub.isNotEmpty) pairs.add({'system': system, 'subSystem': sub});
+          }
+        }
+      }
+      systems.sort();
+
+      final keepSystem = selectedFmecaSystem.value;
+      final keepSub = selectedFmecaSubsystem.value;
+
+      _occFmecaPairs = pairs;
+      fmecaSystemList
+          .assignAll(systems.map((s) => LabelValue(label: s, value: s)));
+      fmecaSystemReadOnly.value = false;
+      fmecaSubsystemReadOnly.value = false;
+
+      if (keepSystem != null && systems.contains(keepSystem)) {
+        selectedFmecaSystem.value = keepSystem;
+        _occLoadSubsystemsForSelectedSystem();
+        if (keepSub != null &&
+            fmecaSubsystemList.any((e) => e.value == keepSub)) {
+          selectedFmecaSubsystem.value = keepSub;
+          fmecaSubsystemController.text = keepSub;
+        }
+      } else {
+        selectedFmecaSystem.value = null;
+        selectedFmecaSubsystem.value = null;
+        fmecaSubsystemList.clear();
+      }
+      occSystemDisplayController.text = occSystemValue;
+    } catch (e) {
+      debugPrint('loadOccSystemSubsystems error: $e');
+    }
+  }
+
+  /// Reported To changed. Completed date/time only applies to OCC-reported
+  /// failures, so clear it when moving away from OCC.
+  void onOccReportedToChanged(String? label) {
+    selectedOccReportedTo.value = label;
+    if (!occReportedToIsOcc) selectedFailureCompletedDate.value = null;
+  }
+
   void onOccFailureCategoryChanged(String? label) {
     selectedFailureCategoryType.value = label;
     if (!occIsCategoryOther) occCategoryOtherController.clear();
@@ -5652,7 +5835,7 @@ class CreateFailureController extends GetxController
       v == null || v.trim().isEmpty || v == 'Select';
 
   /// Same rules as the web page's required (*) fields.
-  List<String> _occValidate() {
+  List<String> _occValidate({bool close = false}) {
     final errors = <String>[];
     if (_occUnselected(selectedPriority.value)) errors.add('Priority is required.');
     if (_occBlank(failureDescriptionController.text)) {
@@ -5670,6 +5853,27 @@ class CreateFailureController extends GetxController
       errors.add('Failure Category Type is required.');
     } else if (occIsCategoryOther && _occBlank(occCategoryOtherController.text)) {
       errors.add('Other failure category is required.');
+    }
+
+    // System / Sub System are required on the web page; they can only be
+    // chosen when the functional location offered some, so only enforce then.
+    if (fmecaSystemList.isNotEmpty && _occBlank(occSystemValue)) {
+      errors.add('System is required.');
+    }
+    if (fmecaSubsystemList.isNotEmpty &&
+        _occUnselected(selectedFmecaSubsystem.value)) {
+      errors.add('Sub System is required.');
+    }
+
+    // Completed date/time: only OCC-reported failures, mandatory to close.
+    final done = selectedFailureCompletedDate.value;
+    if (close && done == null) {
+      errors.add('Actual Failure Completed Date & Time is required.');
+    }
+    if (done != null &&
+        selectedFailureOccurrenceDate.value != null &&
+        done.isBefore(selectedFailureOccurrenceDate.value!)) {
+      errors.add('Completed time cannot be before the failure occurrence.');
     }
 
     if (isServiceAffected.value) {
@@ -5711,7 +5915,9 @@ class CreateFailureController extends GetxController
     );
   }
 
-  Future<void> createOccFailure() async {
+  /// [close] = "Save and Close" (StatusId 39, completed date mandatory);
+  /// otherwise "Save" (StatusId 1). Mirrors the web insertFailureDetails call.
+  Future<void> createOccFailure({bool close = false}) async {
     if (!isOccController) {
       Get.snackbar(
         'Access Denied',
@@ -5723,7 +5929,11 @@ class CreateFailureController extends GetxController
       return;
     }
 
-    final errors = _occValidate();
+    if (close && !occReportedToIsOcc) {
+      _occError('Only failures reported to OCC can be closed by OCC.');
+      return;
+    }
+    final errors = _occValidate(close: close);
     if (errors.isNotEmpty) {
       _occError(errors.first);
       return;
@@ -5818,6 +6028,17 @@ class CreateFailureController extends GetxController
         body['OccWayOfRescueRemark'] = occWayOfRescueController.text.trim();
       }
 
+      // Fields the web page sends in addition to the form values.
+      body['Action'] = 'INSERTFAILURENOTIFUCATION';
+      body['RoleId'] = _occId(occReportedToList, selectedOccReportedTo.value);
+      body['SubSystem'] = (selectedFmecaSubsystem.value ?? '').trim();
+      body['Frequency'] = occFailureFrequency.value ?? 0;
+      body['StatusId'] = close ? 39 : 1;
+      body['ActualFailureCompletedDateTime'] =
+      (occReportedToIsOcc && selectedFailureCompletedDate.value != null)
+          ? fmt.format(selectedFailureCompletedDate.value!)
+          : '';
+
       debugPrint('createOccFailure: payload $body, files=${files.length}');
       final failureNo = await _failureService.createOccFailure(body, files: files);
 
@@ -5833,12 +6054,8 @@ class CreateFailureController extends GetxController
 
       EasyLoading.dismiss();
       Get.back();
-      Get.snackbar(
-        AppStrings.success,
-        (failureNo != null && failureNo.isNotEmpty)
-            ? 'OCC failure created: $failureNo'
-            : AppStrings.failureCreated,
-      );
+      showFailureCreatedPopup(
+          type: 'OCC', failureNo: failureNo, closed: close);
     } catch (e) {
       EasyLoading.dismiss();
       debugPrint('createOccFailure error: $e');
@@ -6040,12 +6257,7 @@ class CreateFailureController extends GetxController
 
       EasyLoading.dismiss();
       Get.back();
-      Get.snackbar(
-        AppStrings.success,
-        (failureNo != null && failureNo.isNotEmpty)
-            ? 'Depot failure created: $failureNo'
-            : AppStrings.failureCreated,
-      );
+      showFailureCreatedPopup(type: 'Depot', failureNo: failureNo);
     } catch (e) {
       EasyLoading.dismiss();
       debugPrint('createDepotFailure error: $e');
@@ -6167,16 +6379,33 @@ class CreateFailureController extends GetxController
       trainIdController.text = _occStr(d['trainId']);
       occLineDisplayController.text = _occStr(d['lineIdName']);
       occTrainSetDisplayController.text = _occStr(d['trainSetName']);
+      // The OCC role edits these (FMC sees them read-only above).
+      selectedOccReportedTo.value =
+          _occLabelFor(occReportedToList, d['roleId']);
+      final reportedToName =
+      (selectedOccReportedTo.value ?? _occStr(d['roleName']))
+          .trim()
+          .toUpperCase();
+      occLoadedReportedToIsOcc.value =
+          reportedToName.isEmpty || reportedToName == 'OCC';
+      selectedOccLine.value = _occLabelFor(occLineList, d['lineId']);
+      selectedOccTrainSet.value =
+          _occLabelFor(occTrainSetList, d['trainSetId']);
 
       // System / Sub System: fetch the valid pairs, then restore what was saved.
       final loadedSys =
       _occStr(d['system'] ?? d['System']);
       final loadedSub = _occStr(
           d['subSystem'] ?? d['SubSystem'] ?? d['subsystem'] ?? d['Subsystem']);
-      _applyFmecaSystemSubsystemPairs([]);
-      if (occLoadedLocationId != 0 && funcId.isNotEmpty && funcId != '0') {
-        await fetchFmecaSystemSubsystemByFuncLoc(
-            occLoadedLocationId.toString(), funcId);
+      if (isOccRoleUser) {
+        // OCC role: options come from subsystemsForOccs for this department.
+        await loadOccSystemSubsystems();
+      } else {
+        _applyFmecaSystemSubsystemPairs([]);
+        if (occLoadedLocationId != 0 && funcId.isNotEmpty && funcId != '0') {
+          await fetchFmecaSystemSubsystemByFuncLoc(
+              occLoadedLocationId.toString(), funcId);
+        }
       }
       if (loadedSys.isNotEmpty &&
           (selectedFmecaSystem.value == null ||
@@ -6309,6 +6538,8 @@ class CreateFailureController extends GetxController
   void _occClearFunctionalDerived() {
     occFailureFrequency.value = null;
     occFailureFrequencyController.clear();
+    // System / Sub System stay as they are for these roles.
+    if (_occSystemFixed) return;
     occSystemDisplayController.clear();
     _applyFmecaSystemSubsystemPairs([]);
   }
@@ -6380,14 +6611,22 @@ class CreateFailureController extends GetxController
 
   /// Sends the FMC user's update. Caller has already asked for confirmation.
   Future<bool> submitOccUpdate(String kind) async {
-    if (!isFmcUser) {
+    if (!isFmcUser && !isOccRoleUser) {
       Get.snackbar(
         'Access Denied',
-        'Only FMC users can update this OCC failure.',
+        'Only OCC, FMC, TPC, CSS or RSC users can update this OCC failure.',
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
         colorText: AppColors.white1,
         snackPosition: SnackPosition.BOTTOM,
       );
+      return false;
+    }
+    if (occRoleViewOnly) {
+      _occError('This failure was reported to another role; only that role can update it.');
+      return false;
+    }
+    if (kind == 'close' && isOccRoleUser && !occReportedToIsOcc) {
+      _occError('Only failures reported to OCC can be closed by OCC.');
       return false;
     }
     final errors = occUpdateValidate(kind);
@@ -6429,11 +6668,14 @@ class CreateFailureController extends GetxController
             ? 'UpdateAndAssgineToDepartment'
             : 'UPDATEFAILURENOTIFUCATION',
         'Id': originalFailureId.value ?? 0,
-        'RoleId': occLoadedRoleId,
+        'RoleId': isOccRoleUser && _occId(occReportedToList, selectedOccReportedTo.value) != 0
+            ? _occId(occReportedToList, selectedOccReportedTo.value)
+            : occLoadedRoleId,
         'PriorityId': _occId(priorityTypeList, selectedPriority.value) == 0
             ? occLoadedPriorityId
             : _occId(priorityTypeList, selectedPriority.value),
-        'DepartmentIds': deptId,
+        // The web update sends the department as a number.
+        'DepartmentIds': int.tryParse(deptId) ?? 0,
         'DepartmentId_1': int.tryParse(deptId) ?? 0,
         'DepartmentId_2': 0,
         'DepartmentId_3': 0,
@@ -6449,7 +6691,12 @@ class CreateFailureController extends GetxController
         'FuncationLocationId_2': 0,
         'FuncationLocationId_3': 0,
         'TrainId': trainIdController.text.trim(),
-        'ActualFailureOccuranceDate': occLoadedOccurrenceRaw.isNotEmpty
+        // FMC cannot change the occurrence, so the original text goes back
+        // as-is. The OCC role can: send the new value only if it changed.
+        'ActualFailureOccuranceDate': (occLoadedOccurrenceRaw.isNotEmpty &&
+            !(isOccRoleUser &&
+                selectedFailureOccurrenceDate.value !=
+                    _parseDate(occLoadedOccurrenceRaw)))
             ? occLoadedOccurrenceRaw
             : fmt.format(selectedFailureOccurrenceDate.value!),
         'FailureReportedbyId':
@@ -6477,17 +6724,31 @@ class CreateFailureController extends GetxController
         'RescusedDuration':
         isPassengerAffected.value ? _occInt(rescuedDurationController) : null,
         'CreatedBy': createdBy,
-        'StatusId': kind == 'close' ? 39 : (occIsProdServer ? 179 : 204),
+        'StatusId': kind == 'close'
+            ? 39
+            : (isOccRoleUser ? 1 : (occIsProdServer ? 179 : 204)),
         'LocationText': occLocationTextController.text.trim(),
-        'LineId': occLoadedLineId,
-        'TrainSetId': occLoadedTrainSetId,
-        'OCCTrainOpeartorId':
-        _occId(occTrainOperatorList, selectedOccTrainOperator.value),
-        'OCCWayOfRescueRemark': occWayOfRescueController.text.trim(),
-        'TrainReplacedWithRemark': occReplacedWithController.text.trim(),
+        'LineId': isOccRoleUser &&
+            _occId(occLineList, selectedOccLine.value) != 0
+            ? _occId(occLineList, selectedOccLine.value)
+            : occLoadedLineId,
+        'TrainSetId': isOccRoleUser &&
+            _occId(occTrainSetList, selectedOccTrainSet.value) != 0
+            ? _occId(occTrainSetList, selectedOccTrainSet.value)
+            : occLoadedTrainSetId,
+        // Empty values go as null on update (as the web does), not 0 / "".
+        'OCCTrainOpeartorId': _occId(occTrainOperatorList, selectedOccTrainOperator.value) == 0
+            ? null
+            : _occId(occTrainOperatorList, selectedOccTrainOperator.value),
+        'OCCWayOfRescueRemark': occWayOfRescueController.text.trim().isEmpty
+            ? null
+            : occWayOfRescueController.text.trim(),
+        'TrainReplacedWithRemark': occReplacedWithController.text.trim().isEmpty
+            ? null
+            : occReplacedWithController.text.trim(),
         'TrainReplacedWithTime': occReplacedTime.value != null
             ? DateFormat('HH:mm').format(occReplacedTime.value!)
-            : '',
+            : null,
         'FailureCategoryTypeId':
         _occId(occFailureCategoryList, selectedFailureCategoryType.value),
         'FailureCategoryTypeText': occIsCategoryOther
@@ -6511,13 +6772,14 @@ class CreateFailureController extends GetxController
       EasyLoading.dismiss();
       Get.back(result: true);
       final no = notificationCode.value;
-      Get.snackbar(
-        AppStrings.success,
-        kind == 'assign'
+      showResultPopup(
+        message: kind == 'assign'
             ? 'Failure No. $no updated successfully.'
             '${(result != null && result.isNotEmpty) ? '\nDepartment Failure No $result created successfully.' : ''}'
             : kind == 'close'
             ? 'Failure No. $no updated and closed successfully.'
+            : kind == 'update'
+            ? 'Failure No. $no updated successfully.'
             : 'Failure No. $no saved as draft.',
       );
       return true;

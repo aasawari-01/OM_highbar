@@ -71,6 +71,12 @@ class _CustomDrawerState extends State<CustomDrawer> {
     _openSubSections.clear();
   }
 
+  /// OCC role (not FMC / TPC / CSS / RSC): sees its own OCC failure list
+  /// instead of JE inboxes.
+  bool _isOccRole(String role) =>
+      role.toUpperCase().contains('OCC') &&
+          !SessionController.isOccDelegateRole(role);
+
   void _onMenuTap(String menu, Widget screen) {
     setState(() {
       _selectedMenu = menu;
@@ -194,7 +200,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return _drawerItem('Failure List', 'section_incharge_failure', const FailureListScreen(failureType: 'Maintenance'));
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController || role.toUpperCase().contains('DCC')) {
+                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('Maintenance JE Inbox', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance'));
@@ -228,6 +234,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (isStationController || role.toUpperCase().contains('DCC')) {
                         return const SizedBox.shrink();
                       }
+                      // OCC role: its own OCC failure list (create / update / close).
+                      if (_isOccRole(role)) {
+                        return _drawerItem('OCC Failure', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
+                      }
                       return _drawerItem('OCC JE Inbox', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
                     }),
                     Obx(() {
@@ -237,7 +247,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return const SizedBox.shrink(); // Section Incharge already has unified Failure List
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController || role.toUpperCase().contains('DCC')) {
+                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('Depot JE Inbox', 'depot_failure', const FailureListScreen(failureType: 'Depot'));
@@ -249,7 +259,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return const SizedBox.shrink(); // Section Incharge already has unified Failure List
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController || role.toUpperCase().contains('DCC')) {
+                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('RST JE Inbox', 'rst_failure', const RstListScreen());

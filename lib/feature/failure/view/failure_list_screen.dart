@@ -207,7 +207,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
         final isStationController = role.contains("Station Controller");
         final isSectionIncharge = role.contains("Section Incharge");
 
-        if (isJE || isTechnician || role.contains("FMC")) {
+        if (isJE || isTechnician || SessionController.isOccDelegateRole(role)) {
           return const SizedBox.shrink();
         }
 
@@ -289,10 +289,10 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
   Widget _buildFailureCard(FailureItem failure) {
     return GestureDetector(
-      onTap: () {
+      onTap: () async{
         final isJI = _showJETabs &&
             controller.selectedJETab.value == JEFailureListTab.jointInspection;
-        Navigator.push(
+        final result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (context) => CreateFailureScreen(
             failureNo: failure.failureNo,
@@ -302,6 +302,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
             failureItem: failure,
           )),
         );
+        if (result == true) {
+          controller.fetchFailures();
+        }
       },
       child: Container(
         margin: const EdgeInsets.fromLTRB(AppConstants.elementSpacing,AppConstants.elementSpacing,AppConstants.elementSpacing,0),
@@ -330,6 +333,11 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ),
                   const SizedBox(width: 6),
                   _statusChip(failure.statusName ?? ''),
+                  if (_isDccDepot &&
+                      (failure.occRequestStatusName ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    _statusChip(failure.occRequestStatusName!.trim()),
+                  ],
                 ],
               ),
               const SizedBox(height: 8),
@@ -424,6 +432,13 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ],
                 ),
               ],
+              // DCC depot failure buttons (same rules as the web depot list)
+              if (_isDccDepot && _depotHasActions(failure)) ...[
+                const SizedBox(height: 12),
+                const Divider(color: AppColors.dividerColor3, height: 1),
+                const SizedBox(height: 12),
+                _buildDepotActions(failure),
+              ],
               // Section Incharge specific buttons
               if (_isSectionIncharge) ...[
                 const SizedBox(height: 12),
@@ -431,6 +446,300 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                 const SizedBox(height: 12),
                 _buildSectionInchargeActions(failure),
               ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ── DCC depot failure actions ─────────────────────────────────────────────
+
+  bool get _isDccDepot =>
+      widget.failureType == 'Depot' && controller.isDcc;
+
+  /// Web: Acknowledge when status is "Work Complete"; Re-Open / Close when
+  /// statusId is 195 or 175.
+  bool _isDepotWorkComplete(FailureItem f) =>
+      (f.statusName ?? '').trim() == 'Work Complete';
+
+  bool _depotCanReopenClose(FailureItem f) =>
+      f.statusId == 195 || f.statusId == 175;
+
+  bool _depotHasActions(FailureItem f) =>
+      _isDepotWorkComplete(f) || _depotCanReopenClose(f);
+
+  Widget _depotChip(String label, Color color, VoidCallback onTap) {
+    return ActionChip(
+      label: Text(label,
+          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+      onPressed: onTap,
+      backgroundColor: AppColors.white1,
+      labelStyle: TextStyle(color: color),
+      side: BorderSide(color: color),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+    );
+  }
+
+  Widget _buildDepotActions(FailureItem failure) {
+    final id = failure.id ?? 0;
+    final code = failure.notificationCode ?? failure.failureNo;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (_isDepotWorkComplete(failure))
+          _depotChip('Acknowledge', AppColors.green,
+                  () => _showDepotAcknowledgePopup(failure)),
+        if (_depotCanReopenClose(failure)) ...[
+          _depotChip('Re-Open', AppColors.green,
+                  () => _showDepotReopenPopup(id, code)),
+          _depotChip('Close', AppColors.red,
+                  () => _showDepotCloseConfirmation(id, code)),
+        ],
+      ],
+    );
+  }
+
+  void _showDepotCloseConfirmation(int id, String? code) {
+    Get.dialog(
+      CustPopup(
+        title: "Close Failure",
+        message: "Do you want close failure?",
+        icon: TablerIcons.alert_circle,
+        iconColor: AppColors.red,
+        confirmText: "Yes",
+        cancelText: "Cancel",
+        onCancel: () => Get.back(),
+        onConfirm: () {
+          Get.back();
+          controller.closeDepotFailure(id, failureNo: code);
+        },
+      ),
+    );
+  }
+
+  void _showDepotReopenPopup(int id, String? code) {
+    final remarkController = TextEditingController();
+    String? error;
+    Get.dialog(
+      CustPopup(
+        title: "Send For Re-open Failure",
+        showIcon: true,
+        icon: TablerIcons.refresh,
+        iconColor: AppColors.green,
+        onCancel: () => Get.back(),
+        customContent: StatefulBuilder(
+          builder: (context, setPopupState) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: CustText(
+                    name: "Send For Re-open Failure",
+                    size: AppConstants.headerSize,
+                    color: AppColors.textMutedLight,
+                    fontWeightName: FontWeight.w600),
+              ),
+              const SizedBox(height: 16),
+              CustText(
+                  name: "Remark *",
+                  size: AppConstants.formLabelSize,
+                  fontWeightName: FontWeight.w500),
+              const SizedBox(height: 8),
+              CustomTextField(
+                controller: remarkController,
+                hintText: "Enter remark (max 250 characters)",
+                maxLines: 3,
+                maxLength: 250,
+                onChanged: (v) {
+                  if (error != null && v.trim().isNotEmpty) {
+                    setPopupState(() => error = null);
+                  }
+                },
+              ),
+              if (error != null)
+                Text(error!,
+                    style: const TextStyle(color: AppColors.red, fontSize: 12)),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: CustOutlineButton(
+                      name: "Close",
+                      size: double.infinity,
+                      sHeight: 35,
+                      onSelected: (_) => Get.back(),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: CustButton(
+                      name: "Submit",
+                      size: double.infinity,
+                      sHeight: 35,
+                      onSelected: (_) {
+                        final remark = remarkController.text.trim();
+                        if (remark.isEmpty) {
+                          setPopupState(() => error = "Please enter remark.");
+                          return;
+                        }
+                        Get.back();
+                        Get.dialog(
+                          CustPopup(
+                            title: "Confirm",
+                            message: "Do you want reopen failure?",
+                            icon: TablerIcons.alert_triangle,
+                            iconColor: AppColors.orangeColor,
+                            confirmText: "Yes",
+                            cancelText: "Cancel",
+                            onCancel: () => Get.back(),
+                            onConfirm: () {
+                              Get.back();
+                              controller.reOpenDepotFailure(id, remark,
+                                  failureNo: code);
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmDepotAcknowledge(FailureItem failure, String remark,
+      {required bool accept}) {
+    Get.dialog(
+      CustPopup(
+        title: "Confirm",
+        message: accept
+            ? "Do you want acknowledge accept failure?"
+            : "Do you want acknowledge deny failure?",
+        icon: accept ? TablerIcons.circle_check : TablerIcons.alert_triangle,
+        iconColor: accept ? AppColors.green : AppColors.orangeColor,
+        confirmText: "Yes",
+        cancelText: "Cancel",
+        onCancel: () => Get.back(),
+        onConfirm: () async {
+          Get.back(); // confirm dialog
+          Get.back(); // acknowledge popup
+          await controller.acknowledgeDepotFailure(
+            failure.id ?? 0,
+            remark,
+            accept: accept,
+            failureNo: failure.notificationCode ?? failure.failureNo,
+          );
+        },
+      ),
+    );
+  }
+
+  void _showDepotAcknowledgePopup(FailureItem failure) {
+    final remarkController = TextEditingController();
+    final code = failure.notificationCode ?? failure.failureNo ?? '';
+    String? error;
+    Get.dialog(
+      CustPopup(
+        title: "Acknowledge For Failure",
+        showIcon: true,
+        icon: TablerIcons.circle_check,
+        iconColor: AppColors.green,
+        onCancel: () => Get.back(),
+        customContent: StatefulBuilder(
+          builder: (context, setPopupState) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: CustText(
+                    name: "Acknowledge For Failure",
+                    size: AppConstants.headerSize,
+                    color: AppColors.textMutedLight,
+                    fontWeightName: FontWeight.w600),
+              ),
+              if (code.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Center(
+                  child: CustText(
+                      name: "Failure No: $code",
+                      size: 13,
+                      color: AppColors.orangeColor,
+                      fontWeightName: FontWeight.w600),
+                ),
+              ],
+              const SizedBox(height: 16),
+              CustText(
+                  name: "Remark *",
+                  size: AppConstants.formLabelSize,
+                  fontWeightName: FontWeight.w500),
+              const SizedBox(height: 8),
+              CustomTextField(
+                controller: remarkController,
+                hintText: "Enter remark (max 250 characters)",
+                maxLines: 3,
+                maxLength: 250,
+                onChanged: (v) {
+                  if (error != null && v.trim().isNotEmpty) {
+                    setPopupState(() => error = null);
+                  }
+                },
+              ),
+              if (error != null)
+                Text(error!,
+                    style: const TextStyle(color: AppColors.red, fontSize: 12)),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: CustOutlineButton(
+                      name: "Close",
+                      size: double.infinity,
+                      sHeight: 36,
+                      fontSize: 14,
+                      onSelected: (_) => Get.back(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CustButton(
+                      name: "Deny",
+                      size: double.infinity,
+                      sHeight: 36,
+                      fontSize: 14,
+                      color1: AppColors.red,
+                      color2: AppColors.red,
+                      onSelected: (_) {
+                        final remark = remarkController.text.trim();
+                        if (remark.isEmpty) {
+                          setPopupState(() => error = "Please enter remark.");
+                          return;
+                        }
+                        _confirmDepotAcknowledge(failure, remark, accept: false);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CustButton(
+                      name: "Accept",
+                      size: double.infinity,
+                      sHeight: 36,
+                      fontSize: 14,
+                      color1: AppColors.green,
+                      color2: AppColors.green,
+                      onSelected: (_) => _confirmDepotAcknowledge(
+                          failure, remarkController.text.trim(),
+                          accept: true),
+                    ),
+                  ),
+                ],
+              ),
             ],
           ),
         ),
@@ -791,7 +1100,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       chips.add(
         ActionChip(
           label: const Text('Close', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-          onPressed: () => _showCloseConfirmation(failure.id ?? 0),
+            onPressed: () => _showSectionInchargeCloseConfirmation(failure),
           backgroundColor: AppColors.white1,
           labelStyle: const TextStyle(color: AppColors.red),
           side: const BorderSide(color: AppColors.red),
@@ -851,6 +1160,64 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       runSpacing: 8,
       children: chips,
     );
+  }
+
+  void _showSectionInchargeCloseConfirmation(FailureItem failure) {
+    Get.dialog(
+      CustPopup(
+        title: "Close Failure",
+        message: "Do you want close failure?",
+        icon: TablerIcons.alert_circle,
+        iconColor: AppColors.red,
+        confirmText: "Yes",
+        cancelText: "Cancel",
+        onCancel: () => Get.back(),
+        onConfirm: () async {
+          Get.back();
+          await _handleSectionInchargeClose(failure);
+          if (Get.isDialogOpen ?? false) Get.back();
+        },
+      ),
+    );
+  }
+
+  Future<void> _handleSectionInchargeClose(FailureItem failure) async {
+    final jobCardNo = failure.failureNo;
+
+    if (jobCardNo == null || jobCardNo.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Invalid Job Card No — cannot close"))
+        );
+      }
+      return;
+    }
+
+    try {
+      final success = await _failureService.closeNotification(
+        jobCardNo: jobCardNo,
+        assignedUserId: failure.assignedUserId ?? 0,
+      );
+
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Failure closed successfully"))
+          );
+          controller.fetchFailures();
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Operation failed"))
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Error: $e"))
+        );
+      }
+    }
   }
 
   void _showAssignPopup(FailureItem failure) {

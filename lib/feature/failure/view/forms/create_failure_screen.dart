@@ -451,12 +451,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   bool get _isOccCreate =>
       widget.failureType == 'OCC' && widget.failureNo == null;
 
-  /// FMC user updating an existing OCC failure (web "Update OCC Failure").
+  /// FMC user, or OCC role, updating an existing OCC failure (web "Update
+  /// OCC Failure" / "Update Failure").
   bool get _isOccUpdate =>
       widget.failureType == 'OCC' &&
           widget.failureNo != null &&
           !widget.isFromJointInspection &&
-          controller.isFmcUser;
+          (controller.isFmcUser || controller.isOccRoleUser);
 
   bool get _isStationUpdate =>
       widget.failureType == 'Station' &&
@@ -2072,8 +2073,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             );
           }),
           Obx(() {
+            // Department rule from the web, plus: an existing failure that
+            // already has passenger data must show it whatever the department.
             final showPassengerAffected =
-            [4, 5, 6, 8, 9, 10].contains(controller.departmentId.value);
+                [4, 5, 6, 8, 9, 10].contains(controller.departmentId.value) ||
+                    (_isExistingMaintenance &&
+                        controller.isPassengerAffected.value);
 
             if (!showPassengerAffected) {
               return const SizedBox.shrink();
@@ -2548,6 +2553,45 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 ],
               ),
             ),
+          // Attachments editor is hidden after status 1/202; still show the
+          // images that were already uploaded (read-only).
+          if (_isExistingMaintenance &&
+              _maintenanceStatusId != 1 &&
+              _maintenanceStatusId != 202)
+            Obx(() {
+              final groups = <String, RxList>{
+                "Before:": controller.beforeImagesList,
+                "After:": controller.afterImagesList,
+                "RCA:": controller.rcaImagesList,
+              }..removeWhere((_, l) => l.isEmpty);
+              if (groups.isEmpty) return const SizedBox.shrink();
+              return CustSection(
+                title: "Uploaded Images",
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: groups.entries
+                      .map<Widget>((g) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        CustText.body(g.key),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: g.value
+                              .map<Widget>((file) =>
+                              _buildUploadedImagePreview(file['path']!))
+                              .toList(),
+                        ),
+                      ],
+                    ),
+                  ))
+                      .toList(),
+                ),
+              );
+            }),
           Padding(
             padding: const EdgeInsets.all(AppConstants.screenPadding),
             child: Row(
@@ -4230,6 +4274,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   // OCC failure (FMC update)
   // ---------------------------------------------------------
 
+  /// Read-only field bound straight to a [TextEditingController]. Use this
+  /// (not [_occReadOnlyField]) when the value is not an Rx variable: an Obx
+  /// with nothing observable inside throws in GetX.
+  Widget _occReadOnlyController(String label, TextEditingController c) {
+    return CustomTextField(label: label, controller: c, enabled: false);
+  }
+
+  /// Read-only field for a value read from Rx variables (kept in sync via Obx).
   Widget _occReadOnlyField(String label, String Function() value) {
     return Obx(() => CustomTextField(
       label: label,
@@ -4327,6 +4379,27 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     });
   }
 
+  /// System and Sub System as read-only values (update form for the roles an
+  /// OCC failure is reported to; they cannot change what OCC entered).
+  Widget _occFixedSystemSubsystemFields() {
+    return Column(
+      children: [
+        _occReadOnlyField("System *", () => controller.occSystemValue),
+        const SizedBox(height: AppConstants.elementSpacing),
+        _occReadOnlyField(
+            "Sub System *", () => controller.selectedFmecaSubsystem.value ?? ''),
+      ],
+    );
+  }
+
+  /// OCC role opening a failure that was reported to FMC / TPC / CSS / RSC:
+  /// everything is view-only (those roles own the update).
+  Widget _occViewOnlyGuard(Widget child) {
+    return Obx(() => controller.occRoleViewOnly
+        ? Opacity(opacity: 0.6, child: AbsorbPointer(child: child))
+        : child);
+  }
+
   Widget _occImageGroup(String title, RxList<Map<String, dynamic>> list) {
     return Obx(() {
       if (list.isEmpty) return const SizedBox.shrink();
@@ -4380,7 +4453,24 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ],
             ),
           ),
+          Obx(() => controller.occRoleViewOnly
+              ? Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppConstants.screenPadding,
+                AppConstants.elementSpacing,
+                AppConstants.screenPadding,
+                0),
+            child: CustText.body(
+              "Reported to ${controller.selectedOccReportedTo.value ?? 'another role'}. "
+                  "Only that role can update this failure.",
+              color: AppColors.orangeColor,
+            ),
+          )
+              : const SizedBox.shrink()),
           const SizedBox(height: AppConstants.sectionSpacing),
+          _occViewOnlyGuard(Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
           CustSection(
             title: "Failure Information",
             trailing: _buildExpandCollapseButton(),
@@ -4388,8 +4478,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _occReadOnlyField(
-                    "Priority", () => controller.selectedPriority.value ?? ''),
+                controller.isOccRoleUser
+                    ? _occDropdown(
+                  label: "Priority *",
+                  options: controller.priorityTypeList,
+                  selected: controller.selectedPriority,
+                  onChanged: (v) => controller.selectedPriority.value = v,
+                )
+                    : _occReadOnlyField("Priority",
+                        () => controller.selectedPriority.value ?? ''),
                 gap,
                 CustText.detailLabel("Previously added description"),
                 const SizedBox(height: 6),
@@ -4449,12 +4546,36 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   await controller.onOccUpdateDepartmentChanged(v),
                 ),
                 gap,
-                _occRow(
-                  _occReadOnlyField("Line",
-                          () => controller.occLineDisplayController.text),
-                  _occReadOnlyField("Location Text",
-                          () => controller.occLocationTextController.text),
-                ),
+                if (controller.isOccRoleUser) ...[
+                  // OCC role can change Reported To / Line / Location Text.
+                  _occRow(
+                    _occDropdown(
+                      label: "Reported To *",
+                      options: controller.occReportedToList,
+                      selected: controller.selectedOccReportedTo,
+                      onChanged: controller.onOccReportedToChanged,
+                    ),
+                    _occDropdown(
+                      label: "Line",
+                      options: controller.occLineList,
+                      selected: controller.selectedOccLine,
+                      onChanged: (v) => controller.selectedOccLine.value = v,
+                    ),
+                  ),
+                  gap,
+                  CustomTextField(
+                    label: "Location Text",
+                    controller: controller.occLocationTextController,
+                    hintText: "Enter Location Text",
+                    maxLength: 100,
+                  ),
+                ] else
+                  _occRow(
+                    _occReadOnlyController(
+                        "Line", controller.occLineDisplayController),
+                    _occReadOnlyController(
+                        "Location Text", controller.occLocationTextController),
+                  ),
                 gap,
                 _occDropdown(
                   label: "Location",
@@ -4505,7 +4626,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   maxLength: 100,
                 ),
                 gap,
-                _occSystemSubsystemFields(),
+                // OCC role picks them; FMC / TPC / CSS / RSC see what OCC set.
+                controller.isOccRoleUser
+                    ? _occSystemSubsystemFields()
+                    : _occFixedSystemSubsystemFields(),
                 Obx(() => controller.occIsStationFailure.value
                     ? const SizedBox.shrink()
                     : Padding(
@@ -4519,16 +4643,29 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                 )),
                 gap,
-                _occReadOnlyField("Train Set",
-                        () => controller.occTrainSetDisplayController.text),
+                controller.isOccRoleUser
+                    ? _occDropdown(
+                  label: "Train Set",
+                  options: controller.occTrainSetList,
+                  selected: controller.selectedOccTrainSet,
+                  onChanged: (v) =>
+                  controller.selectedOccTrainSet.value = v,
+                )
+                    : _occReadOnlyController(
+                        "Train Set", controller.occTrainSetDisplayController),
                 gap,
                 Obx(() => CustDateTimePicker(
-                  label: "Actual Failure Occurrence",
+                  label: controller.isOccRoleUser
+                      ? "Actual Failure Occurrence *"
+                      : "Actual Failure Occurrence",
                   hint: "DD/MM/YYYY hh:mm",
                   selectedDateTime:
                   controller.selectedFailureOccurrenceDate.value,
-                  enabled: false,
-                  onDateTimeSelected: (_) {},
+                  enabled: controller.isOccRoleUser,
+                  lastDate: DateTime.now(),
+                  onDateTimeSelected: (dt) => controller.isOccRoleUser
+                      ? controller.selectedFailureOccurrenceDate.value = dt
+                      : null,
                 )),
                 gap,
                 _occDropdown(
@@ -4540,10 +4677,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 ),
                 gap,
                 Obx(() => CustDateTimePicker(
-                  label: "Actual Failure Completed Date & Time *",
+                  label: controller.isOccRoleUser
+                      ? "Actual Failure Completed Date & Time"
+                      : "Actual Failure Completed Date & Time *",
                   hint: "DD/MM/YYYY hh:mm",
                   selectedDateTime:
                   controller.selectedFailureCompletedDate.value,
+                  // OCC role: only when Reported To is OCC.
+                  enabled: !controller.isOccRoleUser ||
+                      controller.occReportedToIsOcc,
                   firstDate: controller.selectedFailureOccurrenceDate.value,
                   lastDate: DateTime.now(),
                   onDateTimeSelected: (dt) =>
@@ -4620,6 +4762,51 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ],
             ),
           ),
+            ],
+          )),
+          if (controller.isOccRoleUser)
+            // OCC role: Update, plus Update And Close when Reported To is OCC.
+            // A closed failure is read-only.
+            Obx(() {
+              final closed = (controller.mainStatusName.value ?? '')
+                  .toLowerCase()
+                  .contains('close');
+              if (closed || controller.occRoleViewOnly) {
+                return const SizedBox.shrink();
+              }
+              return Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: AppConstants.screenPadding),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: CustOutlineButton(
+                        name: "Update",
+                        size: double.infinity,
+                        sHeight: AppConstants.buttonHeight,
+                        borderRadius: AppConstants.inputRadius,
+                        onSelected: (_) => _occUpdateAction(
+                            'update', 'Do you want to update failure?'),
+                      ),
+                    ),
+                    if (controller.occReportedToIsOcc) ...[
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(
+                        child: CustButton(
+                          name: "Update And Close",
+                          size: double.infinity,
+                          sHeight: AppConstants.buttonHeight,
+                          borderRadius: AppConstants.inputRadius,
+                          onSelected: (_) => _occUpdateAction(
+                              'close', 'Do you want to update and close?'),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            })
+          else
           Padding(
             padding: const EdgeInsets.symmetric(
                 horizontal: AppConstants.screenPadding),
@@ -4768,8 +4955,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       label: "Reported To *",
                       options: controller.occReportedToList,
                       selected: controller.selectedOccReportedTo,
-                      onChanged: (v) =>
-                      controller.selectedOccReportedTo.value = v,
+                      onChanged: controller.onOccReportedToChanged,
                       requiredName: "Reported To",
                     ),
                     _occDropdown(
@@ -4794,36 +4980,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     maxLength: 100,
                   ),
                   gap,
-                  _occRow(
-                    Obx(() {
-                      // Several systems for this functional location -> pick
-                      // one; otherwise show the single system read-only.
-                      final systems = controller.fmecaSystemList
-                          .map((e) => e.label ?? '')
-                          .toList();
-                      if (systems.length > 1 &&
-                          !controller.fmecaSystemReadOnly.value) {
-                        return CustDropdown(
-                          label: "System",
-                          hint: "Select...",
-                          items: systems,
-                          selectedValue: controller.selectedFmecaSystem.value,
-                          onChanged: (v) => controller.onOccSystemChanged(v),
-                        );
-                      }
-                      return CustomTextField(
-                        label: "System",
-                        controller: controller.occSystemDisplayController,
-                        hintText: "Select functional location",
-                        enabled: false,
-                      );
-                    }),
-                    CustomTextField(
-                      label: "Train Id",
-                      controller: controller.trainIdController,
-                      hintText: "Enter Train Id",
-                      maxLength: 100,
-                    ),
+                  // System and Sub System (both required on the web page).
+                  _occSystemSubsystemFields(),
+                  gap,
+                  CustomTextField(
+                    label: "Train Id",
+                    controller: controller.trainIdController,
+                    hintText: "Enter Train Id",
+                    maxLength: 100,
                   ),
                   gap,
                   _occDropdown(
@@ -4865,6 +5029,19 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     controller.selectedFailureReportedBy.value = v,
                     requiredName: "Failure Reported by",
                   ),
+                  gap,
+                  // Enabled only when Reported To is OCC (then OCC can close).
+                  Obx(() => CustDateTimePicker(
+                    label: "Actual Failure Completed Date & Time",
+                    hint: "DD/MM/YYYY hh:mm",
+                    selectedDateTime:
+                    controller.selectedFailureCompletedDate.value,
+                    enabled: controller.occReportedToIsOcc,
+                    firstDate: controller.selectedFailureOccurrenceDate.value,
+                    lastDate: DateTime.now(),
+                    onDateTimeSelected: (dt) =>
+                    controller.selectedFailureCompletedDate.value = dt,
+                  )),
                   gap,
                   _occDropdown(
                     label: "Failure Category Type *",
@@ -4931,29 +5108,44 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             Padding(
               padding: const EdgeInsets.symmetric(
                   horizontal: AppConstants.screenPadding),
-              child: Row(
+              child: Obx(() => Column(
                 children: [
-                  Expanded(
-                    child: CustOutlineButton(
-                      name: "Cancel",
+                  Row(
+                    children: [
+                      Expanded(
+                        child: CustOutlineButton(
+                          name: "Cancel",
+                          size: double.infinity,
+                          sHeight: AppConstants.buttonHeight,
+                          borderRadius: AppConstants.inputRadius,
+                          onSelected: (_) => _handleCancel(),
+                        ),
+                      ),
+                      const SizedBox(width: AppConstants.elementSpacing),
+                      Expanded(
+                        child: CustButton(
+                          name: "Save",
+                          size: double.infinity,
+                          sHeight: AppConstants.buttonHeight,
+                          borderRadius: AppConstants.inputRadius,
+                          onSelected: (_) => _submitForm(),
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Only OCC-reported failures can be closed by OCC.
+                  if (controller.occReportedToIsOcc) ...[
+                    const SizedBox(height: AppConstants.elementSpacing),
+                    CustButton(
+                      name: "Save and Close",
                       size: double.infinity,
                       sHeight: AppConstants.buttonHeight,
                       borderRadius: AppConstants.inputRadius,
-                      onSelected: (_) => _handleCancel(),
+                      onSelected: (_) => _submitOccCreateAndClose(),
                     ),
-                  ),
-                  const SizedBox(width: AppConstants.elementSpacing),
-                  Expanded(
-                    child: CustButton(
-                      name: "Save",
-                      size: double.infinity,
-                      sHeight: AppConstants.buttonHeight,
-                      borderRadius: AppConstants.inputRadius,
-                      onSelected: (_) => _submitForm(),
-                    ),
-                  ),
+                  ],
                 ],
-              ),
+              )),
             ),
             const SizedBox(height: 32),
           ],
@@ -6072,6 +6264,22 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         snackPosition: SnackPosition.BOTTOM,
       );
     }
+  }
+
+  /// OCC create: "Save and Close" (completed date mandatory, StatusId 39).
+  Future<void> _submitOccCreateAndClose() async {
+    FocusScope.of(context).unfocus();
+    if (!_validateForm(_occFormKey)) {
+      Get.snackbar(
+        AppStrings.validationError,
+        "Please fill all compulsory fields marked with *",
+        backgroundColor: AppColors.red.withValues(alpha: 0.9),
+        colorText: AppColors.white1,
+        snackPosition: SnackPosition.BOTTOM,
+      );
+      return;
+    }
+    await controller.createOccFailure(close: true);
   }
 
   void _submitForm() {

@@ -9,6 +9,7 @@ import '../../../constants/strings.dart';
 import '../../../core/models/label_value.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
+import '../../../utils/widgets/success_popup.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../../../core/controller/session_controller.dart';
 import 'failure_form_state.dart';
@@ -369,10 +370,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
         EasyLoading.dismiss();
         Get.back();
-        final message = (failureNo != null && failureNo.isNotEmpty)
-            ? 'Station failure created: $failureNo'
-            : AppStrings.failureCreated;
-        Get.snackbar(AppStrings.success, message);
+        showFailureCreatedPopup(type: 'Station', failureNo: failureNo);
       } catch (apiError) {
         debugPrint("API submission failed, saving locally: $apiError");
         // Save to local database for later sync
@@ -432,12 +430,11 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
         EasyLoading.dismiss();
         Get.back();
-        Get.snackbar(
-          "Saved Offline",
-          "Failure saved locally. Will sync when internet is available.",
-          backgroundColor: AppColors.orangeColor,
-          colorText: AppColors.white1,
-          duration: const Duration(seconds: 3),
+        showResultPopup(
+          title: "Saved Offline",
+          message: "Failure saved locally. Will sync when internet is available.",
+          icon: Icons.cloud_off_outlined,
+          iconColor: AppColors.orangeColor,
         );
       }
     } catch (e) {
@@ -681,13 +678,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
         refreshFailureListAfterSubmission(false);
         Get.offAll(() => const FailureListScreen(failureType: 'Maintenance'));
-        Get.snackbar(
-          "Success",
-          "Maintenance failure created successfully\nFailure No: $failureNo",
-          backgroundColor: AppColors.green,
-          colorText: AppColors.white1,
-          duration: const Duration(seconds: 3),
-        );
+        showFailureCreatedPopup(type: 'Maintenance', failureNo: failureNo);
       } else {
         Get.snackbar(
           "Error",
@@ -861,10 +852,12 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       EasyLoading.dismiss();
       isSubmitting.value = false;
 
+      refreshFailureListAfterSubmission(false);
+      // Leave the form first: Get.back() after a snackbar would only pop the
+      // snackbar and leave the user on this page.
+      Get.back(result: true);
       Get.snackbar('Success', response['responseMessage']?.toString() ?? 'Data Edit Successfully',
           backgroundColor: AppColors.green, colorText: AppColors.white1);
-      refreshFailureListAfterSubmission(false);
-      Get.back();
     } catch (e) {
       EasyLoading.dismiss();
       isSubmitting.value = false;
@@ -1528,7 +1521,9 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       );
       await _failureService.updateJEFailure(payload, files: files);
       EasyLoading.dismiss();
-      Get.back();
+      // Reload the JE inbox list(s) so the closed/updated failure shows.
+      refreshFailureListAfterSubmission(isStation);
+      Get.back(result: true);
       Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
           backgroundColor: AppColors.green, colorText: AppColors.white1);
     } catch (e) {

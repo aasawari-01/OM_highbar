@@ -50,14 +50,25 @@ class SessionController extends GetxController {
     "OCC",
     "Section Incharge",
     "FMC",
+    "TPC",
+    "CSS",
+    "RSC",
     "DCC"
   ];
 
+  /// Roles an OCC failure can be "Reported To" besides OCC itself. They update
+  /// the failure after OCC has created it (OCC then cannot edit it).
+  static bool isOccDelegateRole(String roleName) {
+    final upper = roleName.toUpperCase();
+    // "FMC" also matches inside longer names such as "FMC User".
+    return upper.contains('FMC') ||
+        RegExp(r'\b(TPC|CSS|RSC)\b').hasMatch(upper);
+  }
+
   bool isRoleAllowed(String roleName) {
-    // Any role whose name contains "FMC" (e.g. "FMC User") is an FMC user.
     final isAllowed = allowedMobileRoles.any((allowed) =>
     roleName.trim().toLowerCase() == allowed.trim().toLowerCase()
-    ) || roleName.toUpperCase().contains('FMC');
+    ) || isOccDelegateRole(roleName);
     log("Role check: '$roleName' -> allowed: $isAllowed");
     log("Allowed roles: $allowedMobileRoles");
     return isAllowed;

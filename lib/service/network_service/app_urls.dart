@@ -24,6 +24,10 @@ class AppUrls {
   static const String createStationFailure = 'OCCMaintainance/insertStationFailureDetails';
   /// OCC failure create. Same endpoints the web "Create OCC Failure" page uses.
   static const String getOccFailureLookups = 'OCCMaintainance/getFailureCreationById';
+  /// Reported To (getRoleList), Line and Train Set lists for the OCC forms.
+  static const String getOccDeptLocationLookups = 'OCCMaintainance/getFailureCreationDeptLocation';
+  /// System / Sub System options for the OCC role (subsystemsForOccs).
+  static const String getFailureStandDropDownData = 'FailureStandardized/GetFailureStandDropDownDataNew';
   static const String createOccFailure = 'OCCMaintainance/insertFailureDetails';
   /// Update OCC failure (FMC user) uses the same insert endpoint with an Action.
   static const String updateOccFailure = createOccFailure;
@@ -37,6 +41,7 @@ class AppUrls {
   static const String getDepotLookup = 'Lookup/GetLookup_Depot';
   static const String insertUserDepotSelection = 'Common/Insert_Users_DepotSelection';
   static const String getDepotFailureList = 'OCCMaintainance/getDepotFailureList';
+  static const String updateDepotAcknowledgeStatus = 'OCCMaintainance/updateDepotAcknowledgeStatus';
   static const String getDepotFailureById = 'OCCMaintainance/getDepotFailureCreationById';
   static const String createDepotFailure = 'OCCMaintainance/insertDepotFailureDetails';
   static const String getMasterData = 'mobileAppAPI/GetMasterData';
@@ -60,7 +65,7 @@ class AppUrls {
   static const String updateStatusNotificationDelete = 'BreakdownMaintainance/updateStatusNotificationDelete';
   static const String updateAssignUserNotificationCorrection = 'BreakdownMaintainance/updateAssignUserNotificationCorrection';
   static const String getLookupCreateCorrNotification = 'Lookup/GetLookupCreateCorrNotification';
-
+  static const String updateCloseStatusNotification = 'BreakdownMaintainance/updateCloseStatusNotification';
   /// Maintenance form endpoints
   static const String getFunctionalLocationDetails = 'mobileAppAPI/GetFunctionalLocationDetails';
   static const String editNotificationDetails =
