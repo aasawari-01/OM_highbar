@@ -402,7 +402,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         if (!controller.isOccController) {
           Get.snackbar(
             "Access Denied",
-            "Only OCC Controller can create OCC failure.",
+            "Only Chief Controller can create OCC failure.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
             colorText: AppColors.white1,
             snackPosition: SnackPosition.BOTTOM,

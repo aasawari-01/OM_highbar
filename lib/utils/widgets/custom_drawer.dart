@@ -71,10 +71,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
     _openSubSections.clear();
   }
 
-  /// OCC role (not FMC / TPC / CSS / RSC): sees its own OCC failure list
-  /// instead of JE inboxes.
+  /// Chief Controller (not FMC / TPC / CSS / RSC): sees its own OCC failure
+  /// list instead of JE inboxes.
   bool _isOccRole(String role) =>
-      role.toUpperCase().contains('OCC') &&
+      SessionController.isOccFailureCreatorRole(role) &&
           !SessionController.isOccDelegateRole(role);
 
   void _onMenuTap(String menu, Widget screen) {

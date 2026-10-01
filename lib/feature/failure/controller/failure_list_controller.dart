@@ -135,10 +135,11 @@ class FailureListController extends GetxController {
     return role.toUpperCase().contains('DCC');
   }
 
-  /// OCC role (not FMC) sees the OCC failures from getFailureList.
+  /// Chief Controller (the OCC-failure creator role) sees the OCC failures
+  /// from getFailureList.
   bool get _isOccRole {
     final role = _sessionController.selectedRole.value?.roleDescr ?? '';
-    return role.toUpperCase().contains('OCC') && !_isFmc;
+    return SessionController.isOccFailureCreatorRole(role) && !_isFmc;
   }
 
   bool get _useOccFailureListApi =>
@@ -255,16 +256,8 @@ class FailureListController extends GetxController {
             final failureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
             final filteredItems = failureItems.where((item) => _matchesFailureType(item)).toList();
             
-            // Sort by creationType: Manual, Station, Depot, OCC
-            final creationTypeOrder = {'Manual': 0, 'Station': 1, 'Depot': 2, 'OCC': 3};
-            filteredItems.sort((a, b) {
-              final aType = (a.creationType ?? '').trim();
-              final bType = (b.creationType ?? '').trim();
-              final aOrder = creationTypeOrder[aType] ?? 999;
-              final bOrder = creationTypeOrder[bType] ?? 999;
-              return aOrder.compareTo(bOrder);
-            });
-            
+            _sortJeFailures(filteredItems);
+
             failures.assignAll(filteredItems);
             errorMessage.value = ""; // Clear error message when local data loads successfully
             debugPrint("fetchFailures: Loaded ${filteredItems.length} failures from local DB for JE");
@@ -557,6 +550,22 @@ class FailureListController extends GetxController {
     );
   }
 
+  /// JE lists are grouped by creationType: Manual, Station, Depot, OCC.
+  /// On the Joint Inspection Inbox tab, failures inside each group are shown
+  /// oldest first (ascending id); the JE Inbox tab keeps the server order.
+  void _sortJeFailures(List<FailureItem> items) {
+    const creationTypeOrder = {'Manual': 0, 'Station': 1, 'Depot': 2, 'OCC': 3};
+    final ascendingById =
+        selectedJETab.value == JEFailureListTab.jointInspection;
+    items.sort((a, b) {
+      final aOrder = creationTypeOrder[(a.creationType ?? '').trim()] ?? 999;
+      final bOrder = creationTypeOrder[(b.creationType ?? '').trim()] ?? 999;
+      final byType = aOrder.compareTo(bOrder);
+      if (byType != 0 || !ascendingById) return byType;
+      return (a.id ?? 0).compareTo(b.id ?? 0);
+    });
+  }
+
   Future<void> _fetchFromApi() async {
     try {
       final String? userIdStr = await AuthManager().getUserId();
@@ -622,16 +631,9 @@ class FailureListController extends GetxController {
                 final bId = b.id ?? 0;
                 return bId.compareTo(aId); // Descending order
               });
-            } else {
-              // For JE users, sort by creationType: Manual, Station, Depot, OCC
-              final creationTypeOrder = {'Manual': 0, 'Station': 1, 'Depot': 2, 'OCC': 3};
-              filteredItems.sort((a, b) {
-                final aType = (a.creationType ?? '').trim();
-                final bType = (b.creationType ?? '').trim();
-                final aOrder = creationTypeOrder[aType] ?? 999;
-                final bOrder = creationTypeOrder[bType] ?? 999;
-                return aOrder.compareTo(bOrder);
-              });
+            }
+            else {
+              _sortJeFailures(filteredItems);
             }
             
             failures.assignAll(filteredItems);

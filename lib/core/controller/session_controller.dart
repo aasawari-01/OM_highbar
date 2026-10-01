@@ -47,6 +47,7 @@ class SessionController extends GetxController {
     "Station Controller",
     "OCC Controller",
     "Chief Engineer",
+    "Chief Controller",
     "OCC",
     "Section Incharge",
     "FMC",
@@ -55,6 +56,11 @@ class SessionController extends GetxController {
     "RSC",
     "DCC"
   ];
+
+  /// The role that creates OCC failures and updates / closes the ones
+  /// reported to OCC (role name "Chief Controller").
+  static bool isOccFailureCreatorRole(String roleName) =>
+      roleName.toUpperCase().contains('CHIEF CONTROLLER');
 
   /// Roles an OCC failure can be "Reported To" besides OCC itself. They update
   /// the failure after OCC has created it (OCC then cannot edit it).

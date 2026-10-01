@@ -118,14 +118,15 @@ class CreateFailureController extends GetxController
   static const int occDescriptionMaxLength = 3000;
   static const int occMaxAttachmentBytes = 1024 * 1024; // 1 MB, same as web
 
+  /// Chief Controller: the role that creates OCC failures.
   bool get isOccController {
     final role =
         Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
-    return role.contains('OCC');
+    return SessionController.isOccFailureCreatorRole(role);
   }
 
-  /// OCC role user (not FMC): creates OCC failures and updates / closes the
-  /// ones in the OCC failure list.
+  /// Chief Controller (not FMC / TPC / CSS / RSC): creates OCC failures and
+  /// updates / closes the ones in the OCC failure list.
   bool get isOccRoleUser => isOccController && !isFmcUser;
 
   /// Web rule: only when "Reported To" is OCC can the OCC user enter the
@@ -5921,7 +5922,7 @@ class CreateFailureController extends GetxController
     if (!isOccController) {
       Get.snackbar(
         'Access Denied',
-        'Only OCC Controller can create OCC failure.',
+        'Only Chief Controller can create OCC failure.',
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
         colorText: AppColors.white1,
         snackPosition: SnackPosition.BOTTOM,

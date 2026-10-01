@@ -40,6 +40,7 @@ class AuthManager {
     "Station Controller",
     "OCC Controller",
     "Chief Engineer",
+    "Chief Controller",
     "FMC",
   ];
 
