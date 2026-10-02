@@ -694,14 +694,6 @@ class FailureListController extends GetxController {
       _updateDepotStatus(id, 'UPDATE_CLOSED_OCC_DEPOT', 'Closed Request',
           successMessage: 'Failure No.${failureNo ?? id} closed successfully.');
 
-  /// Acknowledge accept (StatusId 197) / deny (198), like the web depot list.
-  Future<void> acknowledgeDepotFailure(int id, String remark,
-      {required bool accept, String? failureNo}) =>
-      _updateDepotStatus(id, 'UPDATE_Acknowledge_OCC_DEPOT', remark,
-          statusId: accept ? 197 : 198,
-          successMessage:
-          'Failure No.${failureNo ?? id} acknowledge ${accept ? 'accepted' : 'denied'} successfully.');
-
   Future<void> _updateDepotStatus(int id, String action, String description,
       {required String successMessage, int statusId = 202}) async {
     try {

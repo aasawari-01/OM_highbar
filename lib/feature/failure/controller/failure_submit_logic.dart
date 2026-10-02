@@ -131,6 +131,15 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         selectedFunctionalLocation.value == 'Select') {
       errors.add("Functional Location is required.");
     }
+    // The functional location may offer several systems / sub systems (API).
+    if (fmecaSystemList.isNotEmpty &&
+        (selectedFmecaSystem.value ?? '').isEmpty) {
+      errors.add("System is required.");
+    }
+    if (fmecaSubsystemList.isNotEmpty &&
+        (selectedFmecaSubsystem.value ?? '').isEmpty) {
+      errors.add("Sub System is required.");
+    }
 
     // FMECA validation for Section Incharge
     if (isSectionIncharge) {
@@ -224,11 +233,9 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       debugPrint("locationId===$locationId");
       final funcLocId =
       lookupValue(functionalLocationList, selectedFunctionalLocation.value);
-      final stationCategoryId = corrNotificationTypeList
-          .firstWhere((e) => e.label?.toLowerCase() == 'station',
-          orElse: () => LabelValue(value: "4"))
-          .value ??
-          "4";
+      // Failure Category Type picked on the form (Safety, Security, ...).
+      final stationCategoryId = lookupValue(
+          apiFailureCategoryList, selectedFailureCategoryType.value);
       // Use logged-in user ID as failure reported by for station failures
       final failureReportedById =
           int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
@@ -243,7 +250,11 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         "FailureDescription": description,
         "LocationId": locationId,
         "SubLocation": subLocationController.text.trim(),
-        "System": systemController.text.trim(),
+        // System / Sub System come from the functional location's API pairs.
+        "System": (selectedFmecaSystem.value ?? '').isNotEmpty
+            ? selectedFmecaSystem.value
+            : systemController.text.trim(),
+        "SubSystem": selectedFmecaSubsystem.value ?? '',
         "TrainId": trainIdController.text.trim(),
         "ActualFailureOccuranceDate": DateFormat("dd/MM/yyyy HH:mm")
             .format(selectedFailureOccurrenceDate.value!),
@@ -590,14 +601,23 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       lookupValue(functionalLocationList, selectedFunctionalLocation.value);
       final equipmentId =
       lookupValue(equipmentList, selectedEquipmentNumber.value);
-      final notificationTypeId =
-      lookupValue(notificationTypeList, selectedNotificationType.value);
+      // The form's "Notification Type" (Failure, Snag, ...) is the corrective
+      // notification type, as on the update request (Corr_NotificationTypeId).
+      final corrNotificationTypeId = lookupValue(
+          corrNotificationTypeList, selectedNotificationType.value);
+      // NotificationTypeId is the "Failure Type" shown for department 3 only.
+      final failureTypes = apiNotificationTypeList.isNotEmpty
+          ? apiNotificationTypeList
+          : failureCategoryTypeList;
+      final notificationTypeId = departmentId.value == 3
+          ? lookupValue(failureTypes, selectedFailureCategoryType.value)
+          : "0";
       // Use current logged-in user as assigned user instead of dropdown selection
       final assignedUserId = createdBy;
-      final natureOfWorkId =
-      lookupValue(natureOfWorkList, selectedNatureOfWork.value);
-      final corrNotificationTypeId = lookupValue(
-          corrNotificationTypeList, selectedFailureCategoryType.value);
+      // Look up in the same list the Nature of Work dropdown shows.
+      final natureOfWorkId = lookupValue(
+          apiNatureOfWorkList.isNotEmpty ? apiNatureOfWorkList : natureOfWorkList,
+          selectedNatureOfWork.value);
 
       // Format date
       final actualFailureOccuranceOn = DateFormat("dd/MM/yyyy HH:mm")
@@ -658,9 +678,11 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         'assignedUseeName': userName,
         'locationFailure': subLocationController.text.trim(),
         'corrNotificationTypeId': int.tryParse(corrNotificationTypeId) ?? 0,
-        'system': selectedSystem.value ?? '',
-        'subSystem': selectedSubsystem.value ?? '',
-        'frequency': frequencyValue.value ?? 0,
+        // The Section Incharge form fills the FMECA fields (from the API).
+        'system': selectedFmecaSystem.value ?? selectedSystem.value ?? '',
+        'subSystem':
+        selectedFmecaSubsystem.value ?? selectedSubsystem.value ?? '',
+        'frequency': fmecaFrequency.value ?? frequencyValue.value ?? 0,
       };
 
       debugPrint("Maintenance Form Submission Request: $requestBody");

@@ -27,6 +27,12 @@ class AppUrls {
   /// Reported To (getRoleList), Line and Train Set lists for the OCC forms.
   static const String getOccDeptLocationLookups = 'OCCMaintainance/getFailureCreationDeptLocation';
   /// System / Sub System options for the OCC role (subsystemsForOccs).
+  /// Station failure dropdowns: priority, department, location, reported by,
+  /// failure category type (all from one call).
+  static const String getStationFailureLookups = 'OCCMaintainance/getStationFailureCreationDeptLocation';
+  /// Depot failure create form: priority, department, location, reported by,
+  /// failure category type (all from one call).
+  static const String getDepotFailureLookups = 'OCCMaintainance/getDepotFailureCreationDeptLocation';
   static const String getFailureStandDropDownData = 'FailureStandardized/GetFailureStandDropDownDataNew';
   static const String createOccFailure = 'OCCMaintainance/insertFailureDetails';
   /// Update OCC failure (FMC user) uses the same insert endpoint with an Action.

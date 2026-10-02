@@ -333,6 +333,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           controller.loadJointInspectionDetails(widget.failureNo!);
         });
       } else if (widget.failureType == 'Station' &&
+          controller.isStationController &&
+          widget.isUpdate) {
+        // Editing a rejected station failure: API dropdowns, then the failure.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.loadStationFailureForUpdate(widget.failureNo!);
+        });
+      } else if (widget.failureType == 'Station' &&
           controller.isStationController) {
         // Station Controller: use offline data if available, otherwise API
         if (widget.failureItem != null) {
@@ -425,8 +432,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           if (mounted) Navigator.pop(context);
           return;
         }
-        // Same local master data as Station (priority, department, location…).
-        controller.loadStationCreateDropdowns();
+        // Priority, department, location, reported by, category: API.
+        controller.loadDepotCreateDropdowns();
       });
     }
   }
@@ -950,47 +957,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               isVisible: controller.isBasicInfoVisible.value,
               child: Column(
                 children: [
-                  Obx(() {
-                    if (controller.isFunctionalLocationLoading.value) {
-                      return Container(
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                const AlwaysStoppedAnimation<Color>(
-                                    Colors.orange),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            const Text(
-                              'Loading functional locations...',
-                              style: TextStyle(fontSize: 12),
-                            ),
-                          ],
-                        ),
-                      );
-                    }
-                    return CustDropdown(
-                      label: "Functional Location *",
-                      hint: "Select...",
-                      items: controller.functionalLocationList
-                          .map((e) => e.label ?? '')
-                          .toList(),
-                      selectedValue:
-                      controller.selectedFunctionalLocation.value,
-                      onChanged: (v) =>
-                          controller.onFunctionalLocationChanged(v),
-                      validator: (val) =>
-                          _requiredDropdown(val, "Functional Location"),
-                    );
-                  }),
-                  const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => Row(
                     children: [
                       Expanded(
@@ -1019,7 +985,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           selectedValue:
                           controller.selectedDepartment.value,
                           onChanged: (v) async =>
-                          await controller.onDepartmentChanged(v),
+                          await controller.onApiDepartmentChanged(v),
                           validator: (val) =>
                               _requiredDropdown(val, "Department"),
                         ),
@@ -1050,11 +1016,56 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         .toList(),
                     selectedValue: controller.selectedLocation.value,
                     onChanged: (value) {
-                      controller.onLocationChanged(value);
+                      controller.onApiLocationChanged(value);
                     },
                     validator: (val) =>
                         _requiredDropdown(val, "Location"),
                   )),
+                  const SizedBox(height: AppConstants.elementSpacing),
+                  // Depends on the department and the location above; loaded
+                  // from the API once both are chosen.
+                  Obx(() {
+                    if (controller.isFunctionalLocationLoading.value) {
+                      return Container(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor:
+                                const AlwaysStoppedAnimation<Color>(
+                                    Colors.orange),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            const Text(
+                              'Loading functional locations...',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ],
+                        ),
+                      );
+                    }
+                    return CustDropdown(
+                      label: "Functional Location *",
+                      hint: controller.functionalLocationList.isEmpty
+                          ? "Select department and location first"
+                          : "Select...",
+                      items: controller.functionalLocationList
+                          .map((e) => e.label ?? '')
+                          .toList(),
+                      selectedValue:
+                      controller.selectedFunctionalLocation.value,
+                      onChanged: (v) =>
+                          controller.onApiFunctionalLocationChanged(v),
+                      validator: (val) =>
+                          _requiredDropdown(val, "Functional Location"),
+                    );
+                  }),
                   const SizedBox(height: AppConstants.elementSpacing),
                   CustomTextField(
                     label: "Sub Location",
@@ -1062,42 +1073,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     hintText: "Enter Sub Location",
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
-                  Obx(() {
-                    debugPrint(
-                        "Station form: notificationTypeList count = ${controller.notificationTypeList.length}");
-                    return CustDropdown(
-                      label: "Notification Type *",
-                      hint: "Select...",
-                      items: controller.notificationTypeList
-                          .map((e) => e.label ?? '')
-                          .toList(),
-                      selectedValue:
-                      controller.selectedNotificationType.value,
-                      onChanged: (value) => controller
-                          .selectedNotificationType.value = value ?? '',
-                      validator: (val) =>
-                          _requiredDropdown(val, "Notification Type"),
-                    );
-                  }),
+                  // System / Sub System of the chosen functional location (API).
+                  _occSystemSubsystemFields(),
                   const SizedBox(height: AppConstants.elementSpacing),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: CustomTextField(
-                          label: "System",
-                          controller: controller.systemController,
-                          hintText: "Enter System",
-                        ),
-                      ),
-                      const SizedBox(width: AppConstants.elementSpacing),
-                      Expanded(
-                        child: CustomTextField(
-                          label: "Train Id",
-                          controller: controller.trainIdController,
-                          hintText: "Enter Train Id",
-                        ),
-                      ),
-                    ],
+                  CustomTextField(
+                    label: "Train Id",
+                    controller: controller.trainIdController,
+                    hintText: "Enter Train Id",
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => CustDateTimePicker(
@@ -1130,9 +1112,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() => CustDropdown(
-                    label: "Failure Category Type",
+                    label: "Failure Category Type *",
                     hint: "Select...",
-                    items: controller.corrNotificationTypeList
+                    items: controller.apiFailureCategoryList
                         .map((e) => e.label ?? '')
                         .toList(),
                     selectedValue:
@@ -5640,7 +5622,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     options: controller.departmentList,
                     selected: controller.selectedDepartment,
                     onChanged: (v) async =>
-                    await controller.onDepartmentChanged(v),
+                    await controller.onApiDepartmentChanged(v),
                     requiredName: "Department",
                   ),
                   gap,
@@ -5648,7 +5630,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     label: "Location *",
                     options: controller.locationTypeList,
                     selected: controller.selectedLocation,
-                    onChanged: (v) => controller.onLocationChanged(v),
+                    onChanged: (v) => controller.onApiLocationChanged(v),
                     requiredName: "Location",
                   ),
                   gap,
@@ -5677,13 +5659,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     }
                     return CustDropdown(
                       label: "Functional Location",
-                      hint: "Select...",
+                      hint: controller.functionalLocationList.isEmpty
+                          ? "Select department and location first"
+                          : "Select...",
                       items: controller.functionalLocationList
                           .map((e) => e.label ?? '')
                           .toList(),
                       selectedValue: controller.selectedFunctionalLocation.value,
                       onChanged: (v) =>
-                          controller.onOccFunctionalLocationChanged(v),
+                          controller.onApiFunctionalLocationChanged(v),
                     );
                   }),
                   gap,
@@ -5756,7 +5740,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   gap,
                   _occDropdown(
                     label: "Failure Category Type *",
-                    options: controller.corrNotificationTypeList,
+                    options: controller.apiFailureCategoryList,
                     selected: controller.selectedFailureCategoryType,
                     onChanged: (v) =>
                     controller.selectedFailureCategoryType.value = v,

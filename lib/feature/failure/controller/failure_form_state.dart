@@ -58,6 +58,10 @@ mixin FailureFormState on GetxController {
   final causeList = <LabelValue>[].obs;
   final actionList = <LabelValue>[].obs;
   final corrNotificationTypeList = <LabelValue>[].obs;
+
+  /// Station / Depot forms: Failure Category Type options (Safety, Security,
+  /// ...) from their lookup API.
+  final apiFailureCategoryList = <LabelValue>[].obs;
   final jointUserList = <LabelValue>[].obs;
   final masterJointInspectionDepartments = <LabelValue>[].obs;
 

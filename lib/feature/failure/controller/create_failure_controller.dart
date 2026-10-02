@@ -401,8 +401,12 @@ class CreateFailureController extends GetxController
   void onInit() {
     super.onInit();
     _globalData = Get.find<GlobalMasterDataController>();
-    _initializeAllData();
+    _initFuture = _initializeAllData();
   }
+
+  /// Startup load (local master data + lookup). The Section Incharge loader
+  /// waits for it so its API values are not overwritten afterwards.
+  Future<void>? _initFuture;
 
   Future<void> _initializeAllData() async {
     try {
@@ -1196,6 +1200,7 @@ class CreateFailureController extends GetxController
       if (result.responseCode == 200 && result.responseOutput != null) {
         final output = result.responseOutput!;
         final failureDetailResponse = result;
+        if (isJE) await _applyJeApiLists(output);
 
         // Skip dropdowns from API - use local data instead (much faster, no memory issues)
         // All dropdowns are already loaded from local DB in _copyGlobalDataToLocal()
@@ -1429,6 +1434,10 @@ class CreateFailureController extends GetxController
                 "FailureRectificationJson is null or empty in all sources");
           }
 
+          if (siApiMode) {
+            // JE: lists from the details response + GetFailureStandDropDownDataNew
+            await _applySiSavedSelections(model, output, loadPersons: false);
+          } else {
           await _applyLocationSelectionsFromModel(model, output: output);
           selectedDepartment.value = departmentList
               .firstWhere(
@@ -1451,6 +1460,7 @@ class CreateFailureController extends GetxController
               selectedEquipmentNumber.value = model.equipmentName;
               ensureDropdownOption(equipmentList, model.equipmentName!, model.equipmentId?.toString() ?? '');
             }
+          }
           }
 
           await filterRcaFailureCategoriesBySystem();
@@ -1483,7 +1493,9 @@ class CreateFailureController extends GetxController
 
           // Lookup notification type: check notificationTypeList first using notificationTypeId, then fallback to corrNotificationTypeId
           String? matchedNotif;
-          if (model.notificationTypeId != null && model.notificationTypeId != 0) {
+          if (!siApiMode &&
+              model.notificationTypeId != null &&
+              model.notificationTypeId != 0) {
             matchedNotif = notificationTypeList
                 .firstWhere(
                     (e) => e.value == model.notificationTypeId.toString(),
@@ -1985,6 +1997,7 @@ class CreateFailureController extends GetxController
 
       if (output['getFailureCreationDetails'] != null) {
         final details = output['getFailureCreationDetails'];
+        _stationDetails = Map<String, dynamic>.from(details as Map);
         originalFailureId.value = details['id'];
         notificationCode.value = details['failureId'] ?? '';
         selectedPriority.value = details['priority'];
@@ -2184,18 +2197,27 @@ class CreateFailureController extends GetxController
       final String? userIdStr = await AuthManager().getUserId();
       final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
 
-      final int finalLocationId =
-          int.tryParse(locationCodeForLabel(selectedLocation.value) ?? "0") ??
-              originalLocationId.value ??
-              0;
-      final int finalDeptId = int.tryParse(
-          _departmentCodeForLabel(selectedDepartment.value) ?? "0") ??
-          originalDepartmentId.value ??
-          0;
+      // Ids come from the API lists (what the user picked); the saved ids are
+      // only a fallback.
+      final int pickedLocationId =
+      _apiIdFor(locationTypeList, selectedLocation.value);
+      final int finalLocationId = pickedLocationId > 0
+          ? pickedLocationId
+          : (originalLocationId.value ?? 0);
+      final int pickedDeptId =
+      _apiIdFor(departmentList, selectedDepartment.value);
+      final int finalDeptId =
+      pickedDeptId > 0 ? pickedDeptId : (originalDepartmentId.value ?? 0);
+      final int funcLocId =
+      _apiIdFor(functionalLocationList, selectedFunctionalLocation.value);
+      final int priorityId =
+      _apiIdFor(priorityTypeList, selectedPriority.value);
+      final int categoryId = _apiIdFor(
+          apiFailureCategoryList, selectedFailureCategoryType.value);
 
       final Map<String, dynamic> payload = {
         "Id": originalFailureId.value ?? 0,
-        "PriorityId": 1, // Defaulting as it's not strictly mapped
+        "PriorityId": priorityId > 0 ? priorityId : 1,
         "DepartmentIds": finalDeptId.toString(),
         "DepartmentId_1": finalDeptId,
         "DepartmentId_2": 0,
@@ -2203,9 +2225,12 @@ class CreateFailureController extends GetxController
         "FailureDescription": failureDescriptionController.text,
         "LocationId": finalLocationId,
         "SubLocation": subLocationController.text,
-        "System": systemController.text,
-        "FuncationLocationIds": "",
-        "FuncationLocationId_1": 0,
+        "System": (selectedFmecaSystem.value ?? '').isNotEmpty
+            ? selectedFmecaSystem.value
+            : systemController.text,
+        "SubSystem": selectedFmecaSubsystem.value ?? '',
+        "FuncationLocationIds": funcLocId > 0 ? funcLocId.toString() : "",
+        "FuncationLocationId_1": funcLocId,
         "FuncationLocationId_2": 0,
         "FuncationLocationId_3": 0,
         "TrainId": trainIdController.text,
@@ -2214,7 +2239,8 @@ class CreateFailureController extends GetxController
             ? DateFormat("dd-MM-yyyy HH:mm")
             .format(selectedFailureOccurrenceDate.value!)
             : "",
-        "FailureReportedbyId": 0,
+        "FailureReportedbyId": userId,
+        "FailureCategoryTypeId": categoryId,
         "ActualFailureCompletedDateTime":
         selectedFailureCompletedDate.value != null
             ? DateFormat("dd-MM-yyyy HH:mm")
@@ -2717,6 +2743,7 @@ class CreateFailureController extends GetxController
   }
 
   Future<void> onDepartmentChanged(String? departmentLabel) async {
+    if (siApiMode) return _onSiDepartmentChanged(departmentLabel);
     selectedDepartment.value =
     (departmentLabel == null || departmentLabel == 'Select')
         ? null
@@ -2767,6 +2794,7 @@ class CreateFailureController extends GetxController
   }
 
   Future<void> onLocationChanged(String? locationLabel) async {
+    if (siApiMode) return _onSiLocationChanged(locationLabel);
     if (locationLabel == null ||
         locationLabel.isEmpty ||
         locationLabel == 'Select') {
@@ -2965,6 +2993,7 @@ class CreateFailureController extends GetxController
   }
 
   Future<void> onFunctionalLocationChanged(String? funcLabel) async {
+    if (siApiMode) return _onSiFunctionalLocationChanged(funcLabel);
     debugPrint('onFunctionalLocationChanged: funcLabel=$funcLabel');
 
     // ------------------------------------------------------------
@@ -4134,67 +4163,227 @@ class CreateFailureController extends GetxController
     }
   }
 
-  Future<void> loadStationCreateDropdowns() async {
+  /// Priority, Department, Location, Reported by and Failure Category Type for
+  /// the Depot create form (DCC), all from getDepotFailureCreationDeptLocation.
+  /// Functional location and system follow the selections (shared handlers).
+  Future<void> loadDepotCreateDropdowns() async {
+    pushLoading();
     try {
-      debugPrint("loadStationCreateDropdowns: Loading master data");
+      final out = await _failureService.getDepotFailureLookups();
+      priorityTypeList.assignAll(_apiOptions(out['getPriorityTypeList']));
+      departmentList.assignAll(_apiOptions(out['getDepartmentList']));
+      locationTypeList.assignAll(_apiOptions(out['getLocationTypeList']));
+      apiFailureCategoryList
+          .assignAll(_apiOptions(out['getFailureCategoryType']));
+      userList.assignAll(_apiOptions(out['getFailureReportedbyList']));
 
-      final globalData = Get.find<GlobalMasterDataController>();
-
-      // Load all master data for station users
-      if (!globalData.isLoaded) {
-        await globalData.initOnLogin();
-      }
-
-      // Copy global data to local lists
-      _copyGlobalDataToLocal(globalData);
-      await loadNotificationTypesFromLocalDb();
-
-      // Ensure functional locations are loaded from local database for offline mode
-      if (masterFunctionalLocations.isEmpty) {
-        debugPrint(
-            "loadStationCreateDropdowns: masterFunctionalLocations empty, loading from local DB");
-        await loadMasterDataFromDb();
-      }
-
-      // Ensure users are loaded from local database for offline mode
-      if (userList.isEmpty || userList.length == 1) {
-        // Only "Select" option
-        debugPrint(
-            "loadStationCreateDropdowns: userList empty, loading from local DB");
-        await loadMasterDropdownsFromDb(refreshIfEmpty: true);
-      }
-
-      // Ensure notification types are loaded from local database for offline mode
-      if (notificationTypeList.isEmpty || notificationTypeList.length <= 1) {
-        debugPrint(
-            "loadStationCreateDropdowns: notificationTypeList empty, loading from local DB");
-        final notifTypes = await LocalDatabaseService().getNotificationTypes();
-        notificationTypeList.assignAll([
-          LabelValue(label: 'Select', value: ''),
-          ...notifTypes.map((e) => LabelValue(
-            label: e.notificationType ?? '',
-            value: e.id?.toString() ?? '',
-          )),
-        ]);
-      }
-
-      await _autoSelectFailureReportedBy();
-
-      debugPrint(
-          "loadStationCreateDropdowns: isStationController = $isStationController");
-      debugPrint(
-          "loadStationCreateDropdowns: masterFunctionalLocations count = ${masterFunctionalLocations.length}");
-      debugPrint(
-          "loadStationCreateDropdowns: functionalLocationList count = ${functionalLocationList.length}");
-      debugPrint(
-          "loadStationCreateDropdowns: userList count = ${userList.length}");
-
-      // Station is already selected in SessionController from login popup
-      final session = Get.find<SessionController>();
-      debugPrint(
-          "loadStationCreateDropdowns: Station from session: ${session.selectedStationName.value}");
+      // Default "Failure Reported by" to the logged-in user, like the web.
+      final me = await AuthManager().getUserId();
+      selectedFailureReportedBy.value =
+          userList.firstWhereOrNull((u) => u.value == me)?.label;
+      debugPrint('loadDepotCreateDropdowns: priorities=${priorityTypeList.length}, '
+          'departments=${departmentList.length}, locations=${locationTypeList.length}, '
+          'categories=${apiFailureCategoryList.length}');
     } catch (e) {
-      debugPrint("loadStationCreateDropdowns error: $e");
+      debugPrint('loadDepotCreateDropdowns error: $e');
+    } finally {
+      popLoading();
+    }
+  }
+
+  // ===========================================================================
+  // STATION FAILURE dropdowns — API only (no local data)
+  // ===========================================================================
+
+  /// funcLocId -> failure frequency, from the functional-location API.
+  final Map<String, int> _apiFuncLocFrequency = {};
+
+  /// Raw failure details of the station failure being edited.
+  Map<String, dynamic> _stationDetails = <String, dynamic>{};
+
+  /// API rows ({label, value}) -> options, without the "Select ..." row (0).
+  List<LabelValue> _apiOptions(dynamic raw) {
+    if (raw is! List) return <LabelValue>[];
+    return raw
+        .whereType<Map>()
+        .map((e) => LabelValue(
+      label: e['label']?.toString().trim() ?? '',
+      value: e['value']?.toString() ?? '',
+      uniqueId: e['uniqueId'],
+    ))
+        .where((o) => (o.label ?? '').isNotEmpty && o.value != '0')
+        .toList();
+  }
+
+  /// Priority, Department, Location, Reported by and Failure Category Type
+  /// for the Station form, all from getStationFailureCreationDeptLocation.
+  Future<void> loadStationCreateDropdowns() async {
+    pushLoading();
+    try {
+      final out = await _failureService.getStationFailureLookups();
+      priorityTypeList.assignAll(_apiOptions(out['getPriorityTypeList']));
+      departmentList.assignAll(_apiOptions(out['getDepartmentList']));
+      locationTypeList.assignAll(_apiOptions(out['getLocationTypeList']));
+      apiFailureCategoryList
+          .assignAll(_apiOptions(out['getFailureCategoryType']));
+      userList.assignAll(_apiOptions(out['getFailureReportedbyList']));
+
+      // Station failures are reported by the logged-in user.
+      final me = await AuthManager().getUserId();
+      selectedFailureReportedBy.value =
+          userList.firstWhereOrNull((u) => u.value == me)?.label;
+      debugPrint(
+          'loadStationCreateDropdowns: priorities=${priorityTypeList.length}, '
+              'departments=${departmentList.length}, locations=${locationTypeList.length}, '
+              'categories=${apiFailureCategoryList.length}');
+    } catch (e) {
+      debugPrint('loadStationCreateDropdowns error: $e');
+    } finally {
+      popLoading();
+    }
+  }
+
+  int _apiIdFor(List<LabelValue> list, String? label) =>
+      int.tryParse(list.firstWhereOrNull((e) => e.label == label)?.value ?? '') ??
+          0;
+
+  /// Clears the system fields (they depend on the functional location).
+  void _apiClearSystem() {
+    selectedFmecaSystem.value = null;
+    selectedFmecaSubsystem.value = null;
+    fmecaSystemList.clear();
+    fmecaSubsystemList.clear();
+    fmecaSystemReadOnly.value = false;
+    fmecaSubsystemReadOnly.value = false;
+    systemController.clear();
+    subsystemController.clear();
+    occSystemDisplayController.clear();
+  }
+
+  Future<void> onApiDepartmentChanged(String? label) async {
+    final none = label == null || label.isEmpty || label == 'Select';
+    selectedDepartment.value = none ? null : label;
+    departmentId.value = none ? null : _apiIdFor(departmentList, label);
+    selectedFunctionalLocation.value = null;
+    functionalLocationList.clear();
+    _apiClearSystem();
+    await _loadApiFunctionalLocations();
+  }
+
+  Future<void> onApiLocationChanged(String? label) async {
+    final none = label == null || label.isEmpty || label == 'Select';
+    selectedLocation.value = none ? null : label;
+    selectedFunctionalLocation.value = null;
+    functionalLocationList.clear();
+    _apiClearSystem();
+    await _loadApiFunctionalLocations();
+  }
+
+  /// Functional locations depend on both the department and the location.
+  Future<void> _loadApiFunctionalLocations() async {
+    final dept = departmentId.value ?? 0;
+    final loc = _apiIdFor(locationTypeList, selectedLocation.value);
+    if (dept <= 0 || loc <= 0) {
+      functionalLocationList.clear();
+      return;
+    }
+    isFunctionalLocationLoading.value = true;
+    try {
+      final rows = await _failureService.getStationFunctionalLocations(
+          locationTypeId: loc, departmentIds: dept.toString());
+      _apiFuncLocFrequency.clear();
+      final options = <LabelValue>[];
+      for (final r in rows) {
+        final id = r['funcLocId']?.toString() ?? '';
+        final name = r['functionalLocation']?.toString().trim() ?? '';
+        if (id.isEmpty || name.isEmpty) continue;
+        options.add(LabelValue(label: name, value: id));
+        _apiFuncLocFrequency[id] =
+            int.tryParse(r['frequency']?.toString() ?? '') ?? 0;
+      }
+      // The department / location may have changed again while waiting.
+      if (departmentId.value == dept &&
+          _apiIdFor(locationTypeList, selectedLocation.value) == loc) {
+        functionalLocationList.assignAll(options);
+      }
+    } catch (e) {
+      debugPrint('_loadApiFunctionalLocations error: $e');
+    } finally {
+      isFunctionalLocationLoading.value = false;
+    }
+  }
+
+  /// Picking a functional location loads its System / Sub System pairs.
+  Future<void> onApiFunctionalLocationChanged(String? label) async {
+    final none = label == null || label.isEmpty || label == 'Select';
+    selectedFunctionalLocation.value = none ? null : label;
+    _apiClearSystem();
+    if (none) return;
+    await _loadApiSystemSubsystem();
+  }
+
+  Future<void> _loadApiSystemSubsystem() async {
+    final funcId = _apiIdFor(
+        functionalLocationList, selectedFunctionalLocation.value);
+    final dept = departmentId.value ?? 0;
+    final loc = _apiIdFor(locationTypeList, selectedLocation.value);
+    if (funcId <= 0) return;
+    try {
+      final pairs = await _failureService.getSystemSubsystemsByFuncLoc(
+          locationTypeId: loc,
+          funcLocId: funcId,
+          departmentIds: dept > 0 ? dept.toString() : '');
+      _applyFmecaSystemSubsystemPairs(pairs);
+      systemController.text = occSystemValue;
+      subsystemController.text = selectedFmecaSubsystem.value ?? '';
+      occSystemDisplayController.text = occSystemValue;
+    } catch (e) {
+      debugPrint('_loadApiSystemSubsystem error: $e');
+    }
+  }
+
+  /// Edit of a rejected station failure: load the API lists, then the failure,
+  /// then select the saved values by id (the details return names that can
+  /// differ from the lookup labels, e.g. "Khapari" vs "KHP - Khapari").
+  Future<void> loadStationFailureForUpdate(String id) async {
+    await loadStationCreateDropdowns();
+    await loadStationFailureDetails(id);
+    await _applyStationSavedSelections();
+  }
+
+  Future<void> _applyStationSavedSelections() async {
+    final d = _stationDetails;
+    if (d.isEmpty) return;
+
+    String? labelFor(List<LabelValue> list, dynamic id) {
+      final v = id?.toString();
+      if (v == null || v.isEmpty || v == '0') return null;
+      return list.firstWhereOrNull((e) => e.value == v)?.label;
+    }
+
+    selectedDepartment.value =
+        labelFor(departmentList, d['departmentId_1'] ?? d['departmentId']) ??
+            selectedDepartment.value;
+    departmentId.value = _apiIdFor(departmentList, selectedDepartment.value);
+    selectedLocation.value =
+        labelFor(locationTypeList, d['locationId']) ?? selectedLocation.value;
+    selectedFailureCategoryType.value =
+        labelFor(apiFailureCategoryList, d['failureCategoryTypeId']);
+    selectedPriority.value =
+        labelFor(priorityTypeList, d['priorityId']) ?? selectedPriority.value;
+
+    await _loadApiFunctionalLocations();
+    final funcLabel = labelFor(functionalLocationList,
+        d['funcationLocationId'] ?? d['funcationLocationId_1']);
+    if (funcLabel != null) {
+      selectedFunctionalLocation.value = funcLabel;
+      await _loadApiSystemSubsystem();
+    }
+    // Keep the saved system if the API pairs didn't supply one.
+    final savedSystem = d['system']?.toString().trim() ?? '';
+    if (savedSystem.isNotEmpty && (selectedFmecaSystem.value ?? '').isEmpty) {
+      selectedFmecaSystem.value = savedSystem;
+      systemController.text = savedSystem;
     }
   }
 
@@ -4297,75 +4486,281 @@ class CreateFailureController extends GetxController
     debugPrint('loadPersonResponsibleForDept: ${items.length} JEs for dept $deptId, businessArea=$businessArea');
   }  /// Loads master data for Section Incharge maintenance failure creation
 
+  // ===========================================================================
+  // SECTION INCHARGE - maintenance failure creation: dropdowns from the APIs
+  // (no local data). The Station flow shares the _api* helpers above.
+  // ===========================================================================
+
+  /// True while the Section Incharge create form is active: the shared
+  /// department / location / functional-location handlers then use the APIs.
+  bool siApiMode = false;
+
+  /// Priority, department, location, notification type and failure category
+  /// from GetLookupCreateCorrNotification. Person responsible, functional
+  /// location, system / sub system and equipment follow the selections.
   Future<void> loadSectionInchargeDropdowns() async {
+    pushLoading();
     try {
-      debugPrint("loadSectionInchargeDropdowns: Loading master data for Section Incharge");
-
-      final globalData = Get.find<GlobalMasterDataController>();
-
-      // Load full master data if not already loaded
-      if (!globalData.isLoaded) {
-        await globalData.initOnLogin();
-      }
-
-      // Copy all global data to local lists
-      _copyGlobalDataToLocal(globalData);
-      await loadNotificationTypesFromLocalDb();
-
-      // Ensure functional locations are loaded from local database for offline mode
-      if (masterFunctionalLocations.isEmpty) {
-        debugPrint(
-            "loadSectionInchargeDropdowns: masterFunctionalLocations empty, loading from local DB");
-        await loadMasterDataFromDb();
-      }
-
-      // Ensure master users are loaded for person responsible filtering
-      if (masterUsers.isEmpty) {
-        debugPrint(
-            "loadSectionInchargeDropdowns: masterUsers empty, loading from local DB");
-        await _loadMasterUsersOnDemand();
-      }
-
-      // ALWAYS load notification types from local database (notificationType.db) for Section Incharge
-      // This ensures correct data is shown, not API data
-      debugPrint(
-          "loadSectionInchargeDropdowns: Loading notification types from local DB (notificationType.db)");
-      final notifTypes = await LocalDatabaseService().getNotificationTypes();
-      notificationTypeList.assignAll([
-        LabelValue(label: 'Select', value: ''),
-        ...notifTypes.map((e) => LabelValue(
-          label: e.notificationType ?? '',
-          value: e.id?.toString() ?? '',
-        )),
-      ]);
-      debugPrint(
-          "loadSectionInchargeDropdowns: notificationTypeList count = ${notificationTypeList.length}");
-
-      await _autoSelectFailureReportedBy();
-
-      // Load person responsible for the current department
-      if (departmentId.value != null && departmentId.value! > 0) {
-        debugPrint("loadSectionInchargeDropdowns: Loading person responsible for deptId=${departmentId.value}");
-        final session = Get.find<SessionController>();
-        final role = session.selectedRole.value?.roleDescr ?? '';
-        if (role.contains('Section Incharge')) {
-          // One place builds this list (API first, local data as offline
-          // fallback), shared with the department-changed path.
-          await loadPersonResponsibleForDept();
-          debugPrint('loadSectionInchargeDropdowns: userList count after load = ${userList.length}');
-        }
-      }
-
-      debugPrint(
-          "loadSectionInchargeDropdowns: masterFunctionalLocations count = ${masterFunctionalLocations.length}");
-      debugPrint(
-          "loadSectionInchargeDropdowns: functionalLocationList count = ${functionalLocationList.length}");
-      debugPrint(
-          "loadSectionInchargeDropdowns: userList count = ${userList.length}");
-      debugPrint(
-          "loadSectionInchargeDropdowns: notificationTypeList count = ${notificationTypeList.length}");
+      await _loadSiLookups();
+      userList.assignAll([LabelValue(label: 'Select', value: '')]);
+      if ((departmentId.value ?? 0) > 0) await _loadSiPersonResponsible();
     } catch (e) {
-      debugPrint("loadSectionInchargeDropdowns error: $e");
+      debugPrint('loadSectionInchargeDropdowns error: $e');
+    } finally {
+      popLoading();
+    }
+  }
+
+  /// Priority, department, location and notification type from the lookup
+  /// API. Shared by the create form and by an existing failure's view / edit.
+  Future<void> _loadSiLookups() async {
+    siApiMode = true;
+    await _initFuture;
+    final out = await _failureService.getLookupCreateCorrNotificationRaw();
+    priorityTypeList.assignAll(_apiOptions(out['getPriorityType']));
+    departmentList.assignAll(_apiOptions(out['getDepartmentList']));
+    // The form lists locationList but resolves ids through locationTypeList.
+    final locations = _apiOptions(out['getLocationType']);
+    locationTypeList.assignAll(locations);
+    locationList.assignAll(locations);
+    // "Notification Type" on this form is the corrective notification type
+    // (Failure, Snag, ...): getCorrNotificationTypeList.
+    final corrTypes = _apiOptions(out['getCorrNotificationTypeList']);
+    corrNotificationTypeList.assignAll(corrTypes);
+    notificationTypeList
+        .assignAll([LabelValue(label: 'Select', value: ''), ...corrTypes]);
+    debugPrint('_loadSiLookups: priorities=${priorityTypeList.length}, '
+        'departments=${departmentList.length}, locations=${locations.length}');
+  }
+
+  /// JE role dropdown data, online:
+  /// - Notification Type: getCorrNotificationTypeList from the failure-details
+  ///   response (jeChangeNotification) - the only list taken from it.
+  /// - Priority, Department, Location: the lookup API (same as Section Incharge).
+  /// - Functional location, equipment, system / sub system:
+  ///   GetFailureStandDropDownDataNew through the shared handlers.
+  Future<void> _applyJeApiLists(FailureDetailOutput output) async {
+    try {
+      await _loadSiLookups(); // also switches the shared handlers to the APIs
+    } catch (e) {
+      siApiMode = true;
+      debugPrint('_applyJeApiLists: lookups failed: $e');
+    }
+
+    final types = (output.getCorrNotificationTypeList ?? const <LabelValue>[])
+        .where((o) =>
+    (o.label ?? '').trim().isNotEmpty &&
+        (o.value ?? '').isNotEmpty &&
+        o.value != '0')
+        .toList();
+    if (types.isNotEmpty) {
+      corrNotificationTypeList.assignAll(types);
+      notificationTypeList
+          .assignAll([LabelValue(label: 'Select', value: ''), ...types]);
+    }
+    debugPrint('_applyJeApiLists: notification types=${types.length}, '
+        'locations=${locationTypeList.length}');
+  }
+
+  /// Existing failure (e.g. one created by the Station Controller, DCC or OCC
+  /// that reached the Section Incharge): select its saved values in the
+  /// API-loaded dropdowns, by id. Values the API no longer lists are added so
+  /// the saved choice still shows.
+  Future<void> _applySiSavedSelections(
+      CreateVMModel model, FailureDetailOutput output,
+      {bool loadPersons = true}) async {
+    String? labelFor(List<LabelValue> list, dynamic id) {
+      final v = id?.toString();
+      if (v == null || v.isEmpty || v == '0') return null;
+      return list.firstWhereOrNull((e) => e.value == v)?.label;
+    }
+
+    // Priority
+    selectedPriority.value =
+        labelFor(priorityTypeList, model.priorityId) ??
+            model.priorityType ??
+            model.category;
+
+    // Department
+    var deptLabel = labelFor(departmentList, model.deptId);
+    if (deptLabel == null && (model.deptCode ?? '').isNotEmpty) {
+      deptLabel = model.deptCode;
+      ensureDropdownOption(
+          departmentList, deptLabel!, model.deptId?.toString() ?? '');
+    }
+    if (deptLabel != null) {
+      selectedDepartment.value = deptLabel;
+      departmentId.value = model.deptId ?? 0;
+    }
+
+    // Location (the form lists locationList, ids resolve via locationTypeList)
+    var locLabel = labelFor(locationTypeList, model.locationTypeId);
+    if (locLabel == null && (model.locationName ?? '').isNotEmpty) {
+      locLabel = model.locationName;
+      ensureDropdownOption(
+          locationTypeList, locLabel!, model.locationTypeId?.toString() ?? '');
+      ensureDropdownOption(
+          locationList, locLabel, model.locationTypeId?.toString() ?? '');
+    }
+    if (locLabel != null) {
+      selectedLocation.value = locLabel;
+      locationDisplayController.text = locLabel;
+      maintenanceLocationTypeId.value = model.locationTypeId ?? 0;
+    }
+
+    // Functional location (API list for this department + location)
+    await _loadApiFunctionalLocations();
+    var funcLabel = labelFor(functionalLocationList, model.functionLocationId);
+    if (funcLabel == null) {
+      final saved = (model.funcLocation ?? '').trim();
+      if (saved.isNotEmpty) {
+        funcLabel = saved;
+        ensureDropdownOption(functionalLocationList, saved,
+            model.functionLocationId?.toString() ?? '');
+      }
+    }
+    if (funcLabel != null) {
+      selectedFunctionalLocation.value = funcLabel;
+      functionalLocationDisplayController.text = funcLabel;
+      final freq = _apiFuncLocFrequency[
+      model.functionLocationId?.toString() ?? ''] ??
+          model.frequency ??
+          0;
+      fmecaFrequency.value = freq;
+      fmecaFrequencyController.text = freq.toString();
+
+      await Future.wait([_loadApiSystemSubsystem(), _loadSiEquipment()]);
+
+      // Keep the saved system / sub system if the API pairs didn't set them.
+      if ((selectedFmecaSystem.value ?? '').isEmpty &&
+          (model.systems ?? '').isNotEmpty) {
+        selectedFmecaSystem.value = model.systems;
+        systemController.text = model.systems!;
+      }
+      if ((selectedFmecaSubsystem.value ?? '').isEmpty &&
+          (model.subSystems ?? '').isNotEmpty) {
+        selectedFmecaSubsystem.value = model.subSystems;
+        fmecaSubsystemController.text = model.subSystems!;
+      }
+
+      // Equipment number
+      var eqLabel = labelFor(equipmentList, model.equipmentId);
+      eqLabel ??= (model.equipmentName ?? '').isNotEmpty
+          ? model.equipmentName
+          : null;
+      if (eqLabel != null) {
+        ensureDropdownOption(
+            equipmentList, eqLabel, model.equipmentId?.toString() ?? '');
+        selectedEquipmentNumber.value = eqLabel;
+        equipmentDisplayController.text = eqLabel;
+      }
+    }
+
+    if (!loadPersons) return;
+    // Person responsible: the department's users from the API; the details'
+    // own getUserList only if that call returned nobody.
+    await _loadSiPersonResponsible();
+    if (userList.length <= 1) {
+      final detailUsers = (output.getUserList ?? const <LabelValue>[]).where((u) =>
+      (u.label ?? '').trim().isNotEmpty &&
+          (u.value ?? '').isNotEmpty &&
+          u.value != '0' &&
+          (u.label ?? '').trim().toLowerCase() != 'select user');
+      if (detailUsers.isNotEmpty) {
+        userList.assignAll([LabelValue(label: 'Select', value: ''), ...detailUsers]);
+      }
+    }
+  }
+
+  /// Person Responsible for the chosen department (getAssgineUserList).
+  Future<void> _loadSiPersonResponsible() async {
+    final dept = departmentId.value ?? 0;
+    var users = <LabelValue>[];
+    if (dept > 0) {
+      try {
+        users = await _failureService.getAssgineUsersByDept(deptId: dept);
+      } catch (e) {
+        debugPrint('_loadSiPersonResponsible error: $e');
+      }
+      // The department may have changed again while waiting.
+      if (departmentId.value != dept) return;
+    }
+    userList.assignAll([LabelValue(label: 'Select', value: ''), ...users]);
+    selectedPersonResponsible.value = null;
+  }
+
+  /// Clears what depends on the functional location.
+  void _siClearFunctionalDerived() {
+    selectedFunctionalLocation.value = null;
+    functionalLocationList.clear();
+    _apiClearSystem();
+    equipmentList.clear();
+    selectedEquipmentNumber.value = null;
+    fmecaFrequency.value = null;
+    fmecaFrequencyController.clear();
+  }
+
+  Future<void> _onSiDepartmentChanged(String? label) async {
+    final none = label == null || label.isEmpty || label == 'Select';
+    selectedDepartment.value = none ? null : label;
+    departmentId.value = none ? null : _apiIdFor(departmentList, label);
+    _siClearFunctionalDerived();
+    await Future.wait([_loadSiPersonResponsible(), _loadApiFunctionalLocations()]);
+  }
+
+  Future<void> _onSiLocationChanged(String? label) async {
+    final none = label == null || label.isEmpty || label == 'Select';
+    selectedLocation.value = none ? null : label;
+    maintenanceLocationTypeId.value =
+    none ? 0 : _apiIdFor(locationTypeList, label);
+    _siClearFunctionalDerived();
+    await _loadApiFunctionalLocations();
+  }
+
+  Future<void> _onSiFunctionalLocationChanged(String? label) async {
+    final none = label == null || label.isEmpty || label == 'Select';
+    selectedFunctionalLocation.value = none ? null : label;
+    _apiClearSystem();
+    equipmentList.clear();
+    selectedEquipmentNumber.value = null;
+    fmecaFrequency.value = null;
+    fmecaFrequencyController.clear();
+    if (none) return;
+
+    final funcId = _apiIdFor(functionalLocationList, label);
+    final frequency = _apiFuncLocFrequency['$funcId'] ?? 0;
+    fmecaFrequency.value = frequency;
+    fmecaFrequencyController.text = frequency.toString();
+    await Future.wait([_loadApiSystemSubsystem(), _loadSiEquipment()]);
+    await filterRcaFailureCategoriesBySystem();
+  }
+
+  /// Equipment numbers of the chosen functional location (GetEquipmentNumber).
+  Future<void> _loadSiEquipment() async {
+    final funcLabel = selectedFunctionalLocation.value;
+    final funcId = _apiIdFor(functionalLocationList, funcLabel);
+    if (funcId <= 0) return;
+    final dept = departmentId.value ?? 0;
+    isEquipmentLoading.value = true;
+    try {
+      final rows = await _failureService.getEquipmentNumbersByFuncLoc(
+          locationTypeId: _apiIdFor(locationTypeList, selectedLocation.value),
+          funcLocId: funcId,
+          departmentIds: dept > 0 ? dept.toString() : '');
+      final options = <LabelValue>[];
+      for (final r in rows) {
+        final id = r['equipId']?.toString() ?? '';
+        final name = r['equipmentDetail']?.toString().trim() ?? '';
+        if (id.isEmpty || name.isEmpty) continue;
+        options.add(LabelValue(label: name, value: id));
+      }
+      // The user may have picked another functional location meanwhile.
+      if (selectedFunctionalLocation.value != funcLabel) return;
+      equipmentList.assignAll([LabelValue(label: 'Select', value: ''), ...options]);
+    } catch (e) {
+      debugPrint('_loadSiEquipment error: $e');
+    } finally {
+      isEquipmentLoading.value = false;
     }
   }
 
@@ -5319,6 +5714,12 @@ class CreateFailureController extends GetxController
       isLoading.value = true;
       errorMessage.value = "";
       await loadMasterDataFromDb();
+      // Dropdowns of this form come from the APIs, not local data.
+      try {
+        await _loadSiLookups();
+      } catch (e) {
+        debugPrint('SI details: lookups failed: $e');
+      }
 
       final result = await _failureService.getMaintenanceFailureDetails([
         failureNo,
@@ -5358,74 +5759,10 @@ class CreateFailureController extends GetxController
       notificationDescriptionHistoryList
           .assignAll(output.getNotificationHistory ?? []);
 
-      selectedPriority.value = _resolveLabel(
-          output.getPriorityType, priorityTypeList, model.priorityId) ??
-          model.priorityType ??
-          model.category;
-
-      final deptLabel = _resolveLabel(
-          output.getDepartmentList, departmentList, model.deptId) ??
-          model.deptCode;
-      if (deptLabel != null && deptLabel.isNotEmpty) {
-        selectedDepartment.value = deptLabel;
-        departmentId.value = model.deptId ?? 0;
-        await onDepartmentChanged(deptLabel);
-        selectedDepartment.value = deptLabel;
-      }
-
-      await _applyLocationSelectionsFromModel(
-        model,
-        output: output,
-      );
-
-      // Person Responsible options come from the details API (getUserList),
-      // not the local master users. Done after the department step above,
-      // which resets userList.
-      final apiUsers = (output.getUserList ?? const <LabelValue>[])
-          .where((u) =>
-      (u.label ?? '').trim().isNotEmpty &&
-          u.value != null &&
-          u.value != '0' &&
-          (u.label ?? '').trim().toLowerCase() != 'select user')
-          .toList();
-      if (apiUsers.isNotEmpty) {
-        userList.assignAll([LabelValue(label: 'Select', value: ''), ...apiUsers]);
-      }
+      await _applySiSavedSelections(model, output);
 
       if ((model.frequency ?? 0) > 0) {
         fmecaFrequencyController.text = model.frequency.toString();
-      }
-
-      // Equipment options depend on the functional location. For an existing
-      // failure nothing has loaded them yet, so load them now (same as JE).
-      final funcSelected = selectedFunctionalLocation.value;
-      if (funcSelected != null &&
-          funcSelected.isNotEmpty &&
-          funcSelected != 'Select') {
-        final keepEquipment = selectedEquipmentNumber.value;
-        await _refilterEquipmentForCurrentSelections();
-        if (equipmentList.length <= 1) {
-          final cleanCode = funcSelected.contains(' - ')
-              ? funcSelected.split(' - ').first.trim()
-              : funcSelected.trim();
-          await loadEquipmentsOnDemand(
-              functionalLocationId:
-              _funcLocationCodeForLabel(funcSelected) ?? cleanCode);
-        }
-        // Re-select the saved equipment now that the options exist.
-        final savedName = model.equipmentName ??
-            _labelFromValueList(equipmentList, model.equipmentId) ??
-            _masterEquipmentName(model.equipmentId);
-        if (savedName != null && savedName.isNotEmpty) {
-          ensureDropdownOption(
-              equipmentList, savedName, model.equipmentId?.toString() ?? '');
-          selectedEquipmentNumber.value = savedName;
-          equipmentDisplayController.text = savedName;
-        } else if (keepEquipment != null &&
-            keepEquipment.isNotEmpty &&
-            keepEquipment != 'Select') {
-          selectedEquipmentNumber.value = keepEquipment;
-        }
       }
 
       // final eqLabel = _resolveLabel(
@@ -5443,17 +5780,19 @@ class CreateFailureController extends GetxController
       selectedPersonResponsible.value =
           _labelFromValueList(userList, model.assignedUserId);
       ptwNumberController.text = model.ptwNo ?? '';
-      // Resolve Notification Type: check notificationTypeList first, fallback to corrNotificationTypeList
-      final notifFromType = model.notificationTypeId != null && model.notificationTypeId != 0
-          ? _labelFromValueList(notificationTypeList, model.notificationTypeId)
-          : null;
-      selectedNotificationType.value = (notifFromType != null && notifFromType.isNotEmpty)
-          ? notifFromType
-          : _labelFromValueList(corrNotificationTypeList, model.corrNotificationTypeId);
-      selectedNatureOfWork.value =
-          _labelFromValueList(natureOfWorkList, model.natureOfWorkId);
-      selectedFailureCategoryType.value =
+      // Notification Type = the corrective notification type (Failure, Snag...)
+      selectedNotificationType.value =
           _labelFromValueList(corrNotificationTypeList, model.corrNotificationTypeId);
+      // Nature of Work / Failure Type (department 3) are looked up in the same
+      // lists their dropdowns show.
+      selectedNatureOfWork.value = _labelFromValueList(
+          apiNatureOfWorkList.isNotEmpty ? apiNatureOfWorkList : natureOfWorkList,
+          model.natureOfWorkId);
+      selectedFailureCategoryType.value = _labelFromValueList(
+          apiNotificationTypeList.isNotEmpty
+              ? apiNotificationTypeList
+              : failureCategoryTypeList,
+          model.notificationTypeId);
       trainRunningKmController.text = model.trainRunningKm ?? '';
 
       isServiceAffected.value = model.isServiceAffected ?? false;
@@ -6314,7 +6653,7 @@ class CreateFailureController extends GetxController
         isPassengerAffected.value ? _occInt(rescuedDurationController) : null,
         'CreatedBy': createdBy,
         'FailureCategoryTypeId':
-        lookupValue(corrNotificationTypeList, selectedFailureCategoryType.value),
+        lookupValue(apiFailureCategoryList, selectedFailureCategoryType.value),
         'FailureCategoryTypeText': '',
       };
 

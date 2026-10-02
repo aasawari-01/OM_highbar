@@ -461,16 +461,13 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   bool get _isDccDepot =>
       widget.failureType == 'Depot' && controller.isDcc;
 
-  /// Web: Acknowledge when status is "Work Complete"; Re-Open / Close when
-  /// statusId is 195 or 175.
-  bool _isDepotWorkComplete(FailureItem f) =>
-      (f.statusName ?? '').trim() == 'Work Complete';
-
+  /// Re-Open / Close when statusId is 195 or 175. There is no acknowledge
+  /// step for the DCC: the JE closes the failure and the Section Incharge
+  /// reviews and closes it.
   bool _depotCanReopenClose(FailureItem f) =>
       f.statusId == 195 || f.statusId == 175;
 
-  bool _depotHasActions(FailureItem f) =>
-      _isDepotWorkComplete(f) || _depotCanReopenClose(f);
+  bool _depotHasActions(FailureItem f) => _depotCanReopenClose(f);
 
   Widget _depotChip(String label, Color color, VoidCallback onTap) {
     return ActionChip(
@@ -491,9 +488,6 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       spacing: 8,
       runSpacing: 8,
       children: [
-        if (_isDepotWorkComplete(failure))
-          _depotChip('Acknowledge', AppColors.green,
-                  () => _showDepotAcknowledgePopup(failure)),
         if (_depotCanReopenClose(failure)) ...[
           _depotChip('Re-Open', AppColors.green,
                   () => _showDepotReopenPopup(id, code)),
@@ -605,140 +599,6 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                           ),
                         );
                       },
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _confirmDepotAcknowledge(FailureItem failure, String remark,
-      {required bool accept}) {
-    Get.dialog(
-      CustPopup(
-        title: "Confirm",
-        message: accept
-            ? "Do you want acknowledge accept failure?"
-            : "Do you want acknowledge deny failure?",
-        icon: accept ? TablerIcons.circle_check : TablerIcons.alert_triangle,
-        iconColor: accept ? AppColors.green : AppColors.orangeColor,
-        confirmText: "Yes",
-        cancelText: "Cancel",
-        onCancel: () => Get.back(),
-        onConfirm: () async {
-          Get.back(); // confirm dialog
-          Get.back(); // acknowledge popup
-          await controller.acknowledgeDepotFailure(
-            failure.id ?? 0,
-            remark,
-            accept: accept,
-            failureNo: failure.notificationCode ?? failure.failureNo,
-          );
-        },
-      ),
-    );
-  }
-
-  void _showDepotAcknowledgePopup(FailureItem failure) {
-    final remarkController = TextEditingController();
-    final code = failure.notificationCode ?? failure.failureNo ?? '';
-    String? error;
-    Get.dialog(
-      CustPopup(
-        title: "Acknowledge For Failure",
-        showIcon: true,
-        icon: TablerIcons.circle_check,
-        iconColor: AppColors.green,
-        onCancel: () => Get.back(),
-        customContent: StatefulBuilder(
-          builder: (context, setPopupState) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: CustText(
-                    name: "Acknowledge For Failure",
-                    size: AppConstants.headerSize,
-                    color: AppColors.textMutedLight,
-                    fontWeightName: FontWeight.w600),
-              ),
-              if (code.isNotEmpty) ...[
-                const SizedBox(height: 6),
-                Center(
-                  child: CustText(
-                      name: "Failure No: $code",
-                      size: 13,
-                      color: AppColors.orangeColor,
-                      fontWeightName: FontWeight.w600),
-                ),
-              ],
-              const SizedBox(height: 16),
-              CustText(
-                  name: "Remark *",
-                  size: AppConstants.formLabelSize,
-                  fontWeightName: FontWeight.w500),
-              const SizedBox(height: 8),
-              CustomTextField(
-                controller: remarkController,
-                hintText: "Enter remark (max 250 characters)",
-                maxLines: 3,
-                maxLength: 250,
-                onChanged: (v) {
-                  if (error != null && v.trim().isNotEmpty) {
-                    setPopupState(() => error = null);
-                  }
-                },
-              ),
-              if (error != null)
-                Text(error!,
-                    style: const TextStyle(color: AppColors.red, fontSize: 12)),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: CustOutlineButton(
-                      name: "Close",
-                      size: double.infinity,
-                      sHeight: 36,
-                      fontSize: 14,
-                      onSelected: (_) => Get.back(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: CustButton(
-                      name: "Deny",
-                      size: double.infinity,
-                      sHeight: 36,
-                      fontSize: 14,
-                      color1: AppColors.red,
-                      color2: AppColors.red,
-                      onSelected: (_) {
-                        final remark = remarkController.text.trim();
-                        if (remark.isEmpty) {
-                          setPopupState(() => error = "Please enter remark.");
-                          return;
-                        }
-                        _confirmDepotAcknowledge(failure, remark, accept: false);
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: CustButton(
-                      name: "Accept",
-                      size: double.infinity,
-                      sHeight: 36,
-                      fontSize: 14,
-                      color1: AppColors.green,
-                      color2: AppColors.green,
-                      onSelected: (_) => _confirmDepotAcknowledge(
-                          failure, remarkController.text.trim(),
-                          accept: true),
                     ),
                   ),
                 ],
@@ -1063,16 +923,16 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     );
   }
 
-  /// Web rule for the Section Incharge Close button: status 4 and not a train
-  /// set failure; for failures raised by a Station / Depot request it only
-  /// appears once the Station Controller has acknowledged the request
-  /// (occRequestStatusId 197 or 176).
+  /// Section Incharge Close button: status 4 and not a train set failure. A
+  /// Station request only appears once the Station Controller has acknowledged
+  /// it (occRequestStatusId 197 or 176). Depot requests need no acknowledge:
+  /// the SI closes them directly after the JE.
   bool _sectionInchargeCanClose(FailureItem failure) {
     if (failure.statusId != 4 || failure.isTrainSetFailure != false) {
       return false;
     }
     final from = (failure.otherRequestFrom ?? '').trim();
-    if (from == 'Station Request' || from == 'Depot Request') {
+    if (from == 'Station Request') {
       final ack = failure.occRequestStatusId;
       return ack == 197 || ack == 176;
     }

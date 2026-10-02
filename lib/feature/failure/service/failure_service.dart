@@ -435,6 +435,202 @@ class FailureService {
     return body['responseOutput'] as Map<String, dynamic>;
   }
 
+  // ── Section Incharge maintenance failure create: dropdowns (API only) ─────
+
+  /// Raw `responseOutput` of GetLookupCreateCorrNotification: priority
+  /// (getPriorityType), department, location (getLocationType), notification
+  /// type, nature of work, failure category (getCorrNotificationTypeList).
+  Future<Map<String, dynamic>> getLookupCreateCorrNotificationRaw() async {
+    final userId = await _userId();
+    final response = await _apiClient.get(
+      '${AppUrls.getLookupCreateCorrNotification}?AssgineUserId=$userId',
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load lookups');
+    }
+    return body['responseOutput'] as Map<String, dynamic>;
+  }
+
+  /// Person Responsible options for a department (getAssgineUserList).
+  Future<List<LabelValue>> getAssgineUsersByDept({
+    required int deptId,
+    int locationTypeId = 0,
+  }) async {
+    final userId = await _userId();
+    final response = await _apiClient.get(
+      '${AppUrls.getFunctionLocEquipmentNoByDeptId}'
+      '?deptId=$deptId&locationTypeId=$locationTypeId&createdBy=$userId',
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final out = body['responseOutput'];
+    final rows = out is Map ? out['getAssgineUserList'] : null;
+    if (rows is! List) return [];
+    return rows
+        .whereType<Map>()
+        .map((e) => LabelValue(
+      label: e['label']?.toString().trim() ?? '',
+      value: e['value']?.toString() ?? '',
+    ))
+        .where((u) =>
+    (u.label ?? '').isNotEmpty && u.value != '0' && (u.value ?? '').isNotEmpty)
+        .toList();
+  }
+
+  // ── Station failure dropdowns (API only, no local data) ───────────────────
+
+  /// Priority, department, location, reported-by and failure-category lists
+  /// for the Station create / update form (the raw `responseOutput` map).
+  Future<Map<String, dynamic>> getStationFailureLookups() async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getStationFailureLookups,
+      headers: headers,
+      body: {
+        'LocationId': 0,
+        'UserId': userId,
+        'DepartmentIds': '',
+        'Action': 'Get_Failure_Dept_Location_User',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load station lookups');
+    }
+    return body['responseOutput'] as Map<String, dynamic>;
+  }
+
+  /// Priority, department, location, reported-by and failure-category lists
+  /// for the Depot create form (the raw `responseOutput` map).
+  Future<Map<String, dynamic>> getDepotFailureLookups() async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getDepotFailureLookups,
+      headers: headers,
+      body: {
+        'LocationId': 0,
+        'DepotId': 0,
+        'UserId': userId,
+        'DepartmentIds': '',
+        'Action': 'Get_Failure_Dept_Location_User',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] == null) {
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load depot lookups');
+    }
+    return body['responseOutput'] as Map<String, dynamic>;
+  }
+
+  /// One call of GetFailureStandDropDownDataNew; returns its `data` map.
+  Future<Map<String, dynamic>> _failureStandDropDown({
+    required String action,
+    required int locationTypeId,
+    required int funcLocId,
+    required String departmentIds,
+  }) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getFailureStandDropDownData,
+      headers: headers,
+      body: {
+        'userId': userId,
+        'system': '',
+        'locationTypeId': locationTypeId,
+        'funcLocId': funcLocId,
+        'action': action,
+        'failureCategoryId': 0,
+        'causeOfFailureId': 0,
+        'departmentIds': departmentIds,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final data = body['data'];
+    return data is Map ? Map<String, dynamic>.from(data) : <String, dynamic>{};
+  }
+
+  /// Functional locations for a department + location:
+  /// [{funcLocId, functionalLocation, frequency}].
+  Future<List<Map<String, dynamic>>> getStationFunctionalLocations({
+    required int locationTypeId,
+    required String departmentIds,
+  }) async {
+    final data = await _failureStandDropDown(
+      action: 'GetFunctionalLocation',
+      locationTypeId: locationTypeId,
+      funcLocId: 0,
+      departmentIds: departmentIds,
+    );
+    final rows = data['funcLocations'];
+    if (rows is! List) return [];
+    return rows
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// Equipment numbers of a functional location:
+  /// [{equipId, equipmentDetail, functionalLocation}].
+  Future<List<Map<String, dynamic>>> getEquipmentNumbersByFuncLoc({
+    required int locationTypeId,
+    required int funcLocId,
+    required String departmentIds,
+  }) async {
+    final data = await _failureStandDropDown(
+      action: 'GetEquipmentNumber',
+      locationTypeId: locationTypeId,
+      funcLocId: funcLocId,
+      departmentIds: departmentIds,
+    );
+    final rows = data['equipmentNumbers'];
+    if (rows is! List) return [];
+    return rows
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// System / Sub System pairs for a functional location:
+  /// [{system, subSystem}].
+  Future<List<Map<String, dynamic>>> getSystemSubsystemsByFuncLoc({
+    required int locationTypeId,
+    required int funcLocId,
+    required String departmentIds,
+  }) async {
+    final data = await _failureStandDropDown(
+      action: 'GetSystemSubSystemByFuncLoc',
+      locationTypeId: locationTypeId,
+      funcLocId: funcLocId,
+      departmentIds: departmentIds,
+    );
+    final rows = data['subsystemsOnFuncLocs'];
+    if (rows is! List) return [];
+    return rows
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
   /// System -> Sub System options for the OCC role. Returns the
   /// `subsystemsForOccs` rows: [{system: "...", subSystem: ["...", ...]}].
   Future<List<Map<String, dynamic>>> getOccSystemSubsystems(
