@@ -142,12 +142,60 @@ class CreateFailureController extends GetxController
     return SessionController.isOccDelegateRole(role);
   }
 
+  /// Read-only "OCC Failure Details" shown to Section Incharge and JE when a
+  /// failure originated from an OCC failure (label, value), empty otherwise.
+  final occOriginDetails = <MapEntry<String, String>>[].obs;
+
+  void _applyOccOrigin(CreateVMModel model) {
+    // Only failures that came from OCC; nothing for ordinary failures or ones
+    // raised by other sources (e.g. "Depot Request"). The API marks them with
+    // otherRequestFrom ("OCC Request"); a failure opened from an OCC list
+    // (failureCategory is the list type) counts too, in case that is empty.
+    final fromOcc =
+        (model.otherRequestFrom ?? '').toUpperCase().contains('OCC') ||
+            failureCategory.value.toLowerCase() == 'occ';
+    if (!fromOcc) {
+      occOriginDetails.clear();
+      return;
+    }
+
+    String v(String? s) => (s == null || s.isEmpty) ? '-' : s;
+    // Core fields are always listed (blank shown as "-"); the rest only when
+    // OCC actually filled them in.
+    final core = <MapEntry<String, String>>[
+      MapEntry('Request From', v(model.otherRequestFrom)),
+      if ((model.reportedTo ?? '').isNotEmpty)
+        MapEntry('Reported To', model.reportedTo!),
+      MapEntry('Line', v(model.occLineName)),
+      MapEntry('Train Set', v(model.occTrainSetName)),
+      MapEntry('Location Text', v(model.occLocationText)),
+      MapEntry('Train Id', v(model.occTrainId)),
+      MapEntry('System', v(model.occSystemName)),
+      MapEntry('Sub Location', v(model.occSubLocation)),
+      MapEntry('Failure Category Type', v(model.occFailureCategory)),
+    ];
+    final optional = <MapEntry<String, String>>[
+      MapEntry('Train Operator', model.occTrainOperatorName ?? ''),
+      MapEntry('Train Replaced With', model.occTrainReplacedRemark ?? ''),
+      MapEntry('Train Replaced Time', model.occTrainReplacedTime ?? ''),
+      MapEntry('Way Of Rescue', model.occWayOfRescue ?? ''),
+    ].where((e) => e.value.isNotEmpty);
+    occOriginDetails.assignAll([...core, ...optional]);
+  }
+
   /// Whether the loaded OCC failure was reported to OCC itself. If it was
   /// reported to FMC / TPC / CSS / RSC, that role owns the update and the OCC
   /// role can only view it.
   final occLoadedReportedToIsOcc = true.obs;
 
   bool get occRoleViewOnly => isOccRoleUser && !occLoadedReportedToIsOcc.value;
+
+  /// True once the failure has been assigned to a department (a department
+  /// notification exists). From then on it belongs to that department's
+  /// Section Incharge / JE, so FMC / TPC / CSS / RSC can only view it.
+  final occIsAssigned = false.obs;
+
+  bool get occDelegateReadOnly => isFmcUser && occIsAssigned.value;
 
   /// System / Sub System are fixed on the update form (set when OCC created
   /// the failure), so a functional-location change must not reset them.
@@ -1189,6 +1237,7 @@ class CreateFailureController extends GetxController
 
         if (output.getCreateVMModel != null) {
           final model = output.getCreateVMModel!;
+          _applyOccOrigin(model);
           encryptedId.value = (model.id != null && model.id!.isNotEmpty)
               ? model.id!
               : failureNo;
@@ -5302,6 +5351,7 @@ class CreateFailureController extends GetxController
       );
 
       mainStatusName.value = model.mainStatusName;
+      _applyOccOrigin(model);
       notificationHistoryList
           .assignAll(output.getNotificationActionUserHistory ?? []);
       notificationDescriptionHistoryList
@@ -6326,6 +6376,8 @@ class CreateFailureController extends GetxController
           : _occStr(d['statusName']);
       occCreatedDateText.value = _occStr(d['createdDate']);
       occIsStationFailure.value = d['isStationController'] == true;
+      occIsAssigned.value = _occStr(d['deptNotificationCode']).isNotEmpty ||
+          _occToInt(d['deptNotificationId']) > 0;
 
       // New description is typed fresh; earlier ones are shown as history.
       failureDescriptionController.clear();
@@ -6624,6 +6676,10 @@ class CreateFailureController extends GetxController
     }
     if (occRoleViewOnly) {
       _occError('This failure was reported to another role; only that role can update it.');
+      return false;
+    }
+    if (occDelegateReadOnly) {
+      _occError('This failure is already assigned to a department and can no longer be updated.');
       return false;
     }
     if (kind == 'close' && isOccRoleUser && !occReportedToIsOcc) {

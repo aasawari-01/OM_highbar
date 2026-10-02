@@ -849,7 +849,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       return _buildDepotView(context);
     }
     if (_isOccUpdate) {
-      return _buildOccUpdateForm(context);
+      // Once FMC / TPC / CSS / RSC assign the failure to a department it is
+      // no longer theirs to edit: show the read-only view.
+      return controller.occDelegateReadOnly
+          ? _buildOccAssignedView(context)
+          : _buildOccUpdateForm(context);
     }
     if (_isOccCreate) {
       return _buildOccCreateForm(context);
@@ -1806,6 +1810,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ],
             ),
           ),
+          _buildOccOriginSection(),
           CustSection(
             title: "Service Affected",
             trailing: Obx(
@@ -3204,6 +3209,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ],
                 ),
               ),
+              _buildOccOriginSection(),
               CustSection(
                 title: "Service Affected *",
                 trailing: Obx(() => YesNoToggle(
@@ -4274,6 +4280,259 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   // OCC failure (FMC update)
   // ---------------------------------------------------------
 
+  /// Earlier descriptions of an OCC failure (read-only box with author/time).
+  Widget _occDescriptionHistory() {
+    return Obx(() {
+      final history = controller.notificationDescriptionHistoryList;
+      return Container(
+        width: double.infinity,
+        constraints: const BoxConstraints(maxHeight: 180),
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(AppConstants.inputRadius),
+        ),
+        child: history.isEmpty
+            ? const Text('No description added yet.',
+            style: TextStyle(color: Colors.grey))
+            : ListView.separated(
+          shrinkWrap: true,
+          itemCount: history.length,
+          separatorBuilder: (_, __) => const Divider(height: 12),
+          itemBuilder: (_, i) {
+            final h = history[i];
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(h.description ?? ''),
+                const SizedBox(height: 2),
+                Text(
+                  '${h.createdBy ?? ''}  ${h.createdOn ?? ''}',
+                  style: const TextStyle(fontSize: 11, color: Colors.grey),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    });
+  }
+
+  /// Read-only view of an OCC failure that FMC / TPC / CSS / RSC have already
+  /// assigned to a department. Same layout as the Station Controller's
+  /// read-only screen (disabled fields, no action buttons), fed by the OCC
+  /// failure data.
+  Widget _buildOccAssignedView(BuildContext context) {
+    const gap = SizedBox(height: AppConstants.elementSpacing);
+    Widget row(Widget a, Widget b) => _occRow(a, b);
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(AppConstants.screenPadding),
+            child: _buildFailureHeader(),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: AppConstants.screenPadding),
+            child: _buildFailureNumberDisplay(),
+          ),
+          CustSection(
+            title: "Failure Information",
+            trailing: _buildExpandCollapseButton(),
+            isVisible: controller.isBasicInfoVisible.value,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _occReadOnlyField("Functional Location",
+                        () => controller.selectedFunctionalLocation.value ?? ''),
+                gap,
+                row(
+                  _occReadOnlyField("Priority",
+                          () => controller.selectedPriority.value ?? ''),
+                  _occReadOnlyField("Department",
+                          () => controller.selectedDepartment.value ?? ''),
+                ),
+                gap,
+                _occReadOnlyField("Current Status",
+                        () => controller.mainStatusName.value ?? ''),
+                gap,
+                CustText.detailLabel("Failure Description"),
+                const SizedBox(height: 6),
+                _occDescriptionHistory(),
+                gap,
+                _occReadOnlyField("Reported To",
+                        () => controller.selectedOccReportedTo.value ?? ''),
+                gap,
+                row(
+                  _occReadOnlyController(
+                      "Line", controller.occLineDisplayController),
+                  _occReadOnlyController(
+                      "Location Text", controller.occLocationTextController),
+                ),
+                gap,
+                _occReadOnlyField("Location",
+                        () => controller.selectedLocation.value ?? ''),
+                gap,
+                _occReadOnlyController(
+                    "Sub Location", controller.subLocationController),
+                gap,
+                row(
+                  _occReadOnlyField(
+                      "System", () => controller.occSystemValue),
+                  _occReadOnlyField("Sub System",
+                          () => controller.selectedFmecaSubsystem.value ?? ''),
+                ),
+                gap,
+                row(
+                  _occReadOnlyController(
+                      "Train Id", controller.trainIdController),
+                  _occReadOnlyController(
+                      "Train Set", controller.occTrainSetDisplayController),
+                ),
+                gap,
+                Obx(() => CustDateTimePicker(
+                  label: "Actual Failure Occurrence",
+                  hint: "Actual Failure Occurrence",
+                  selectedDateTime:
+                  controller.selectedFailureOccurrenceDate.value,
+                  enabled: false,
+                  onDateTimeSelected: (_) {},
+                )),
+                gap,
+                _occReadOnlyField("Failure Reported by",
+                        () => controller.selectedFailureReportedBy.value ?? ''),
+                gap,
+                Obx(() => CustDateTimePicker(
+                  label: "Actual Failure Completed Date & Time",
+                  hint: "Actual Failure Completed Date & Time",
+                  selectedDateTime:
+                  controller.selectedFailureCompletedDate.value,
+                  enabled: false,
+                  onDateTimeSelected: (_) {},
+                )),
+                gap,
+                _occReadOnlyField("Failure Category Type",
+                        () => controller.selectedFailureCategoryType.value ?? ''),
+                gap,
+              ],
+            ),
+          ),
+          Obx(() => controller.occIsStationFailure.value
+              ? const SizedBox.shrink()
+              : CustSection(
+            title: "Trip Information",
+            isVisible: controller.isServiceAffected.value,
+            trailing: YesNoToggle(
+              value: controller.isServiceAffected.value,
+              enabled: false,
+              onChanged: (_) {},
+            ),
+            child: Column(
+              children: [
+                row(
+                  _occReadOnlyController("Trip Delay Upline (NOS)",
+                      controller.tripDelayUplineController),
+                  _occReadOnlyController("Trip Cancel (NOS)",
+                      controller.trainCancelNosController),
+                ),
+                gap,
+                row(
+                  _occReadOnlyController("Trip Delay Downline (NOS)",
+                      controller.tripDelayDownlineController),
+                  _occReadOnlyController("Trip Delay in Min.",
+                      controller.trainDelayMinController),
+                ),
+                gap,
+                row(
+                  _occReadOnlyController("Trip Withdrawal (NOS)",
+                      controller.trainWithdrawalNosController),
+                  _occReadOnlyController("Train Replace (NOS)",
+                      controller.trainReplaceNosController),
+                ),
+                Obx(() => controller.isPassengerDeboarding.value
+                    ? Padding(
+                  padding: const EdgeInsets.only(
+                      top: AppConstants.elementSpacing),
+                  child: _occReadOnlyController("Train Deboarded (NOS)",
+                      controller.trainDeboardedNosController),
+                )
+                    : const SizedBox.shrink()),
+              ],
+            ),
+          )),
+          CustSection(
+            title: "Passenger Affected",
+            isVisible: controller.isPassengerAffected.value,
+            trailing: YesNoToggle(
+              value: controller.isPassengerAffected.value,
+              enabled: false,
+              onChanged: (_) {},
+            ),
+            child: Column(
+              children: [
+                _occReadOnlyController("Number Of Passenger Affected",
+                    controller.passengersAffectedCountController),
+                gap,
+                row(
+                  _occReadOnlyController("Trapped Duration",
+                      controller.trappedDurationController),
+                  _occReadOnlyController("Rescued Duration",
+                      controller.rescuedDurationController),
+                ),
+              ],
+            ),
+          ),
+          Obx(() {
+            final any = controller.beforeImagesList.isNotEmpty ||
+                controller.afterImagesList.isNotEmpty ||
+                controller.rcaImagesList.isNotEmpty;
+            if (!any) return const SizedBox.shrink();
+            return CustSection(
+              title: "Uploaded Images",
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _occImageGroup("Before Images", controller.beforeImagesList),
+                  _occImageGroup("After Images", controller.afterImagesList),
+                  _occImageGroup("RCA Images", controller.rcaImagesList),
+                ],
+              ),
+            );
+          }),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  /// Read-only "OCC Failure Details" for Section Incharge and JE: the fields
+  /// OCC / FMC filled in (Reported To, Line, Train Set, ...) that these forms
+  /// do not otherwise have. Hidden for failures that did not come from OCC.
+  Widget _buildOccOriginSection() {
+    return Obx(() {
+      final details = controller.occOriginDetails;
+      if (details.isEmpty) return const SizedBox.shrink();
+      return CustSection(
+        title: "OCC Failure Details",
+        child: Column(
+          children: [
+            for (var i = 0; i < details.length; i++) ...[
+              if (i > 0) const SizedBox(height: AppConstants.elementSpacing),
+              CustomTextField(
+                label: details[i].key,
+                controller: TextEditingController(text: details[i].value),
+                enabled: false,
+              ),
+            ],
+          ],
+        ),
+      );
+    });
+  }
+
   /// Read-only field bound straight to a [TextEditingController]. Use this
   /// (not [_occReadOnlyField]) when the value is not an Rx variable: an Obx
   /// with nothing observable inside throws in GetX.
@@ -4490,45 +4749,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 gap,
                 CustText.detailLabel("Previously added description"),
                 const SizedBox(height: 6),
-                Obx(() {
-                  final history =
-                      controller.notificationDescriptionHistoryList;
-                  return Container(
-                    width: double.infinity,
-                    constraints: const BoxConstraints(maxHeight: 180),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade100,
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius:
-                      BorderRadius.circular(AppConstants.inputRadius),
-                    ),
-                    child: history.isEmpty
-                        ? const Text('No description added yet.',
-                        style: TextStyle(color: Colors.grey))
-                        : ListView.separated(
-                      shrinkWrap: true,
-                      itemCount: history.length,
-                      separatorBuilder: (_, __) =>
-                      const Divider(height: 12),
-                      itemBuilder: (_, i) {
-                        final h = history[i];
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(h.description ?? ''),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${h.createdBy ?? ''}  ${h.createdOn ?? ''}',
-                              style: const TextStyle(
-                                  fontSize: 11, color: Colors.grey),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                  );
-                }),
+                _occDescriptionHistory(),
                 gap,
                 CustomTextField(
                   label: "Failure Description (Max length: 500)",

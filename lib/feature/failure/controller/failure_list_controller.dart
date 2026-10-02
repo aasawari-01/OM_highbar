@@ -550,19 +550,31 @@ class FailureListController extends GetxController {
     );
   }
 
-  /// JE lists are grouped by creationType: Manual, Station, Depot, OCC.
-  /// On the Joint Inspection Inbox tab, failures inside each group are shown
-  /// oldest first (ascending id); the JE Inbox tab keeps the server order.
+  /// Creation order of a failure. The failure number is department / MM-YYYY /
+  /// sequence (e.g. SIG/10-2026/0015), so month-year then sequence tells which
+  /// is newer; JE inbox rows often have no usable `id`, so the id is only the
+  /// fallback.
+  int _recencyKey(FailureItem item) {
+    final no = item.notificationCode ?? item.failureNo ?? '';
+    final m = RegExp(r'(\d{1,2})-(\d{4})/(\d+)').firstMatch(no);
+    if (m != null) {
+      final month = int.parse(m.group(1)!);
+      final year = int.parse(m.group(2)!);
+      final seq = int.parse(m.group(3)!);
+      return (year * 100 + month) * 1000000 + seq;
+    }
+    return item.id ?? 0;
+  }
+
+  /// JE lists are ordered purely by recency (not grouped by creation type, or
+  /// a new OCC failure would always sit below older Manual / Station / Depot
+  /// ones): JE Inbox newest first, Joint Inspection Inbox oldest first.
   void _sortJeFailures(List<FailureItem> items) {
-    const creationTypeOrder = {'Manual': 0, 'Station': 1, 'Depot': 2, 'OCC': 3};
-    final ascendingById =
+    final oldestFirst =
         selectedJETab.value == JEFailureListTab.jointInspection;
     items.sort((a, b) {
-      final aOrder = creationTypeOrder[(a.creationType ?? '').trim()] ?? 999;
-      final bOrder = creationTypeOrder[(b.creationType ?? '').trim()] ?? 999;
-      final byType = aOrder.compareTo(bOrder);
-      if (byType != 0 || !ascendingById) return byType;
-      return (a.id ?? 0).compareTo(b.id ?? 0);
+      final byRecency = _recencyKey(a).compareTo(_recencyKey(b));
+      return oldestFirst ? byRecency : -byRecency;
     });
   }
 

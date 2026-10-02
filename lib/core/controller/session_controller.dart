@@ -48,7 +48,6 @@ class SessionController extends GetxController {
     "OCC Controller",
     "Chief Engineer",
     "Chief Controller",
-    "OCC",
     "Section Incharge",
     "FMC",
     "TPC",

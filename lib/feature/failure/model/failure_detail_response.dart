@@ -350,6 +350,22 @@ class CreateVMModel {
   // field
   final int? frequency;
 
+  // Filled when the failure came from an OCC failure (created by the Chief
+  // Controller, assigned on by FMC / TPC / CSS / RSC). Shown read-only.
+  final String? reportedTo;
+  final String? otherRequestFrom;
+  final String? occSystemName;
+  final String? occSubLocation;
+  final String? occLineName;
+  final String? occTrainSetName;
+  final String? occLocationText;
+  final String? occTrainId;
+  final String? occFailureCategory;
+  final String? occTrainOperatorName;
+  final String? occTrainReplacedRemark;
+  final String? occTrainReplacedTime;
+  final String? occWayOfRescue;
+
 
 
 // fromJson
@@ -421,6 +437,19 @@ class CreateVMModel {
     this.systemDowntime,
     // constructor
     this.frequency,
+    this.reportedTo,
+    this.otherRequestFrom,
+    this.occSystemName,
+    this.occSubLocation,
+    this.occLineName,
+    this.occTrainSetName,
+    this.occLocationText,
+    this.occTrainId,
+    this.occFailureCategory,
+    this.occTrainOperatorName,
+    this.occTrainReplacedRemark,
+    this.occTrainReplacedTime,
+    this.occWayOfRescue,
   });
 
   static int? _asInt(dynamic value) {
@@ -538,6 +567,23 @@ class CreateVMModel {
       trainRunningKm: _asString(json['trainRunningKM']),
       systemDowntime: _asString(json['systemDowntime']),
       frequency: _asInt(json['frequency'] ?? json['Frequency']),
+      reportedTo: _asString(json['reportedTo'] ??
+          json['reportedToName'] ??
+          json['occReportedTo'] ??
+          json['occReportedToName']),
+      otherRequestFrom: _asString(json['otherRequestFrom']),
+      occSystemName: _asString(json['systemNameOCC']),
+      occSubLocation: _asString(json['subLocationOCC']),
+      occLineName: _asString(json['occLineIdName'] ?? json['occLineName']),
+      occTrainSetName:
+      _asString(json['occTrainSetName'] ?? json['occTrainSetIdName']),
+      occLocationText: _asString(json['occLocationText']),
+      occTrainId: _asString(json['trainNumberOCC']),
+      occFailureCategory: _asString(json['occFailureCategoryType']),
+      occTrainOperatorName: _asString(json['occTrainOpeartorName']),
+      occTrainReplacedRemark: _asString(json['occTrainReplacedWithRemark']),
+      occTrainReplacedTime: _asString(json['occTrainReplacedWithTime']),
+      occWayOfRescue: _asString(json['occWayOfRescueRemark']),
     );
   }
 
