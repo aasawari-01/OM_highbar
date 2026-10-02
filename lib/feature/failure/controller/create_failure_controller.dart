@@ -431,7 +431,19 @@ class CreateFailureController extends GetxController
     }
   }
 
-  Future<void> loadLookupDataForNewFailure() async {
+  /// Person Responsible options exactly as the lookup API returns them
+  /// (getUserList), not filtered by department.
+  final apiPersonResponsibleList = <LabelValue>[].obs;
+
+  Future<void>? _lookupFuture;
+
+  /// Runs the lookup API once and shares the result with every caller
+  /// (initial load and the Section Incharge person list). If it came back
+  /// empty (e.g. offline) the next call tries again.
+  Future<void> loadLookupDataForNewFailure() =>
+      _lookupFuture ??= _fetchLookupDataForNewFailure();
+
+  Future<void> _fetchLookupDataForNewFailure() async {
     try {
       debugPrint("loadLookupDataForNewFailure: Calling lookup API");
       final result = await _failureService.getLookupCreateCorrNotification();
@@ -442,12 +454,24 @@ class CreateFailureController extends GetxController
         apiNatureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
         print("getNotificationTypeList==${output.getNotificationTypeList}");
         apiNotificationTypeList.assignAll(output.getNotificationTypeList ?? []);
+        // Drop only the "Select User" placeholder row (value 0).
+        apiPersonResponsibleList.assignAll((output.getUserList ?? const <LabelValue>[])
+            .where((u) =>
+        (u.label ?? '').trim().isNotEmpty &&
+            (u.value ?? '').isNotEmpty &&
+            u.value != '0'));
         debugPrint(
             "loadLookupDataForNewFailure: Loaded ${apiNatureOfWorkList.length} nature of work items");
         debugPrint(
             "loadLookupDataForNewFailure: Loaded ${apiNotificationTypeList.length} notification type items");
+        debugPrint(
+            "loadLookupDataForNewFailure: Loaded ${apiPersonResponsibleList.length} person responsible items");
+      }
+      if (apiPersonResponsibleList.isEmpty && apiNatureOfWorkList.isEmpty) {
+        _lookupFuture = null; // nothing came back: allow a retry
       }
     } catch (e) {
+      _lookupFuture = null;
       debugPrint("Error loading lookup data for new failure: $e");
       debugPrint(
           "loadLookupDataForNewFailure: API failed - dropdowns will be empty");
@@ -2337,8 +2361,15 @@ class CreateFailureController extends GetxController
       debugPrint(
           "fetchJointInspectionUsers: Found ${filteredUsers.length} users for department $deptId");
 
+      // masterUsers has one row per user/role/department mapping, so the same
+      // person can appear several times: keep one entry per UserId.
+      final seenUserIds = <String>{};
+      final uniqueUsers = filteredUsers
+          .where((user) => seenUserIds.add(user['UserId']?.toString() ?? ''))
+          .toList();
+
       // Convert to LabelValue
-      final labelValueUsers = filteredUsers.map((user) {
+      final labelValueUsers = uniqueUsers.map((user) {
         // Construct userName from FirstName and LastName (since UserName column is null in DB)
         final firstName = user['FirstName']?.toString() ?? '';
         final lastName = user['LastName']?.toString() ?? '';
@@ -4199,12 +4230,27 @@ class CreateFailureController extends GetxController
 
   Future<void> loadPersonResponsibleForDept() async {
     debugPrint('loadPersonResponsibleForDept: called, deptId=${departmentId.value}, masterUsers=${masterUsers.length}');
+    // Show whatever getUserList the lookup API returned, as-is (not filtered
+    // by department, so it also shows before a department is picked). The
+    // local master-users table below is only an offline fallback (it can be
+    // stale or map roles differently).
+    await loadLookupDataForNewFailure();
+    if (apiPersonResponsibleList.isNotEmpty) {
+      userList.assignAll(
+          [LabelValue(label: 'Select', value: ''), ...apiPersonResponsibleList]);
+      selectedPersonResponsible.value = null;
+      debugPrint(
+          'loadPersonResponsibleForDept: ${apiPersonResponsibleList.length} users from lookup API');
+      return;
+    }
+
     final deptId = departmentId.value;
     if (deptId == null || deptId <= 0) {
       userList.assignAll([LabelValue(label: 'Select', value: '')]);
       selectedPersonResponsible.value = null;
       return;
     }
+
     if (masterUsers.isEmpty) await _loadMasterUsersOnDemand();
 
     final businessArea = (await AuthManager().getBusinessArea())?.toString();
@@ -4300,57 +4346,12 @@ class CreateFailureController extends GetxController
       // Load person responsible for the current department
       if (departmentId.value != null && departmentId.value! > 0) {
         debugPrint("loadSectionInchargeDropdowns: Loading person responsible for deptId=${departmentId.value}");
-        // Call the private method directly from the mixin
         final session = Get.find<SessionController>();
         final role = session.selectedRole.value?.roleDescr ?? '';
-        final isSectionIncharge = role.contains('Section Incharge');
-
-        if (isSectionIncharge) {
-          debugPrint('loadSectionInchargeDropdowns: Section Incharge - loading junior engineers from local DB for deptId=${departmentId.value}');
-
-          // Ensure master users are loaded
-          if (masterUsers.isEmpty) {
-            await _loadMasterUsersOnDemand();
-          }
-
-          // Filter users by department and role (Junior Engineer)
-          final filteredUsers = masterUsers.where((user) {
-            final userDeptId = user['DeptId']?.toString() ?? '';
-            final userRole = user['RoleDescr']?.toString() ?? '';
-            final firstName = user['FirstName']?.toString() ?? '';
-            final lastName = user['LastName']?.toString() ?? '';
-            final userName = (firstName + ' ' + lastName).trim();
-            final userId = user['UserId']?.toString() ?? '';
-
-            // Match department
-            final deptMatch = userDeptId == departmentId.value.toString();
-
-            // Match role - Junior Engineer
-            final roleMatch = userRole.toLowerCase().contains('junior engineer');
-
-            // Valid user check
-            final isValidUser = userId.isNotEmpty && userId != '0' &&
-                userName.isNotEmpty && userName.toLowerCase() != 'select user';
-
-            return deptMatch && roleMatch && isValidUser;
-          }).toList();
-
-          debugPrint('loadSectionInchargeDropdowns: Found ${filteredUsers.length} junior engineers in department ${departmentId.value}');
-
-          // Convert to LabelValue
-          userList.assignAll([
-            LabelValue(label: 'Select', value: ''),
-            ...filteredUsers.map((user) {
-              final firstName = user['FirstName']?.toString() ?? '';
-              final lastName = user['LastName']?.toString() ?? '';
-              final userName = (firstName + ' ' + lastName).trim();
-              return LabelValue(
-                label: userName,
-                value: user['UserId']?.toString() ?? '',
-              );
-            }),
-          ]);
-
+        if (role.contains('Section Incharge')) {
+          // One place builds this list (API first, local data as offline
+          // fallback), shared with the department-changed path.
+          await loadPersonResponsibleForDept();
           debugPrint('loadSectionInchargeDropdowns: userList count after load = ${userList.length}');
         }
       }
@@ -5470,6 +5471,31 @@ class CreateFailureController extends GetxController
       trainDeboardedNosController.text =
           model.noofTrainDeboarded?.toString() ?? '';
       _applyPassengerAffectedFromModel(model);
+
+      // Closure details the JE entered when closing the failure; the Section
+      // Incharge sees them read-only (Failure Rectification Details section).
+      failureRectificationDetailsController.text =
+          model.failureRectificationDetails ?? '';
+      selectedActualFailureRectified.value = model.failureType;
+      final userStatus = (output.getUserStatus ?? const <LabelValue>[])
+          .firstWhereOrNull((e) => e.value == model.userStatus?.toString());
+      if (userStatus?.label != null && userStatus!.label!.isNotEmpty) {
+        ensureDropdownOption(
+            userStatusJeList, userStatus.label!, userStatus.value ?? '');
+        selectedUserStatus.value = userStatus.label;
+      }
+      selectedFailureAttendedDate.value =
+      (model.failureAttendedDate ?? '').isNotEmpty
+          ? _parseDate(model.failureAttendedDate!)
+          : null;
+      selectedActualFailureRectifiedDate.value =
+      (model.actualFailureRectifiedDate ?? '').isNotEmpty
+          ? _parseDate(model.actualFailureRectifiedDate!)
+          : null;
+      selectedUnderObservationDate.value =
+      (model.underObservationDate ?? '').isNotEmpty
+          ? _parseDate(model.underObservationDate!)
+          : null;
 
       isOheRequired.value = model.isOHEReq ?? false;
       isSicRequired.value = model.isSICReq ?? false;

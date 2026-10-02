@@ -243,8 +243,15 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       
       debugPrint("fetchJointInspectionUsers: Found ${filteredUsers.length} users for department $deptId");
       
+      // masterUsers has one row per user/role/department mapping, so the same
+      // person can appear several times: keep one entry per UserId.
+      final seenUserIds = <String>{};
+      final uniqueUsers = filteredUsers
+          .where((user) => seenUserIds.add(user['UserId']?.toString() ?? ''))
+          .toList();
+
       // Convert to LabelValue
-      final labelValueUsers = filteredUsers.map((user) {
+      final labelValueUsers = uniqueUsers.map((user) {
         // Construct userName from FirstName and LastName (since UserName column is null in DB)
         final firstName = user['FirstName']?.toString() ?? '';
         final lastName = user['LastName']?.toString() ?? '';

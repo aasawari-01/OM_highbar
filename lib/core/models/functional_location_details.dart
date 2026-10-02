@@ -173,7 +173,10 @@ class PersonResponsibleResponse {
           .toList();
     } else if (json['responseOutput'] is Map) {
       final output = json['responseOutput'] as Map<String, dynamic>?;
-      final users = output?['users'] as List?;
+      // Different endpoints name the list differently.
+      final users = (output?['users'] ??
+          output?['getUserList'] ??
+          output?['getAssgineUserList']) as List?;
       userList = users
           ?.map((e) => LabelValue.fromJson(e as Map<String, dynamic>))
           .toList();

@@ -772,20 +772,66 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     );
   }
 
+  /// App bar title: "Create ..." when the user is creating, "Edit ..." when
+  /// they can change the failure, "View ... Details" when everything is
+  /// read-only for them. Same rule for every failure type and role.
+  String get _screenTitle {
+    // Keeps the surrounding Obx subscribed (it throws if nothing observable
+    // is read) and refreshes the title once the details have loaded.
+    controller.isLoading.value;
+
+    final type = widget.failureType;
+    final create = 'Create $type Failure';
+    final edit = 'Edit $type Failure';
+    final view = 'View $type Failure Details';
+
+    // Joint inspection: the user fills in their inspection remark.
+    if (_isJointInspectionFlow) return 'Edit Joint Inspection';
+
+    // Depot (DCC)
+    if (_isDepotCreate) return create;
+    if (_isDepotView) return view;
+
+    // OCC
+    if (_isOccCreate) return create;
+    if (_isOccUpdate) {
+      final closed = (controller.mainStatusName.value ?? '')
+          .toLowerCase()
+          .contains('close');
+      final readOnly = controller.occDelegateReadOnly ||
+          controller.occRoleViewOnly ||
+          (controller.isOccRoleUser && closed);
+      return readOnly ? view : edit;
+    }
+
+    // Station
+    if (_isStationCreate) return create;
+    if (_isStationControllerView) return view;
+    if (_isStationUpdate) return edit;
+
+    // Maintenance as Section Incharge: new, or existing (editable by status)
+    if (controller.isSectionIncharge && _isMaintenance) {
+      if (widget.failureNo == null) return create;
+      return _maintenanceOpenOr202Editable ? edit : view;
+    }
+
+    // Anyone else opening an existing failure (e.g. JE change notification)
+    if (widget.failureNo != null) {
+      return controller.isFormDisabled ? view : edit;
+    }
+    return create;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
-      appBar: CustomAppBar(
-        title: _isDepotView
-            ? 'Depot Failure Details'
-            : _isJointInspectionFlow
-            ? 'Joint Inspection Details'
-            : _isOccUpdate
-            ? 'Update OCC Failure'
-            : _isJeChangeNotification
-            ? 'Edit ${widget.failureType} Failure'
-            : 'Create ${widget.failureType} Failure',
+      // The title depends on details that load after the screen opens, so the
+      // app bar rebuilds on its own (CustomAppBar has a fixed height).
+      appBar: PreferredSize(
+        preferredSize: const Size.fromHeight(kToolbarHeight),
+        child: Obx(() => CustomAppBar(
+        title: _screenTitle,
         showDrawer: false,
         onLeadingPressed: () {
           _handleCancel();
@@ -808,6 +854,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ),
             )
         ],
+      )),
       ),
       body: Container(
         width: double.infinity,

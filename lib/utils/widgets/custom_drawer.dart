@@ -197,7 +197,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       print("Drawer - isSectionIncharge: $isSectionIncharge");
                       
                       if (isSectionIncharge) {
-                        return _drawerItem('Failure List', 'section_incharge_failure', const FailureListScreen(failureType: 'Maintenance'));
+                        return _drawerItem('Maintenance Failure', 'section_incharge_failure', const FailureListScreen(failureType: 'Maintenance'));
                       }
                       final isStationController = role.contains('Station Controller');
                       if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {

@@ -103,7 +103,10 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
-        title: '${widget.failureType} Failure List',
+        // Section Incharge's list shows all failures, so it is just "Failure List".
+        title: _isSectionIncharge && widget.failureType == 'Maintenance'
+            ? 'Failure List'
+            : '${widget.failureType} Failure List',
         showDrawer: false,
         onLeadingPressed: () => Navigator.pop(context),
         actions: [
@@ -1060,6 +1063,22 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     );
   }
 
+  /// Web rule for the Section Incharge Close button: status 4 and not a train
+  /// set failure; for failures raised by a Station / Depot request it only
+  /// appears once the Station Controller has acknowledged the request
+  /// (occRequestStatusId 197 or 176).
+  bool _sectionInchargeCanClose(FailureItem failure) {
+    if (failure.statusId != 4 || failure.isTrainSetFailure != false) {
+      return false;
+    }
+    final from = (failure.otherRequestFrom ?? '').trim();
+    if (from == 'Station Request' || from == 'Depot Request') {
+      final ack = failure.occRequestStatusId;
+      return ack == 197 || ack == 176;
+    }
+    return true;
+  }
+
   // Section Incharge specific action buttons
   Widget _buildSectionInchargeActions(FailureItem failure) {
     final statusId = failure.statusId ?? 0;
@@ -1095,8 +1114,8 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       );
     }
 
-    // Close button for statusId 4
-    if (statusId == 4) {
+    // Close button (same rule as the web list)
+    if (_sectionInchargeCanClose(failure)) {
       chips.add(
         ActionChip(
           label: const Text('Close', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
