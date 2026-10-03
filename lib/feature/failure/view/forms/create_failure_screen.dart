@@ -4877,9 +4877,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 ),
                 gap,
                 // OCC role picks them; FMC / TPC / CSS / RSC see what OCC set.
-                controller.isOccRoleUser
-                    ? _occSystemSubsystemFields()
-                    : _occFixedSystemSubsystemFields(),
+                _occSystemSubsystemFields(),
                 Obx(() => controller.occIsStationFailure.value
                     ? const SizedBox.shrink()
                     : Padding(
@@ -5139,7 +5137,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       options: controller.departmentList,
                       selected: controller.selectedDepartment,
                       onChanged: (v) async =>
-                      await controller.onDepartmentChanged(v),
+                      await controller.onOccCreateDepartmentChanged(v),
                       requiredName: "Department",
                     ),
                   ),
@@ -5162,7 +5160,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     label: "Location",
                     options: controller.locationTypeList,
                     selected: controller.selectedLocation,
-                    onChanged: (v) => controller.onLocationChanged(v),
+                    onChanged: (v) => controller.onOccCreateLocationChanged(v),
                   ),
                   gap,
                   Obx(() {

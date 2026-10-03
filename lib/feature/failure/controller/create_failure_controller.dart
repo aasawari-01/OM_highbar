@@ -3973,6 +3973,16 @@ class CreateFailureController extends GetxController
           ? dropdownFailureCategoryId
           : (objectCodeId != "0" ? objectCodeId : null);
 
+      if (_rcaApiMode && _rcaContext() != null) {
+        _rcaPopupCategoryId = failureCategoryId;
+        await Future.wait([
+          _loadRcaCausesFromApi(failureCategoryId),
+          _loadRcaActionsFromApi(failureCategoryId),
+        ]);
+        rootCauseList.clear();
+        return;
+      }
+
       debugPrint(
           'fetchRootCauseAndAction: system=$system, businessArea=$businessArea, workCenter=$workCenter, failureCategoryId=$failureCategoryId (dropdown: $dropdownFailureCategoryId, passed: $objectCodeId)');
 
@@ -4026,6 +4036,178 @@ class CreateFailureController extends GetxController
     }
   }
 
+  // ===========================================================================
+  // JE RCA dropdowns from the API: failure category -> cause -> root cause, and
+  // action taken (GetFailureStandDropDownDataNew). The local lists stay as the
+  // fallback when the API can't be asked (no functional location / system yet).
+  // ===========================================================================
+
+  bool get _rcaApiMode => siApiMode && isJE;
+
+  /// What the RCA calls are asked about: the failure's system, sub system,
+  /// location, functional location and department.
+  ({
+  String system,
+  String subSystem,
+  int locationTypeId,
+  int funcLocId,
+  String departmentIds
+  })? _rcaContext() {
+    final funcLocId =
+    _apiIdFor(functionalLocationList, selectedFunctionalLocation.value);
+    final system = systemController.text.trim();
+    if (funcLocId <= 0 || system.isEmpty) return null;
+    final loc = _apiIdFor(locationTypeList, selectedLocation.value);
+    final dept = departmentId.value ?? 0;
+    return (
+    system: system,
+    subSystem: subsystemController.text.trim(),
+    locationTypeId: loc > 0 ? loc : maintenanceLocationTypeId.value,
+    funcLocId: funcLocId,
+    departmentIds: dept > 0 ? dept.toString() : '',
+    );
+  }
+
+  String? _rcaCategoryKey;
+
+  /// Category the Add-RCA popup is working on (for the root-cause call).
+  String? _rcaPopupCategoryId;
+
+  /// Fills the RCA Failure Category dropdown. Returns false if the API could
+  /// not be used, so the caller falls back to the local filter.
+  Future<bool> _loadRcaCategoriesFromApi() async {
+    final ctx = _rcaContext();
+    if (ctx == null) return false;
+    final key = '${ctx.system}|${ctx.subSystem}|${ctx.funcLocId}';
+    if (key == _rcaCategoryKey && rcaFailureCategoryList.length > 1) return true;
+    try {
+      final rows = await _failureService.getRcaFailureCategories(
+        system: ctx.system,
+        subSystem: ctx.subSystem,
+        locationTypeId: ctx.locationTypeId,
+        funcLocId: ctx.funcLocId,
+        departmentIds: ctx.departmentIds,
+      );
+      final options = <LabelValue>[];
+      for (final r in rows) {
+        final name = r['failureCategory']?.toString().trim() ?? '';
+        final id = r['failureCategoryId']?.toString() ?? '';
+        if (name.isNotEmpty && id.isNotEmpty) {
+          options.add(LabelValue(label: name, value: id));
+        }
+      }
+      rcaFailureCategoryList
+          .assignAll([LabelValue(label: 'Select', value: ''), ...options]);
+      _rcaCategoryKey = key;
+      return true;
+    } catch (e) {
+      debugPrint('_loadRcaCategoriesFromApi error: $e');
+      return false;
+    }
+  }
+
+  @override
+  Future<void> filterRcaFailureCategoriesBySystem() async {
+    if (_rcaApiMode && await _loadRcaCategoriesFromApi()) return;
+    await super.filterRcaFailureCategoriesBySystem();
+  }
+
+  Future<void> _loadRcaCausesFromApi(String? failureCategoryId) async {
+    final id = int.tryParse(failureCategoryId ?? '') ?? 0;
+    final ctx = _rcaContext();
+    if (id <= 0 || ctx == null) {
+      causeList.clear();
+      return;
+    }
+    try {
+      final rows = await _failureService.getRcaCauses(
+        system: ctx.system,
+        subSystem: ctx.subSystem,
+        locationTypeId: ctx.locationTypeId,
+        funcLocId: ctx.funcLocId,
+        departmentIds: ctx.departmentIds,
+        failureCategoryId: id,
+      );
+      causeList.assignAll(rows
+          .map((r) => LabelValue(
+        label: r['cause']?.toString().trim() ?? '',
+        value: r['causeOfFailureId']?.toString() ?? '',
+      ))
+          .where((c) => (c.label ?? '').isNotEmpty && (c.value ?? '').isNotEmpty));
+    } catch (e) {
+      debugPrint('_loadRcaCausesFromApi error: $e');
+    }
+  }
+
+  Future<void> _loadRcaActionsFromApi(String? failureCategoryId) async {
+    final id = int.tryParse(failureCategoryId ?? '') ?? 0;
+    final ctx = _rcaContext();
+    if (id <= 0 || ctx == null) return;
+    try {
+      final rows = await _failureService.getRcaActionTakens(
+        system: ctx.system,
+        subSystem: ctx.subSystem,
+        locationTypeId: ctx.locationTypeId,
+        funcLocId: ctx.funcLocId,
+        departmentIds: ctx.departmentIds,
+        failureCategoryId: id,
+      );
+      final actions = rows
+          .map((r) => LabelValue(
+        label: r['actionTakenText']?.toString().trim() ?? '',
+        value: r['actionTakenId']?.toString() ?? '',
+      ))
+          .where((a) => (a.label ?? '').isNotEmpty && (a.value ?? '').isNotEmpty)
+          .toList();
+      actionTakenList.assignAll(actions);
+      actionList.assignAll(actions);
+    } catch (e) {
+      debugPrint('_loadRcaActionsFromApi error: $e');
+    }
+  }
+
+  Future<void> _loadPopupRootCausesFromApi(String? causeLabel) async {
+    popupRootCauseList.clear();
+    selectedPopupRootCause.value = null;
+    if (causeLabel == null || causeLabel.isEmpty) return;
+    final causeId = int.tryParse(
+        causeList.firstWhereOrNull((e) => e.label == causeLabel)?.value ??
+            '') ??
+        0;
+    final categoryId =
+        int.tryParse(_rcaPopupCategoryId ?? _resolveRcaCategoryId() ?? '') ?? 0;
+    final ctx = _rcaContext();
+    if (causeId <= 0 || categoryId <= 0 || ctx == null) return;
+    try {
+      final rows = await _failureService.getRcaRootCauses(
+        system: ctx.system,
+        subSystem: ctx.subSystem,
+        locationTypeId: ctx.locationTypeId,
+        funcLocId: ctx.funcLocId,
+        departmentIds: ctx.departmentIds,
+        failureCategoryId: categoryId,
+        causeOfFailureId: causeId,
+      );
+      popupRootCauseList.assignAll(rows
+          .map((r) => LabelValue(
+        label: r['rootCause']?.toString().trim() ?? '',
+        value: r['rootCauseId']?.toString() ?? '',
+      ))
+          .where((c) => (c.label ?? '').isNotEmpty && (c.value ?? '').isNotEmpty));
+    } catch (e) {
+      debugPrint('_loadPopupRootCausesFromApi error: $e');
+    }
+  }
+
+  @override
+  void filterPopupRootCauses(String? selectedCauseLabel) {
+    if (_rcaApiMode && _rcaContext() != null) {
+      _loadPopupRootCausesFromApi(selectedCauseLabel);
+      return;
+    }
+    super.filterPopupRootCauses(selectedCauseLabel);
+  }
+
   void onRcaFailureCategorySelected(String? categoryValue) {
     selectedRcaFailureCategory.value = categoryValue;
     _filterCausesByRcaCategory();
@@ -4037,6 +4219,12 @@ class CreateFailureController extends GetxController
       final businessArea = await getCurrentBusinessArea() ?? '';
       // selectedRcaFailureCategory holds the label → look up the numeric ID
       final failureCategoryId = _resolveRcaCategoryId();
+
+      if (_rcaApiMode && _rcaContext() != null) {
+        _rcaPopupCategoryId = failureCategoryId;
+        await _loadRcaCausesFromApi(failureCategoryId);
+        return;
+      }
 
       debugPrint(
           '_filterCausesByRcaCategory: businessArea=$businessArea, workCenter=$workCenter, failureCategoryId=$failureCategoryId');
@@ -4260,22 +4448,24 @@ class CreateFailureController extends GetxController
     occSystemDisplayController.clear();
   }
 
-  Future<void> onApiDepartmentChanged(String? label) async {
+  Future<void> onApiDepartmentChanged(String? label,
+      {bool keepSystem = false}) async {
     final none = label == null || label.isEmpty || label == 'Select';
     selectedDepartment.value = none ? null : label;
     departmentId.value = none ? null : _apiIdFor(departmentList, label);
     selectedFunctionalLocation.value = null;
     functionalLocationList.clear();
-    _apiClearSystem();
+    if (!keepSystem) _apiClearSystem();
     await _loadApiFunctionalLocations();
   }
 
-  Future<void> onApiLocationChanged(String? label) async {
+  Future<void> onApiLocationChanged(String? label,
+      {bool keepSystem = false}) async {
     final none = label == null || label.isEmpty || label == 'Select';
     selectedLocation.value = none ? null : label;
     selectedFunctionalLocation.value = null;
     functionalLocationList.clear();
-    _apiClearSystem();
+    if (!keepSystem) _apiClearSystem();
     await _loadApiFunctionalLocations();
   }
 
@@ -5993,18 +6183,22 @@ class CreateFailureController extends GetxController
   /// local fallbacks where a local list exists.
   Future<void> loadOccCreateDropdowns() async {
     pushLoading();
+    // Chief Controller: every list comes from the API, nothing from local data.
+    final apiOnly = isOccRoleUser;
     try {
-      final globalData = Get.find<GlobalMasterDataController>();
-      if (!globalData.isLoaded) {
-        await globalData.initOnLogin();
-      }
-      _copyGlobalDataToLocal(globalData);
-      await loadNotificationTypesFromLocalDb();
-      if (masterFunctionalLocations.isEmpty) {
-        await loadMasterDataFromDb();
-      }
-      if (userList.isEmpty || userList.length == 1) {
-        await loadMasterDropdownsFromDb(refreshIfEmpty: true);
+      if (!apiOnly) {
+        final globalData = Get.find<GlobalMasterDataController>();
+        if (!globalData.isLoaded) {
+          await globalData.initOnLogin();
+        }
+        _copyGlobalDataToLocal(globalData);
+        await loadNotificationTypesFromLocalDb();
+        if (masterFunctionalLocations.isEmpty) {
+          await loadMasterDataFromDb();
+        }
+        if (userList.isEmpty || userList.length == 1) {
+          await loadMasterDropdownsFromDb(refreshIfEmpty: true);
+        }
       }
 
       // Reported To, Line, Train Set, Reported By, Train Operator and Failure
@@ -6018,6 +6212,11 @@ class CreateFailureController extends GetxController
       List<LabelValue> pick(Map<String, dynamic> src, List<String> keys) =>
           _occParseList(src, keys).where((e) => e.value != '0').toList();
 
+      if (apiOnly) {
+        priorityTypeList.assignAll(_apiOptions(deptLoc['getPriorityTypeList']));
+        departmentList.assignAll(_apiOptions(deptLoc['getDepartmentList']));
+        locationTypeList.assignAll(_apiOptions(deptLoc['getLocationTypeList']));
+      }
       occLineList.assignAll(pick(deptLoc, ['getLineList']));
       occTrainSetList.assignAll(pick(deptLoc, ['getTrainSetList']));
       occReportedToList.assignAll(pick(deptLoc, ['getRoleList']));
@@ -6026,11 +6225,12 @@ class CreateFailureController extends GetxController
 
       // Failure Reported by; falls back to the local users.
       final reportedBy = pick(deptLoc, ['getFailureReportedbyList']);
-      occReportedByList.assignAll(
-          reportedBy.isNotEmpty ? reportedBy : _occWithoutSelect(userList));
+      occReportedByList.assignAll(reportedBy.isNotEmpty || apiOnly
+          ? reportedBy
+          : _occWithoutSelect(userList));
 
       final categories = pick(deptLoc, ['getFailureCategoryType']);
-      occFailureCategoryList.assignAll(categories.isNotEmpty
+      occFailureCategoryList.assignAll(categories.isNotEmpty || apiOnly
           ? categories
           : _occWithoutSelect(failureCategoryTypeList.isNotEmpty
           ? failureCategoryTypeList
@@ -6046,7 +6246,7 @@ class CreateFailureController extends GetxController
         if (me != null) selectedFailureReportedBy.value = me.label;
       }
 
-      // OCC role: System / Sub System options (no-op for other roles).
+      // OCC role: System / Sub System are picked freely (no-op for others).
       await loadOccSystemSubsystems();
     } catch (e) {
       debugPrint('loadOccCreateDropdowns error: $e');
@@ -6070,6 +6270,19 @@ class CreateFailureController extends GetxController
   /// Functional Location changed on the OCC form: run the normal handler, then
   /// fill "Failure Frequency of Gear" and the System options.
   Future<void> onOccFunctionalLocationChanged(String? label) async {
+    if (isFmcUser) {
+      // FMC / TPC / CSS / RSC: System / Sub System follow the functional
+      // location (API pairs).
+      await onApiFunctionalLocationChanged(label);
+      _occApplyApiFrequency();
+      return;
+    }
+    if (isOccRoleUser) {
+      final none = label == null || label.isEmpty || label == 'Select';
+      selectedFunctionalLocation.value = none ? null : label;
+      _occApplyApiFrequency();
+      return;
+    }
     await onFunctionalLocationChanged(label);
 
     occFailureFrequency.value = null;
@@ -6097,6 +6310,29 @@ class CreateFailureController extends GetxController
     _applyFmecaSystemSubsystemPairs([]);
     await fetchFmecaSystemSubsystemByFuncLoc(locCode, funcLocId);
     occSystemDisplayController.text = occSystemValue;
+  }
+
+  void _occApplyApiFrequency() {
+    final id =
+        _apiIdFor(functionalLocationList, selectedFunctionalLocation.value);
+    final f = id > 0 ? _apiFuncLocFrequency[id.toString()] : null;
+    occFailureFrequency.value = f;
+    occFailureFrequencyController.text = f?.toString() ?? '';
+  }
+
+  /// Department / Location on the OCC create form: API lists for the Chief
+  /// Controller, the shared (local) handlers for everyone else.
+  Future<void> onOccCreateDepartmentChanged(String? label) async {
+    if (!isOccRoleUser) return onDepartmentChanged(label);
+    await onApiDepartmentChanged(label, keepSystem: true);
+    _occApplyApiFrequency();
+    await loadOccSystemSubsystems(); // options follow the department
+  }
+
+  Future<void> onOccCreateLocationChanged(String? label) async {
+    if (!isOccRoleUser) return onLocationChanged(label);
+    await onApiLocationChanged(label, keepSystem: true);
+    _occApplyApiFrequency();
   }
 
   /// User picked a System from the dropdown (only shown when the functional
@@ -6717,13 +6953,28 @@ class CreateFailureController extends GetxController
     occUpdateLoaded.value = false;
     pushLoading();
     try {
-      // Lookup lists + master data first (also used by the create form).
-      await loadOccCreateDropdowns();
+      // Chief Controller: lookup lists from the dept/location API. FMC / TPC /
+      // CSS / RSC take them from the failure details response (below).
+      if (!isFmcUser) await loadOccCreateDropdowns();
 
       final output = await _failureService.getOccFailureById(id);
       final raw = output['getFailureCreationDetails'];
       if (raw is! Map) {
         throw Exception('Failure details not found');
+      }
+      if (isFmcUser) {
+        List<LabelValue> pick(List<String> keys) =>
+            _occParseList(output, keys).where((e) => e.value != '0').toList();
+        priorityTypeList.assignAll(_apiOptions(output['getPriorityTypeList']));
+        departmentList.assignAll(_apiOptions(output['getDepartmentList']));
+        locationTypeList.assignAll(_apiOptions(output['getLocationTypeList']));
+        occReportedToList.assignAll(pick(['getRoleList']));
+        occLineList.assignAll(pick(['getLineList']));
+        occTrainSetList.assignAll(pick(['getTrainSetList']));
+        occTrainOperatorList
+            .assignAll(pick(['getTrainOpeartorList', 'getTrainOperatorList']));
+        occReportedByList.assignAll(pick(['getFailureReportedbyList']));
+        occFailureCategoryList.assignAll(pick(['getFailureCategoryType']));
       }
       final d = Map<String, dynamic>.from(raw);
 
@@ -6763,12 +7014,20 @@ class CreateFailureController extends GetxController
       maintenanceLocationTypeId.value = occLoadedLocationId;
 
       // Functional Location options depend on department + location.
+      final funcId = _occStr(d['funcationLocationId']);
+      final funcName = _occStr(d['funcationLocation']);
+      if (isOccRoleUser || isFmcUser) {
+        await _loadApiFunctionalLocations();
+        final match =
+            functionalLocationList.firstWhereOrNull((e) => e.value == funcId);
+        selectedFunctionalLocation.value =
+            match?.label ?? (funcName.isEmpty ? null : funcName);
+        _occApplyApiFrequency();
+      } else {
       resetFunctionalAndEquipmentSelections();
       await loadFunctionalLocationsOnDemand();
       _updateFunctionalLocationAndEquipmentOptions();
 
-      final funcId = _occStr(d['funcationLocationId']);
-      final funcName = _occStr(d['funcationLocation']);
       if (funcId.isNotEmpty && funcId != '0') {
         var item = functionalLocationList
             .firstWhereOrNull((e) => e.value == funcId);
@@ -6790,6 +7049,7 @@ class CreateFailureController extends GetxController
             occFailureFrequency.value?.toString() ?? '';
       } else {
         selectedFunctionalLocation.value = null;
+      }
       }
 
       subLocationController.text = _occStr(d['subLocation']);
@@ -6816,8 +7076,14 @@ class CreateFailureController extends GetxController
       final loadedSub = _occStr(
           d['subSystem'] ?? d['SubSystem'] ?? d['subsystem'] ?? d['Subsystem']);
       if (isOccRoleUser) {
-        // OCC role: options come from subsystemsForOccs for this department.
+        // Chief Controller: free System / Sub System options (API).
         await loadOccSystemSubsystems();
+      } else if (isFmcUser) {
+        // FMC / TPC / CSS / RSC: pairs of the saved functional location (API).
+        _apiClearSystem();
+        if (selectedFunctionalLocation.value != null) {
+          await _loadApiSystemSubsystem();
+        }
       } else {
         _applyFmecaSystemSubsystemPairs([]);
         if (occLoadedLocationId != 0 && funcId.isNotEmpty && funcId != '0') {
@@ -6965,11 +7231,23 @@ class CreateFailureController extends GetxController
   /// Department changed on the FMC update form: functional location and the
   /// system fields depend on it, so clear them like the web does.
   Future<void> onOccUpdateDepartmentChanged(String? label) async {
+    if (isOccRoleUser) return onOccCreateDepartmentChanged(label);
+    if (isFmcUser) {
+      await onApiDepartmentChanged(label); // clears functional loc + system
+      _occApplyApiFrequency();
+      return;
+    }
     await onDepartmentChanged(label);
     _occClearFunctionalDerived();
   }
 
   Future<void> onOccUpdateLocationChanged(String? label) async {
+    if (isOccRoleUser) return onOccCreateLocationChanged(label);
+    if (isFmcUser) {
+      await onApiLocationChanged(label); // clears functional loc + system
+      _occApplyApiFrequency();
+      return;
+    }
     await onLocationChanged(label);
     _occClearFunctionalDerived();
   }

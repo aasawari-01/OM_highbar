@@ -544,6 +544,10 @@ class FailureService {
     required int locationTypeId,
     required int funcLocId,
     required String departmentIds,
+    String system = '',
+    String? subSystem,
+    int failureCategoryId = 0,
+    int causeOfFailureId = 0,
   }) async {
     final userId = await _userId();
     final headers = await _authHeaders();
@@ -552,12 +556,13 @@ class FailureService {
       headers: headers,
       body: {
         'userId': userId,
-        'system': '',
+        'system': system,
+        if (subSystem != null) 'subSystem': subSystem,
         'locationTypeId': locationTypeId,
         'funcLocId': funcLocId,
         'action': action,
-        'failureCategoryId': 0,
-        'causeOfFailureId': 0,
+        'failureCategoryId': failureCategoryId,
+        'causeOfFailureId': causeOfFailureId,
         'departmentIds': departmentIds,
       },
     );
@@ -630,6 +635,102 @@ class FailureService {
         .map((e) => Map<String, dynamic>.from(e))
         .toList();
   }
+
+  // ── JE RCA dropdowns (GetFailureStandDropDownDataNew) ─────────────────────
+
+  List<Map<String, dynamic>> _rows(Map<String, dynamic> data, String key) {
+    final rows = data[key];
+    if (rows is! List) return [];
+    return rows
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  /// Failure categories for a system / sub system:
+  /// [{failureCategoryId, failureCategory, systems, ...}].
+  Future<List<Map<String, dynamic>>> getRcaFailureCategories({
+    required String system,
+    required String subSystem,
+    required int locationTypeId,
+    required int funcLocId,
+    required String departmentIds,
+  }) async =>
+      _rows(
+          await _failureStandDropDown(
+            action: 'GetFailureCategory',
+            system: system,
+            subSystem: subSystem,
+            locationTypeId: locationTypeId,
+            funcLocId: funcLocId,
+            departmentIds: departmentIds,
+          ),
+          'failureCategories');
+
+  /// Causes of a failure category: [{causeOfFailureId, cause, ...}].
+  Future<List<Map<String, dynamic>>> getRcaCauses({
+    required String system,
+    required String subSystem,
+    required int locationTypeId,
+    required int funcLocId,
+    required String departmentIds,
+    required int failureCategoryId,
+  }) async =>
+      _rows(
+          await _failureStandDropDown(
+            action: 'GetCauseOfFailure',
+            system: system,
+            subSystem: subSystem,
+            locationTypeId: locationTypeId,
+            funcLocId: funcLocId,
+            departmentIds: departmentIds,
+            failureCategoryId: failureCategoryId,
+          ),
+          'causeOfFailures');
+
+  /// Root causes of a cause: [{rootCauseId, rootCause, ...}].
+  Future<List<Map<String, dynamic>>> getRcaRootCauses({
+    required String system,
+    required String subSystem,
+    required int locationTypeId,
+    required int funcLocId,
+    required String departmentIds,
+    required int failureCategoryId,
+    required int causeOfFailureId,
+  }) async =>
+      _rows(
+          await _failureStandDropDown(
+            action: 'GetRootCauseOfFailure',
+            system: system,
+            subSystem: subSystem,
+            locationTypeId: locationTypeId,
+            funcLocId: funcLocId,
+            departmentIds: departmentIds,
+            failureCategoryId: failureCategoryId,
+            causeOfFailureId: causeOfFailureId,
+          ),
+          'rootCauses');
+
+  /// Actions taken for a failure category: [{actionTakenId, actionTakenText}].
+  Future<List<Map<String, dynamic>>> getRcaActionTakens({
+    required String system,
+    required String subSystem,
+    required int locationTypeId,
+    required int funcLocId,
+    required String departmentIds,
+    required int failureCategoryId,
+  }) async =>
+      _rows(
+          await _failureStandDropDown(
+            action: 'GetActionTaken',
+            system: system,
+            subSystem: subSystem,
+            locationTypeId: locationTypeId,
+            funcLocId: funcLocId,
+            departmentIds: departmentIds,
+            failureCategoryId: failureCategoryId,
+          ),
+          'actionTakens');
 
   /// System -> Sub System options for the OCC role. Returns the
   /// `subsystemsForOccs` rows: [{system: "...", subSystem: ["...", ...]}].
