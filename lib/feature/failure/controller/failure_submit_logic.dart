@@ -612,8 +612,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       final notificationTypeId = departmentId.value == 3
           ? lookupValue(failureTypes, selectedFailureCategoryType.value)
           : "0";
-      // Use current logged-in user as assigned user instead of dropdown selection
-      final assignedUserId = createdBy;
+      // Assign to the selected Person Responsible; fall back to the
+      // logged-in user when none is selected.
+      final selectedPersonId =
+          int.tryParse(lookupValue(userList, selectedPersonResponsible.value));
+      final assignedUserId = (selectedPersonId != null && selectedPersonId > 0)
+          ? selectedPersonId
+          : createdBy;
       // Look up in the same list the Nature of Work dropdown shows.
       final natureOfWorkId = lookupValue(
           apiNatureOfWorkList.isNotEmpty ? apiNatureOfWorkList : natureOfWorkList,
