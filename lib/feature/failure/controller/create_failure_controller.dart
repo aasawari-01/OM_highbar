@@ -1987,13 +1987,26 @@ class CreateFailureController extends GetxController
     }
   }
 
-  Future<void> loadStationFailureDetails(String id) async {
+  /// Station Controller view of a failure: details come from
+  /// getStationFailureCreationById; the list row is only a fallback if the
+  /// request fails.
+  Future<void> loadStationFailureView(String id, FailureItem? item) async {
+    await loadStationFailureDetails(id, useCreationByIdApi: true);
+    if (errorMessage.value.isNotEmpty && item != null) {
+      await loadStationFailureDetailsFromData(item);
+    }
+  }
+
+  Future<void> loadStationFailureDetails(String id,
+      {bool useCreationByIdApi = false}) async {
     encryptedId.value = id;
     try {
       isLoading.value = true;
       errorMessage.value = '';
 
-      final output = await _failureService.getStationFailureDetails(id);
+      final output = useCreationByIdApi
+          ? await _failureService.getStationFailureCreationById(id)
+          : await _failureService.getStationFailureDetails(id);
 
       if (output['getFailureCreationDetails'] != null) {
         final details = output['getFailureCreationDetails'];

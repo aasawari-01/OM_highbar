@@ -39,6 +39,8 @@ class AppUrls {
   static const String updateOccFailure = createOccFailure;
   /// FMC user's OCC failure inbox (same call the web inbox makes).
   static const String getOccFailureInbox = 'OCCMaintainance/getFailureList';
+  static const String getStationFailureCreationById = 'OCCMaintainance/getStationFailureCreationById';
+  static const String getStationFailureList = 'OCCMaintainance/getStationFailureList';
   static const String getStationFailureListWithData = 'mobileAppAPI/GetStationFailureListWithData';
   static const String insertChangeDepartmentFailure = 'OCCMaintainance/insertChangeDepartmentFailure';
   static const String updateStationAcknowledgeStatus = 'OCCMaintainance/updateStationAcknowledgeStatus';

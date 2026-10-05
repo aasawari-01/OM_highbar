@@ -1100,6 +1100,32 @@ class FailureService {
         .toList();
   }
 
+  /// Station Controller failure details (OCCMaintainance/getStationFailureCreationById).
+  Future<Map<String, dynamic>> getStationFailureCreationById(String id) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getStationFailureCreationById,
+      headers: headers,
+      body: {
+        'Id': id,
+        'UserId': userId,
+        'DepartmentIds': '',
+        'Action': '',
+        'LocationId': 0,
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200 || body['responseOutput'] is! Map) {
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load station failure details');
+    }
+    return Map<String, dynamic>.from(body['responseOutput'] as Map);
+  }
+
   /// Returns station failure details for a given failure ID.
   Future<Map<String, dynamic>> getStationFailureDetails(String id) async {
     final userId = await _userId();
@@ -1116,6 +1142,34 @@ class FailureService {
           body['responseMessage'] ?? 'Failed to load station failure details');
     }
     return body['responseOutput'] as Map<String, dynamic>;
+  }
+
+  /// Station Controller list (OCCMaintainance/getStationFailureList).
+  Future<List<Map<String, dynamic>>> getStationFailureList() async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getStationFailureList,
+      headers: headers,
+      body: {
+        'LocationId': 0,
+        'UserId': userId,
+        'DepartmentIds': '',
+        'Action': '',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseCode'] != 200) {
+      throw Exception(
+          body['responseMessage'] ?? 'Failed to load station failures');
+    }
+    final out = body['responseOutput'];
+    return out is List
+        ? out.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
+        : <Map<String, dynamic>>[];
   }
 
   /// Fetches station failure list from API with data

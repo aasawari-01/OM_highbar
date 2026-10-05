@@ -271,6 +271,8 @@ class FailureListController extends GetxController {
             }
           }
         }
+      } else if (_useStationFailureListApi) {
+        await _fetchStationControllerFailures();
       } else if (failureType.toLowerCase() == 'station') {
         debugPrint("fetchFailures: Station Controller - fetching from API if possible");
         
@@ -413,6 +415,41 @@ class FailureListController extends GetxController {
       debugPrint('_fetchFmcFailures: API failed, using local copy: $e');
       isOfflineMode.value = true;
       final local = await _dbService.getFailureList(cacheKey);
+      if (local.isNotEmpty) {
+        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
+      } else {
+        errorMessage.value =
+        'No data available. Please check your internet connection.';
+      }
+    }
+  }
+
+  /// Station Controller list (OCCMaintainance/getStationFailureList): online
+  /// first, cached copy when the request fails.
+  Future<void> _fetchStationControllerFailures() async {
+    try {
+      final rows = await _failureService.getStationFailureList();
+      final items = <FailureItem>[];
+      for (final r in rows) {
+        try {
+          items.add(FailureItem.fromJson(r));
+        } catch (e) {
+          debugPrint('_fetchStationControllerFailures: skipped bad row: $e');
+        }
+      }
+      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      failures.assignAll(items);
+      await _dbService.clearFailureList(failureType);
+      if (items.isNotEmpty) {
+        await _dbService.insertFailureList(
+            items.map((e) => e.toJson()).toList(), failureType);
+      } else {
+        errorMessage.value = 'No failures found.';
+      }
+    } catch (e) {
+      debugPrint('_fetchStationControllerFailures: API failed, using local copy: $e');
+      isOfflineMode.value = true;
+      final local = await _dbService.getFailureList(failureType);
       if (local.isNotEmpty) {
         failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
       } else {

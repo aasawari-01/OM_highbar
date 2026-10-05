@@ -335,12 +335,19 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                     color: AppColors.textDarkSecondary,
                   ),
                   const SizedBox(width: 6),
-                  _statusChip(failure.statusName ?? ''),
-                  if (_isDccDepot &&
-                      (failure.occRequestStatusName ?? '').trim().isNotEmpty) ...[
-                    const SizedBox(width: 6),
-                    _statusChip(failure.occRequestStatusName!.trim()),
-                  ],
+                  Expanded(
+                    child: Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      children: [
+                        _statusChip(failure.statusName ?? ''),
+                        if ((_isDccDepot || _isStationController) &&
+                            (failure.occRequestStatusName ?? '').trim().isNotEmpty)
+                          _statusChip(failure.occRequestStatusName!.trim()),
+                      ],
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -377,7 +384,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ),
                 ],
               ),
-              if ((failure.statusName ?? '').toLowerCase().contains('confirm') && _isStationController) ...[
+              if ((failure.statusName ?? '').trim().toLowerCase() == 'work complete' && _isStationController) ...[
                 const SizedBox(height: 12),
                 const Divider(color: AppColors.dividerColor3, height: 1),
                 const SizedBox(height: 12),

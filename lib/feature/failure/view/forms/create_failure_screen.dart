@@ -341,14 +341,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         });
       } else if (widget.failureType == 'Station' &&
           controller.isStationController) {
-        // Station Controller: use offline data if available, otherwise API
-        if (widget.failureItem != null) {
-          controller.loadStationFailureDetailsFromData(widget.failureItem!);
-        } else {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            controller.loadStationFailureDetails(widget.failureNo!);
-          });
-        }
+        // Station Controller: details from getStationFailureCreationById
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          controller.loadStationFailureView(
+              widget.failureNo!, widget.failureItem);
+        });
       } else if (controller.isSectionIncharge &&
           widget.failureType != 'Station') {
         WidgetsBinding.instance.addPostFrameCallback((_) {
