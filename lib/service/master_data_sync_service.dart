@@ -179,10 +179,22 @@ class MasterDataSyncService extends GetxController {
             debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
             final funcLocs = data['functionalLocations'] as List;
             await _dbService.updateFunctionalLocationsFromAPI(funcLocs);
+            // Same table the failure-form dropdowns read from.
+            await _dbService.upsertFunctionalLocationsToMaster(funcLocs);
             totalUpdates += funcLocs.length;
             debugPrint("syncMasterDataFromAPI: Updated ${funcLocs.length} functional locations");
           } else {
             debugPrint("syncMasterDataFromAPI: No functional locations to sync");
+          }
+
+          // Sync equipment (dropdown table)
+          if (data['equipments'] != null) {
+            final equipments = data['equipments'] as List;
+            await _dbService.upsertEquipmentsToMaster(equipments);
+            totalUpdates += equipments.length;
+            debugPrint("syncMasterDataFromAPI: Updated ${equipments.length} equipments");
+          } else {
+            debugPrint("syncMasterDataFromAPI: No equipments to sync");
           }
           
           // Sync measurement points
@@ -291,9 +303,12 @@ class MasterDataSyncService extends GetxController {
       "SELECT value FROM AppSettings WHERE key = 'lastSyncDate'"
     );
     if (result.isNotEmpty) {
-      return result.first['value']?.toString() ?? '2026-08-01';
+      final saved = result.first['value']?.toString();
+      if (saved != null && saved.isNotEmpty) return saved;
     }
-    return '2026-08-01';
+    // First sync: start from the date of the data bundled in the asset
+    // databases so nothing changed after the export is missed.
+    return await _dbService.getMasterBaselineDate() ?? '2026-08-01';
   }
 
   Future<void> _setLastSyncDate(String date) async {

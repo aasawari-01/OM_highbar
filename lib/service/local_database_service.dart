@@ -60,6 +60,7 @@ class LocalDatabaseService {
   Database? _reasonForDelayDatabase;
   Database? _natureOfWorkDatabase;
   Database? _failureCategoryTypeDatabase;
+  Database? _plantDatabase;
 
   Future<Database> _openAssetDatabase(String dbName, Future<void> Function(String) copyMethod) async {
     final path = join(await getDatabasesPath(), dbName);
@@ -83,14 +84,65 @@ class LocalDatabaseService {
 
   Future<Database> get funLocDatabase async {
     if (_funLocDatabase != null) return _funLocDatabase!;
-    _funLocDatabase = await _openAssetDatabase('fun_loc_data.db', _copyFunLocDatabaseFromAssets);
-    return _funLocDatabase!;
+    final db = await _openAssetDatabase('fun_loc_data.db', _copyFunLocDatabaseFromAssets);
+    await _ensureMasterIndexes(db, const [
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_fl_id ON {t}(FuncLocId)',
+      'CREATE INDEX IF NOT EXISTS idx_fl_wc_loc ON {t}(WorkCenter, Location, PlanningPlant)',
+      'CREATE INDEX IF NOT EXISTS idx_fl_loc ON {t}(Location, PlanningPlant)',
+    ]);
+    _funLocDatabase = db;
+    return db;
   }
 
   Future<Database> get equipmentDatabase async {
     if (_equipmentDatabase != null) return _equipmentDatabase!;
-    _equipmentDatabase = await _openAssetDatabase('equipment_data.db', _copyEquipmentDatabaseFromAssets);
-    return _equipmentDatabase!;
+    final db = await _openAssetDatabase('equipment_data.db', _copyEquipmentDatabaseFromAssets);
+    await _ensureMasterIndexes(db, const [
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_id ON {t}(EquipId)',
+      'CREATE INDEX IF NOT EXISTS idx_eq_wc_loc ON {t}(WorkCenter, Location, PlanningPlant)',
+      'CREATE INDEX IF NOT EXISTS idx_eq_loc ON {t}(Location, PlanningPlant)',
+      'CREATE INDEX IF NOT EXISTS idx_eq_fl ON {t}(FunctionalLocation)',
+    ]);
+    _equipmentDatabase = db;
+    return db;
+  }
+
+  Future<Database> get plantDatabase async {
+    if (_plantDatabase != null) return _plantDatabase!;
+    _plantDatabase = await _openAssetDatabase('plant_data.db', _copyPlantDatabaseFromAssets);
+    return _plantDatabase!;
+  }
+
+  Future<void> _copyPlantDatabaseFromAssets(String targetPath) async {
+    try {
+      final byteData = await rootBundle.load('assets/plant_id.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      await File(targetPath).writeAsBytes(bytes, flush: true);
+    } catch (e) {
+      debugPrint("_copyPlantDatabaseFromAssets: Error copying plant_id.db: $e");
+    }
+  }
+
+  /// Indexes the big asset tables so the dropdown filters (work center,
+  /// location, plant, functional location) do not scan every row. `{t}` is
+  /// replaced by the quoted name of the database's table.
+  Future<void> _ensureMasterIndexes(Database db, List<String> templates) async {
+    try {
+      final table = await _firstUserTable(db);
+      if (table == null) return;
+      for (final t in templates) {
+        await db.execute(t.replaceAll('{t}', '"$table"'));
+      }
+    } catch (e) {
+      debugPrint('_ensureMasterIndexes error: $e');
+    }
+  }
+
+  Future<String?> _firstUserTable(Database db) async {
+    final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name NOT IN ('android_metadata','sqlite_sequence') ORDER BY name");
+    return tables.isEmpty ? null : tables.first['name'] as String;
   }
 
   Future<Database> get locationDatabase async {
@@ -3614,5 +3666,374 @@ class LocalDatabaseService {
       debugPrint('getFailureCategoryTypes error: $e');
       return [];
     }
+  }
+
+  // ===========================================================================
+  // FAILURE FORM DROPDOWNS (offline) - functional location / equipment
+  // Mirrors the online stored procedure (GetFunctionLocEquipmentNo...):
+  //   dept + location  : WorkCenter, Location, Plant
+  //   dept only        : WorkCenter, Plant
+  //   location only    : Location, Plant, WorkCenter in the user's departments
+  //   neither          : Plant, WorkCenter in the user's departments
+  // Functional location also needs Status != 'Deletion Flag', and for business
+  // area 1200 with work center SIG / AFC only 29 character codes are listed.
+  // ===========================================================================
+
+  final Map<int, List<int>> _plantsByBusinessArea = {};
+
+  Future<List<int>> _plantsFor(int businessArea) async {
+    final cached = _plantsByBusinessArea[businessArea];
+    if (cached != null) return cached;
+    var plants = <int>[];
+    try {
+      final db = await plantDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DISTINCT Plant FROM plantMAster WHERE BusinessArea = ?',
+          [businessArea]);
+      plants = rows
+          .map((r) => int.tryParse('${r['Plant']}') ?? 0)
+          .where((p) => p > 0)
+          .toList();
+    } catch (e) {
+      debugPrint('_plantsFor: plant table unavailable: $e');
+    }
+    if (plants.isEmpty) {
+      // Fallback: the plants used by that business area's functional locations.
+      try {
+        final db = await funLocDatabase;
+        final t = await _firstUserTable(db);
+        if (t != null) {
+          final rows = await db.rawQuery(
+              'SELECT DISTINCT PlanningPlant AS p FROM "$t" WHERE BusinessArea = ?',
+              [businessArea]);
+          plants = rows
+              .map((r) => int.tryParse('${r['p']}') ?? 0)
+              .where((p) => p > 0)
+              .toList();
+        }
+      } catch (e) {
+        debugPrint('_plantsFor fallback error: $e');
+      }
+    }
+    if (plants.isNotEmpty) _plantsByBusinessArea[businessArea] = plants;
+    return plants;
+  }
+
+  Future<String?> getDeptCodeById(int deptId) async {
+    try {
+      final db = await deptDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DeptCode FROM deptMaster WHERE DeptId = ? LIMIT 1', [deptId]);
+      return rows.isEmpty ? null : rows.first['DeptCode']?.toString();
+    } catch (e) {
+      debugPrint('getDeptCodeById error: $e');
+      return null;
+    }
+  }
+
+  Future<List<String>> getDeptCodesByIds(Iterable<int> deptIds) async {
+    final codes = <String>{};
+    for (final id in deptIds) {
+      final c = await getDeptCodeById(id);
+      if (c != null && c.trim().isNotEmpty) codes.add(c.trim());
+    }
+    return codes.toList();
+  }
+
+  Future<String?> getLocationCodeById(int locationTypeId) async {
+    try {
+      final db = await locationDatabase;
+      final rows = await db.rawQuery(
+          'SELECT LocationTypeCode FROM locationMaster WHERE LocationTypeId = ? LIMIT 1',
+          [locationTypeId]);
+      return rows.isEmpty ? null : rows.first['LocationTypeCode']?.toString();
+    } catch (e) {
+      debugPrint('getLocationCodeById error: $e');
+      return null;
+    }
+  }
+
+  String _inList(Iterable<Object> values, List<Object?> args) {
+    final list = values.toList();
+    args.addAll(list);
+    return '(${List.filled(list.length, '?').join(',')})';
+  }
+
+  /// Functional locations for the failure form.
+  /// Rows: FuncLocId, FuncLocation, FuncDescription, TechObjectType (system),
+  /// SubSystem, WorkCenter, Location.
+  Future<List<Map<String, dynamic>>> queryFailureFunctionalLocations({
+    required int businessArea,
+    String? workCenter,
+    String? locationCode,
+    List<String> userWorkCenters = const [],
+  }) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final plants = await _plantsFor(businessArea);
+      if (plants.isEmpty) return [];
+
+      final wc = (workCenter ?? '').trim();
+      final loc = (locationCode ?? '').trim();
+      final args = <Object?>[];
+      final where = <String>[
+        "Status NOT IN ('Deletion Flag')",
+        'PlanningPlant IN ${_inList(plants, args)}',
+      ];
+
+      if (wc.isNotEmpty) {
+        where.add('WorkCenter = ?');
+        args.add(wc);
+        if (loc.isNotEmpty) {
+          where.add('Location = ?');
+          args.add(loc);
+        }
+        final upper = wc.toUpperCase();
+        if (businessArea == 1200 && (upper == 'SIG' || upper == 'AFC')) {
+          where.add('length(FuncLocation) = 29');
+        }
+      } else {
+        if (userWorkCenters.isEmpty) return [];
+        where.add('WorkCenter IN ${_inList(userWorkCenters, args)}');
+        if (loc.isNotEmpty) {
+          where.add('Location = ?');
+          args.add(loc);
+        } else if (businessArea == 1200) {
+          // Neither department nor location chosen: apply the code length rule.
+          where.add(
+              "(WorkCenter NOT IN ('SIG','AFC') OR length(FuncLocation) = 29)");
+        }
+      }
+
+      return await db.rawQuery(
+          'SELECT FuncLocId, FuncLocation, FuncDescription, TechObjectType, '
+          'SubSystem, WorkCenter, Location FROM "$t" '
+          'WHERE ${where.join(' AND ')} ORDER BY FuncLocation',
+          args);
+    } catch (e) {
+      debugPrint('queryFailureFunctionalLocations error: $e');
+      return [];
+    }
+  }
+
+  /// One functional location (system / sub system come from this row).
+  Future<Map<String, dynamic>?> getFailureFunctionalLocationRow(
+      int funcLocId) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return null;
+      final rows = await db.rawQuery(
+          'SELECT FuncLocId, FuncLocation, FuncDescription, TechObjectType, '
+          'SubSystem, WorkCenter, Location FROM "$t" WHERE FuncLocId = ? LIMIT 1',
+          [funcLocId]);
+      return rows.isEmpty ? null : rows.first;
+    } catch (e) {
+      debugPrint('getFailureFunctionalLocationRow error: $e');
+      return null;
+    }
+  }
+
+  /// Equipment for the failure form. With [funcLocCode] the list is that
+  /// functional location's equipment; otherwise it follows the same
+  /// department / location rules as the functional location list.
+  /// Rows: EquipId, EquipNo, EquipDesc, FunctionalLocation.
+  Future<List<Map<String, dynamic>>> queryFailureEquipments({
+    required int businessArea,
+    String? funcLocCode,
+    String? workCenter,
+    String? locationCode,
+    List<String> userWorkCenters = const [],
+  }) async {
+    try {
+      final db = await equipmentDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final args = <Object?>[];
+      final where = <String>[];
+
+      final fl = (funcLocCode ?? '').trim();
+      if (fl.isNotEmpty) {
+        where.add('FunctionalLocation = ?');
+        args.add(fl);
+      } else {
+        final plants = await _plantsFor(businessArea);
+        if (plants.isEmpty) return [];
+        where.add('PlanningPlant IN ${_inList(plants, args)}');
+        final wc = (workCenter ?? '').trim();
+        final loc = (locationCode ?? '').trim();
+        if (wc.isNotEmpty) {
+          where.add('WorkCenter = ?');
+          args.add(wc);
+          if (loc.isNotEmpty) {
+            where.add('Location = ?');
+            args.add(loc);
+          }
+        } else {
+          if (userWorkCenters.isEmpty) return [];
+          where.add('WorkCenter IN ${_inList(userWorkCenters, args)}');
+          if (loc.isNotEmpty) {
+            where.add('Location = ?');
+            args.add(loc);
+          }
+        }
+      }
+
+      return await db.rawQuery(
+          'SELECT EquipId, EquipNo, EquipDesc, FunctionalLocation FROM "$t" '
+          'WHERE ${where.join(' AND ')} ORDER BY EquipNo',
+          args);
+    } catch (e) {
+      debugPrint('queryFailureEquipments error: $e');
+      return [];
+    }
+  }
+
+  /// System -> sub systems for a department (OCC role picks them freely).
+  /// Same row shape as the API: [{system, subSystem: [..]}].
+  Future<List<Map<String, dynamic>>> getFailureSystemSubsystems({
+    required int businessArea,
+    String? workCenter,
+  }) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final plants = await _plantsFor(businessArea);
+      if (plants.isEmpty) return [];
+      final args = <Object?>[];
+      final where = <String>[
+        "Status NOT IN ('Deletion Flag')",
+        'PlanningPlant IN ${_inList(plants, args)}',
+        "TechObjectType IS NOT NULL AND TechObjectType <> ''",
+      ];
+      final wc = (workCenter ?? '').trim();
+      if (wc.isNotEmpty) {
+        where.add('WorkCenter = ?');
+        args.add(wc);
+      }
+      final rows = await db.rawQuery(
+          'SELECT DISTINCT TechObjectType AS system, SubSystem AS sub FROM "$t" '
+          'WHERE ${where.join(' AND ')} ORDER BY 1, 2',
+          args);
+      final grouped = <String, List<String>>{};
+      for (final r in rows) {
+        final sys = r['system']?.toString().trim() ?? '';
+        if (sys.isEmpty) continue;
+        final list = grouped.putIfAbsent(sys, () => <String>[]);
+        final sub = r['sub']?.toString().trim() ?? '';
+        if (sub.isNotEmpty) list.add(sub);
+      }
+      return grouped.entries
+          .map((e) => <String, dynamic>{'system': e.key, 'subSystem': e.value})
+          .toList();
+    } catch (e) {
+      debugPrint('getFailureSystemSubsystems error: $e');
+      return [];
+    }
+  }
+
+  /// Date of the data that shipped in the asset databases (older of the two
+  /// newest UpdatedOn values, minus a day). The first delta sync starts from
+  /// here so nothing changed after the export is missed.
+  Future<String?> getMasterBaselineDate() async {
+    try {
+      final dates = <String>[];
+      for (final db in [await funLocDatabase, await equipmentDatabase]) {
+        final t = await _firstUserTable(db);
+        if (t == null) continue;
+        final rows = await db.rawQuery(
+            "SELECT MAX(UpdatedOn) AS m FROM \"$t\" WHERE UpdatedOn LIKE '20__-__-__%'");
+        final m = rows.isEmpty ? null : rows.first['m']?.toString();
+        if (m != null && m.length >= 10) dates.add(m.substring(0, 10));
+      }
+      if (dates.isEmpty) return null;
+      dates.sort();
+      final oldest = DateTime.tryParse(dates.first);
+      if (oldest == null) return null;
+      final d = oldest.subtract(const Duration(days: 1));
+      return '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+    } catch (e) {
+      debugPrint('getMasterBaselineDate error: $e');
+      return null;
+    }
+  }
+
+  /// Upserts functional locations from the API sync into the same table the
+  /// dropdowns read. A missing status is stored as 'Created' (a NULL status
+  /// would be filtered out by the Deletion Flag check).
+  Future<void> upsertFunctionalLocationsToMaster(List<dynamic> rows) async {
+    final db = await funLocDatabase;
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    final batch = db.batch();
+    for (final r in rows) {
+      if (r is! Map) continue;
+      final code = r['funcLocation']?.toString() ?? '';
+      final desc = r['funcDescription']?.toString() ?? '';
+      batch.insert(
+        t,
+        {
+          'FuncLocId': r['funcLocId'],
+          'FuncLocation': code,
+          'FuncDescription': desc,
+          'FuncLocationName':
+              r['funcLocationName'] ?? (desc.isEmpty ? code : '$code - $desc'),
+          'ObjectNumber': r['objectNumber'],
+          'PlanningPlant': r['planningPlant'],
+          'MaintenancePlant': r['maintenancePlant'] ?? r['planningPlant'],
+          'Room': r['room'],
+          'TechObjectType': r['techObjectType'] ?? r['system'],
+          'ObjectKey': r['objectKey'] ?? code,
+          'SubSystem': r['subSystem'],
+          'BusinessArea': r['businessArea'],
+          'WorkCenter': r['workCenter'],
+          'Location': r['location'],
+          'CreatedOn': r['createdOn'],
+          'UpdatedOn': r['updatedOn'] ?? DateTime.now().toIso8601String(),
+          'Status': (r['status']?.toString().trim().isNotEmpty ?? false)
+              ? r['status']
+              : 'Created',
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Upserts equipment from the API sync into the equipment dropdown table.
+  Future<void> upsertEquipmentsToMaster(List<dynamic> rows) async {
+    final db = await equipmentDatabase;
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    final batch = db.batch();
+    for (final r in rows) {
+      if (r is! Map) continue;
+      batch.insert(
+        t,
+        {
+          'EquipId': r['equipId'],
+          'EquipNo': r['equipNo'],
+          'EquipDesc': r['equipDesc'],
+          'ObjectNo': r['objectNo'],
+          'EquipStatus': r['equipStatus'],
+          'PlanningPlant': r['planningPlant'],
+          'WorkCenter': r['workCenter'],
+          'MaintenancePlant': r['maintenancePlant'] ?? r['planningPlant'],
+          'Location': r['location'],
+          'FunctionalLocation': r['functionalLocation'],
+          'Room': r['room'],
+          'Status': r['status'],
+          'CreatedOn': r['createdOn'],
+          'UpdatedOn': r['updatedOn'] ?? DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
   }
 }

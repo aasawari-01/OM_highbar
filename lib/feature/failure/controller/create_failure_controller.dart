@@ -4400,26 +4400,47 @@ class CreateFailureController extends GetxController
   }
 
   /// Functional locations depend on both the department and the location.
+  /// Business area, work center (department), location code and the user's
+  /// own work centers: the inputs of the offline functional location /
+  /// equipment rules (see LocalDatabaseService.queryFailureFunctionalLocations).
+  Future<({int ba, String? wc, String? locCode, List<String> userWcs})>
+  _offlineDropdownContext() async {
+    final db = LocalDatabaseService();
+    final ba = await AuthManager().getBusinessArea() ?? 0;
+    final dept = departmentId.value ?? 0;
+    final loc = _apiIdFor(locationTypeList, selectedLocation.value);
+    final wc = dept > 0 ? await db.getDeptCodeById(dept) : null;
+    final locCode = loc > 0 ? await db.getLocationCodeById(loc) : null;
+    final userDeptIds = Get.find<SessionController>()
+        .departments
+        .map((d) => d.deptId)
+        .whereType<int>();
+    final userWcs = await db.getDeptCodesByIds(userDeptIds);
+    return (ba: ba, wc: wc, locCode: locCode, userWcs: userWcs);
+  }
+
   Future<void> _loadApiFunctionalLocations() async {
     final dept = departmentId.value ?? 0;
     final loc = _apiIdFor(locationTypeList, selectedLocation.value);
-    if (dept <= 0 || loc <= 0) {
-      functionalLocationList.clear();
-      return;
-    }
     isFunctionalLocationLoading.value = true;
     try {
-      final rows = await _failureService.getStationFunctionalLocations(
-          locationTypeId: loc, departmentIds: dept.toString());
+      final ctx = await _offlineDropdownContext();
+      final rows = await LocalDatabaseService().queryFailureFunctionalLocations(
+        businessArea: ctx.ba,
+        workCenter: ctx.wc,
+        locationCode: ctx.locCode,
+        userWorkCenters: ctx.userWcs,
+      );
+      // Frequency is not part of the offline master data.
       _apiFuncLocFrequency.clear();
       final options = <LabelValue>[];
       for (final r in rows) {
-        final id = r['funcLocId']?.toString() ?? '';
-        final name = r['functionalLocation']?.toString().trim() ?? '';
-        if (id.isEmpty || name.isEmpty) continue;
-        options.add(LabelValue(label: name, value: id));
-        _apiFuncLocFrequency[id] =
-            int.tryParse(r['frequency']?.toString() ?? '') ?? 0;
+        final id = r['FuncLocId']?.toString() ?? '';
+        final code = r['FuncLocation']?.toString().trim() ?? '';
+        final desc = r['FuncDescription']?.toString().trim() ?? '';
+        if (id.isEmpty || code.isEmpty) continue;
+        options.add(LabelValue(
+            label: desc.isEmpty ? code : '$code - $desc', value: id));
       }
       // The department / location may have changed again while waiting.
       if (departmentId.value == dept &&
@@ -4445,14 +4466,17 @@ class CreateFailureController extends GetxController
   Future<void> _loadApiSystemSubsystem() async {
     final funcId = _apiIdFor(
         functionalLocationList, selectedFunctionalLocation.value);
-    final dept = departmentId.value ?? 0;
-    final loc = _apiIdFor(locationTypeList, selectedLocation.value);
     if (funcId <= 0) return;
     try {
-      final pairs = await _failureService.getSystemSubsystemsByFuncLoc(
-          locationTypeId: loc,
-          funcLocId: funcId,
-          departmentIds: dept > 0 ? dept.toString() : '');
+      // System / sub system are columns of the functional location row.
+      final row =
+      await LocalDatabaseService().getFailureFunctionalLocationRow(funcId);
+      final system = row?['TechObjectType']?.toString().trim() ?? '';
+      final sub = row?['SubSystem']?.toString().trim() ?? '';
+      final pairs = <Map<String, dynamic>>[
+        if (system.isNotEmpty || sub.isNotEmpty)
+          {'system': system, 'subSystem': sub},
+      ];
       _applyFmecaSystemSubsystemPairs(pairs);
       systemController.text = occSystemValue;
       subsystemController.text = selectedFmecaSubsystem.value ?? '';
@@ -4860,19 +4884,27 @@ class CreateFailureController extends GetxController
     final funcLabel = selectedFunctionalLocation.value;
     final funcId = _apiIdFor(functionalLocationList, funcLabel);
     if (funcId <= 0) return;
-    final dept = departmentId.value ?? 0;
     isEquipmentLoading.value = true;
     try {
-      final rows = await _failureService.getEquipmentNumbersByFuncLoc(
-          locationTypeId: _apiIdFor(locationTypeList, selectedLocation.value),
-          funcLocId: funcId,
-          departmentIds: dept > 0 ? dept.toString() : '');
+      final db = LocalDatabaseService();
+      final flRow = await db.getFailureFunctionalLocationRow(funcId);
+      final flCode = flRow?['FuncLocation']?.toString() ?? '';
+      final ctx = await _offlineDropdownContext();
+      final rows = await db.queryFailureEquipments(
+        businessArea: ctx.ba,
+        funcLocCode: flCode,
+        workCenter: ctx.wc,
+        locationCode: ctx.locCode,
+        userWorkCenters: ctx.userWcs,
+      );
       final options = <LabelValue>[];
       for (final r in rows) {
-        final id = r['equipId']?.toString() ?? '';
-        final name = r['equipmentDetail']?.toString().trim() ?? '';
-        if (id.isEmpty || name.isEmpty) continue;
-        options.add(LabelValue(label: name, value: id));
+        final id = r['EquipId']?.toString() ?? '';
+        final no = r['EquipNo']?.toString().trim() ?? '';
+        final desc = r['EquipDesc']?.toString().trim() ?? '';
+        if (id.isEmpty || (no.isEmpty && desc.isEmpty)) continue;
+        options.add(LabelValue(
+            label: desc.isEmpty ? no : '$no - $desc', value: id));
       }
       // The user may have picked another functional location meanwhile.
       if (selectedFunctionalLocation.value != funcLabel) return;
@@ -6353,8 +6385,12 @@ class CreateFailureController extends GetxController
   Future<void> loadOccSystemSubsystems() async {
     if (!isOccRoleUser) return;
     try {
-      final rows = await _failureService.getOccSystemSubsystems(
-          departmentIds: departmentId.value?.toString() ?? '');
+      final db = LocalDatabaseService();
+      final dept = departmentId.value ?? 0;
+      final rows = await db.getFailureSystemSubsystems(
+        businessArea: await AuthManager().getBusinessArea() ?? 0,
+        workCenter: dept > 0 ? await db.getDeptCodeById(dept) : null,
+      );
 
       final pairs = <Map<String, dynamic>>[];
       final systems = <String>[];
