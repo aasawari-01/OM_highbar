@@ -1144,32 +1144,44 @@ class FailureService {
     return body['responseOutput'] as Map<String, dynamic>;
   }
 
-  /// Station Controller list (OCCMaintainance/getStationFailureList).
-  Future<List<Map<String, dynamic>>> getStationFailureList() async {
+  /// Station Controller list (mobileAppAPI/GetAllFailuresTransactionData).
+  /// Without [lastSyncDate] it asks for everything (syncType ALL); with it,
+  /// only what changed since that date (syncType Incremental).
+  /// Records are {failure, documents, history, assignments}.
+  Future<({List<Map<String, dynamic>> records, String? downloadedAt})>
+  getStationFailureList({String? lastSyncDate}) async {
     final userId = await _userId();
     final headers = await _authHeaders();
     final response = await _apiClient.post(
-      AppUrls.getStationFailureList,
+      AppUrls.getAllFailuresTransactionData,
       headers: headers,
-      body: {
-        'LocationId': 0,
-        'UserId': userId,
-        'DepartmentIds': '',
-        'Action': '',
+      body: <String, dynamic>{
+        'userId': userId,
+        if (lastSyncDate != null) 'lastSyncDate': lastSyncDate,
+        'syncType': lastSyncDate == null ? 'ALL' : 'Incremental',
       },
     );
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
     }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    if (body['responseCode'] != 200) {
-      throw Exception(
-          body['responseMessage'] ?? 'Failed to load station failures');
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    if (json['success'] != true) {
+      throw Exception(json['message'] ?? 'Failed to load station failures');
     }
-    final out = body['responseOutput'];
-    return out is List
-        ? out.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList()
-        : <Map<String, dynamic>>[];
+    final data = json['data'];
+    final list = data is Map ? data['stationFailures'] : null;
+    final records = <Map<String, dynamic>>[];
+    if (list is List) {
+      for (final e in list) {
+        if (e is Map && e['failure'] is Map) {
+          records.add(Map<String, dynamic>.from(e));
+        }
+      }
+    }
+    return (
+    records: records,
+    downloadedAt: data is Map ? data['downloadedAt']?.toString() : null,
+    );
   }
 
   /// Fetches station failure list from API with data

@@ -104,6 +104,8 @@ class MasterDataSyncService extends GetxController {
     await _executeSyncTask('Loading data from assets...', () async {
       debugPrint("syncMasterData: Loading all data from asset databases");
       await _dbService.forceImportFromAssets();
+      // The bundled files replaced the synced data: fetch changes again.
+      await _dbService.setAppSetting('lastSyncDate', '');
       
       debugPrint("syncMasterData: Reloading GlobalMasterDataController");
       await Get.find<GlobalMasterDataController>().reloadMasterData();
@@ -112,11 +114,19 @@ class MasterDataSyncService extends GetxController {
     });
   }
 
+  /// What the sync button does (same as the login sync): dropdown master data
+  /// by last sync date, then any failures waiting to be sent.
+  Future<void> syncMasterAndPending() async {
+    await syncMasterDataFromAPI();
+    await syncPendingSubmissions();
+  }
+
   /// Syncs master data from API using lastSyncDate to get only changed data
   Future<void> syncMasterDataFromAPI() async {
     debugPrint("syncMasterDataFromAPI: STARTING");
     await _executeSyncTask('Syncing master data from server...', () async {
       debugPrint("syncMasterDataFromAPI: Inside sync task");
+      try {
       final userId = await AuthManager().getUserId() ?? 1;
       final lastSyncDate = await _getLastSyncDate();
       
@@ -143,7 +153,7 @@ class MasterDataSyncService extends GetxController {
       completedSteps++;
       final percentage = ((completedSteps / totalSteps) * 100).toInt();
       syncStatus.value = 'Connecting to server... $percentage%';
-      EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+      EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
       debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
       
       final response = await http.post(
@@ -175,12 +185,18 @@ class MasterDataSyncService extends GetxController {
             completedSteps++;
             final percentage = ((completedSteps / totalSteps) * 100).toInt();
             syncStatus.value = 'Syncing functional locations... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
             debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
             final funcLocs = data['functionalLocations'] as List;
             await _dbService.updateFunctionalLocationsFromAPI(funcLocs);
             // Same table the failure-form dropdowns read from.
-            await _dbService.upsertFunctionalLocationsToMaster(funcLocs);
+            await _dbService.upsertFunctionalLocationsToMaster(funcLocs,
+                onProgress: (done, total) {
+              syncStatus.value = 'Syncing functional locations... $done/$total';
+              EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
+                  status: syncStatus.value,
+                  maskType: EasyLoadingMaskType.none);
+            });
             totalUpdates += funcLocs.length;
             debugPrint("syncMasterDataFromAPI: Updated ${funcLocs.length} functional locations");
           } else {
@@ -190,7 +206,13 @@ class MasterDataSyncService extends GetxController {
           // Sync equipment (dropdown table)
           if (data['equipments'] != null) {
             final equipments = data['equipments'] as List;
-            await _dbService.upsertEquipmentsToMaster(equipments);
+            await _dbService.upsertEquipmentsToMaster(equipments,
+                onProgress: (done, total) {
+              syncStatus.value = 'Syncing equipment... $done/$total';
+              EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
+                  status: syncStatus.value,
+                  maskType: EasyLoadingMaskType.none);
+            });
             totalUpdates += equipments.length;
             debugPrint("syncMasterDataFromAPI: Updated ${equipments.length} equipments");
           } else {
@@ -202,7 +224,7 @@ class MasterDataSyncService extends GetxController {
             completedSteps++;
             final percentage = ((completedSteps / totalSteps) * 100).toInt();
             syncStatus.value = 'Syncing measurement points... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
             debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
             final measPoints = data['measurementPoints'] as List;
             await _dbService.updateMeasurementPointsFromAPI(measPoints);
@@ -217,7 +239,7 @@ class MasterDataSyncService extends GetxController {
             completedSteps++;
             final percentage = ((completedSteps / totalSteps) * 100).toInt();
             syncStatus.value = 'Syncing locations... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
             debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
             final locations = data['locations'] as List;
             await _dbService.updateLocationsFromAPI(locations);
@@ -232,10 +254,12 @@ class MasterDataSyncService extends GetxController {
             completedSteps++;
             final percentage = ((completedSteps / totalSteps) * 100).toInt();
             syncStatus.value = 'Syncing users... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
             debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
             final users = data['users'] as List;
             await _dbService.updateUsersFromAPI(users);
+            // Same table Person Responsible reads from (UserMaster.db).
+            await _dbService.upsertUsersToMaster(users);
             totalUpdates += users.length;
             debugPrint("syncMasterDataFromAPI: Updated ${users.length} users");
           } else {
@@ -247,7 +271,7 @@ class MasterDataSyncService extends GetxController {
             completedSteps++;
             final percentage = ((completedSteps / totalSteps) * 100).toInt();
             syncStatus.value = 'Syncing materials... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
             debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
             final materials = data['materials'] as List;
             await _dbService.updateMaterialsFromAPI(materials);
@@ -262,7 +286,7 @@ class MasterDataSyncService extends GetxController {
             completedSteps++;
             final percentage = ((completedSteps / totalSteps) * 100).toInt();
             syncStatus.value = 'Syncing priorities... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value);
+            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
             debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
             final priorities = data['priorities'] as List;
             await _dbService.updatePrioritiesFromAPI(priorities);
@@ -293,6 +317,12 @@ class MasterDataSyncService extends GetxController {
         debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
         EasyLoading.showError(syncStatus.value);
       }
+      } catch (e) {
+        // Never leave the progress popup on screen when the sync fails.
+        debugPrint("syncMasterDataFromAPI: failed: $e");
+        EasyLoading.showError('Master data sync failed');
+        rethrow;
+      }
     });
     debugPrint("syncMasterDataFromAPI: FINISHED");
   }
@@ -302,6 +332,10 @@ class MasterDataSyncService extends GetxController {
     final result = await db.rawQuery(
       "SELECT value FROM AppSettings WHERE key = 'lastSyncDate'"
     );
+    if (await _dbService.getAppSetting('usersMasterBackfillV1') != 'done') {
+      await _dbService.setAppSetting('usersMasterBackfillV1', 'done');
+      return await _dbService.getMasterBaselineDate() ?? '2026-08-01';
+    }
     if (result.isNotEmpty) {
       final saved = result.first['value']?.toString();
       if (saved != null && saved.isNotEmpty) return saved;
@@ -341,6 +375,11 @@ class MasterDataSyncService extends GetxController {
   /// Syncs failure list for a specific failure type
   /// If forceFullSync is true, sends null as lastSyncDate to get all data
   Future<void> syncFailureList(String failureType, {bool forceFullSync = false}) async {
+    // Offline failure lists are not in use for now: the server no longer has
+    // the GetStationFailureListWithData procedure, and the lists load online.
+    // Only the dropdown master data is synced (syncMasterDataFromAPI).
+    return;
+    // ignore: dead_code
     await _executeSyncTask('Syncing $failureType failures...', () async {
       if (failureType == 'Station') {
         final lastSyncDate = forceFullSync ? null : await _getStationFailureLastSyncDate();
@@ -421,39 +460,21 @@ class MasterDataSyncService extends GetxController {
             try {
               final db = await _dbService.database;
               
-              // Debug: Check all entries in FailureList
-              final allEntries = await db.query('FailureList');
-              debugPrint("syncPendingSubmissions: Total FailureList entries: ${allEntries.length}");
-              for (var entry in allEntries) {
-                debugPrint("syncPendingSubmissions: Entry - id: ${entry['id']}, failureNo: ${entry['failureNo']}, syncStatus: ${entry['syncStatus']}");
-              }
-              
-              // Get the offline entry
-              final offlineEntries = await db.query(
+              // Offline entries of this submission: one per department, ids
+              // -(sid*10+index); entries saved before that use the plain id.
+              final sid = submission['id'] as int;
+              final updated = await db.update(
                 'FailureList',
-                where: 'id = ? AND syncStatus = ?',
-                whereArgs: [submission['id'], 'offline'],
+                {
+                  'statusName': 'Open',
+                  'syncStatus': 'synced',
+                  'lastSyncedAt': DateTime.now().toIso8601String(),
+                },
+                where:
+                'syncStatus = ? AND (id = ? OR (id <= ? AND id > ?))',
+                whereArgs: ['offline', sid, -(sid * 10), -(sid * 10 + 10)],
               );
-              
-              debugPrint("syncPendingSubmissions: Query for id=${submission['id']}, syncStatus='offline' returned ${offlineEntries.length} entries");
-              
-              if (offlineEntries.isNotEmpty) {
-                // Update the existing offline entry with API response
-                await db.update(
-                  'FailureList',
-                  {
-                    'failureNo': apiFailureNo,
-                    'statusName': 'Open',
-                    'syncStatus': 'synced',
-                    'lastSyncedAt': DateTime.now().toIso8601String(),
-                  },
-                  where: 'id = ?',
-                  whereArgs: [submission['id']],
-                );
-                debugPrint("syncPendingSubmissions: Updated offline entry with API failureNo: $apiFailureNo");
-              } else {
-                debugPrint("syncPendingSubmissions: No offline entry found for id: ${submission['id']}");
-              }
+              debugPrint("syncPendingSubmissions: Marked $updated offline entries synced (API failureNo: $apiFailureNo)");
             } catch (e) {
               debugPrint("Error updating offline entry: $e");
             }
@@ -482,8 +503,16 @@ class MasterDataSyncService extends GetxController {
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
-        debugPrint("syncPendingSubmissions: Triggering station failure sync after offline submission");
-        await syncFailureList('Station');
+        debugPrint("syncPendingSubmissions: Reloading station list after offline submission");
+        try {
+          if (Get.isRegistered(tag: 'Station')) {
+            // Incremental sync brings in the failures just created; their
+            // offline copies are marked synced and drop out of the list.
+            await Get.find(tag: 'Station').fetchFailures();
+          }
+        } catch (e) {
+          debugPrint("Could not refresh station list: $e");
+        }
       }
     });
   }

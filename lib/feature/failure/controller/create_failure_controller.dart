@@ -1991,9 +1991,63 @@ class CreateFailureController extends GetxController
   /// getStationFailureCreationById; the list row is only a fallback if the
   /// request fails.
   Future<void> loadStationFailureView(String id, FailureItem? item) async {
+    // GetAllFailuresTransactionData rows carry only the numeric id; the
+    // creation-by-id API needs the encrypted one, so use the row itself.
+    if (item != null &&
+        (item.syncStatus == 'offline' || RegExp(r'^\d+$').hasMatch(id))) {
+      await loadStationFailureDetailsFromData(item);
+      final numericId = int.tryParse(id);
+      if (numericId != null && item.syncStatus != 'offline') {
+        await _applyStationCachedHistory(numericId);
+      }
+      return;
+    }
     await loadStationFailureDetails(id, useCreationByIdApi: true);
     if (errorMessage.value.isNotEmpty && item != null) {
       await loadStationFailureDetailsFromData(item);
+    }
+  }
+
+  /// History / assignments of a station failure from the synced local copy.
+  Future<void> _applyStationCachedHistory(int id) async {
+    try {
+      final rec = await LocalDatabaseService().getStationFailureCacheRow(id);
+      if (rec == null) return;
+      String? fmt(dynamic v) {
+        final d = DateTime.tryParse(v?.toString() ?? '');
+        return d == null ? v?.toString() : DateFormat('dd-MM-yyyy HH:mm:ss').format(d);
+      }
+
+      final history = (rec['history'] as List? ?? const [])
+          .whereType<Map>()
+          .map((h) => NotificationHistory(
+        historyId: int.tryParse('${h['historyId']}'),
+        description: h['description']?.toString(),
+        createdBy: h['createdBy']?.toString(),
+        createdOn: fmt(h['createdOn']),
+      ))
+          .toList();
+      notificationDescriptionHistoryList.assignAll(history);
+
+      final actions = (rec['assignments'] as List? ?? const [])
+          .whereType<Map>()
+          .map((a) => NotificationActionHistory(
+        notificationId: int.tryParse('${a['notificationId']}'),
+        assgineUserId: int.tryParse('${a['assignedUserId']}'),
+        statusId: int.tryParse('${a['statusId']}'),
+        statusName: a['statusName']?.toString(),
+        remark: a['remark']?.toString(),
+        createdBy: int.tryParse('${a['createdById']}'),
+        actionBy: a['actionBy']?.toString(),
+        actionOn: fmt(a['actionOn']),
+        assginedUserName: a['assignedUserName']?.toString(),
+        updatedUserName: a['updatedUserName']?.toString(),
+        updatedOn: fmt(a['updatedOn']),
+      ))
+          .toList();
+      notificationHistoryList.assignAll(actions);
+    } catch (e) {
+      debugPrint('_applyStationCachedHistory error: $e');
     }
   }
 
@@ -4287,12 +4341,9 @@ class CreateFailureController extends GetxController
   Future<void> loadDepotCreateDropdowns() async {
     pushLoading();
     try {
+      apiFailureCategoryList.assignAll(await _localFailureCategoryTypes());
+      await _loadLocalPriorityDeptLocation();
       final out = await _failureService.getDepotFailureLookups();
-      priorityTypeList.assignAll(_apiOptions(out['getPriorityTypeList']));
-      departmentList.assignAll(_apiOptions(out['getDepartmentList']));
-      locationTypeList.assignAll(_apiOptions(out['getLocationTypeList']));
-      apiFailureCategoryList
-          .assignAll(_apiOptions(out['getFailureCategoryType']));
       userList.assignAll(_apiOptions(out['getFailureReportedbyList']));
 
       // Default "Failure Reported by" to the logged-in user, like the web.
@@ -4319,6 +4370,49 @@ class CreateFailureController extends GetxController
   /// Raw failure details of the station failure being edited.
   Map<String, dynamic> _stationDetails = <String, dynamic>{};
 
+  /// Priority, Department and Location from the bundled databases
+  /// (priority.db, dept.db, location.db) - no API call. Same ids as the
+  /// server's lists; the location list is the user's business area.
+  Future<void> _loadLocalPriorityDeptLocation() async {
+    final db = LocalDatabaseService();
+    final priorities = await db.getPriorities();
+    priorityTypeList.assignAll(priorities
+        .where((e) => (e.priorityDesc ?? '').trim().isNotEmpty && e.priorityId != null)
+        .map((e) => LabelValue(
+        label: e.priorityDesc!.trim(), value: e.priorityId.toString())));
+
+    final departments = await db.getDepartments();
+    departmentList.assignAll(departments
+        .where((e) => e.deptName.trim().isNotEmpty && e.deptId != null)
+        .map((e) => LabelValue(
+        label: e.deptName.trim(),
+        value: e.deptId.toString(),
+        uniqueId: e.workCenter)));
+
+    final ba = await AuthManager().getBusinessArea();
+    final locations = ba != null
+        ? await db.getLocationsByBusinessArea(ba)
+        : await db.getLocations();
+    locationTypeList.assignAll(locations
+        .where((e) => e.locationName.trim().isNotEmpty && e.locationTypeId != null)
+        .map((e) => LabelValue(
+        label: e.locationName.trim(),
+        value: e.locationTypeId.toString(),
+        uniqueId: e.locationTypeCode)));
+  }
+
+  /// Failure Category Type options from the bundled failure_categorytype.db.
+  Future<List<LabelValue>> _localFailureCategoryTypes() async {
+    final rows = await LocalDatabaseService().getFailureCategoryTypeOptions();
+    return rows
+        .map((r) => LabelValue(
+      label: r['FailureCategoryType']?.toString().trim() ?? '',
+      value: r['ID']?.toString() ?? '',
+    ))
+        .where((o) => (o.label ?? '').isNotEmpty && (o.value ?? '').isNotEmpty)
+        .toList();
+  }
+
   /// API rows ({label, value}) -> options, without the "Select ..." row (0).
   List<LabelValue> _apiOptions(dynamic raw) {
     if (raw is! List) return <LabelValue>[];
@@ -4338,12 +4432,9 @@ class CreateFailureController extends GetxController
   Future<void> loadStationCreateDropdowns() async {
     pushLoading();
     try {
+      apiFailureCategoryList.assignAll(await _localFailureCategoryTypes());
+      await _loadLocalPriorityDeptLocation();
       final out = await _failureService.getStationFailureLookups();
-      priorityTypeList.assignAll(_apiOptions(out['getPriorityTypeList']));
-      departmentList.assignAll(_apiOptions(out['getDepartmentList']));
-      locationTypeList.assignAll(_apiOptions(out['getLocationTypeList']));
-      apiFailureCategoryList
-          .assignAll(_apiOptions(out['getFailureCategoryType']));
       userList.assignAll(_apiOptions(out['getFailureReportedbyList']));
 
       // Station failures are reported by the logged-in user.
@@ -4389,6 +4480,33 @@ class CreateFailureController extends GetxController
     await _loadApiFunctionalLocations();
   }
 
+  /// Create forms: several departments (max 3). The first one drives the
+  /// single-department parts of the form; the functional location list covers
+  /// all of them.
+  Future<void> onApiDepartmentsChanged(List<String> labels,
+      {bool keepSystem = false}) async {
+    var picked = labels
+        .where((l) => l.isNotEmpty && l != 'Select')
+        .toSet()
+        .toList();
+    if (picked.length > FailureFormState.maxCreateDepartments) {
+      picked = picked.take(FailureFormState.maxCreateDepartments).toList();
+      Get.snackbar('Department',
+          'You can select up to ${FailureFormState.maxCreateDepartments} departments.',
+          backgroundColor: AppColors.red.withValues(alpha: 0.9),
+          colorText: AppColors.white1,
+          snackPosition: SnackPosition.BOTTOM);
+    }
+    selectedDepartments.assignAll(picked);
+    final first = picked.isEmpty ? null : picked.first;
+    selectedDepartment.value = first;
+    departmentId.value = first == null ? null : _apiIdFor(departmentList, first);
+    selectedFunctionalLocation.value = null;
+    functionalLocationList.clear();
+    if (!keepSystem) _apiClearSystem();
+    await _loadApiFunctionalLocations();
+  }
+
   Future<void> onApiLocationChanged(String? label,
       {bool keepSystem = false}) async {
     final none = label == null || label.isEmpty || label == 'Select';
@@ -4403,20 +4521,28 @@ class CreateFailureController extends GetxController
   /// Business area, work center (department), location code and the user's
   /// own work centers: the inputs of the offline functional location /
   /// equipment rules (see LocalDatabaseService.queryFailureFunctionalLocations).
-  Future<({int ba, String? wc, String? locCode, List<String> userWcs})>
+  Future<({int ba, List<String> wcs, String? locCode, List<String> userWcs})>
   _offlineDropdownContext() async {
     final db = LocalDatabaseService();
     final ba = await AuthManager().getBusinessArea() ?? 0;
-    final dept = departmentId.value ?? 0;
     final loc = _apiIdFor(locationTypeList, selectedLocation.value);
-    final wc = dept > 0 ? await db.getDeptCodeById(dept) : null;
+    // Every department picked on the form (a single one elsewhere).
+    final deptIds = <int>{};
+    for (final label in selectedDepartments) {
+      final id = _apiIdFor(departmentList, label);
+      if (id > 0) deptIds.add(id);
+    }
+    if (deptIds.isEmpty && (departmentId.value ?? 0) > 0) {
+      deptIds.add(departmentId.value!);
+    }
+    final wcs = await db.getDeptCodesByIds(deptIds);
     final locCode = loc > 0 ? await db.getLocationCodeById(loc) : null;
     final userDeptIds = Get.find<SessionController>()
         .departments
         .map((d) => d.deptId)
         .whereType<int>();
     final userWcs = await db.getDeptCodesByIds(userDeptIds);
-    return (ba: ba, wc: wc, locCode: locCode, userWcs: userWcs);
+    return (ba: ba, wcs: wcs, locCode: locCode, userWcs: userWcs);
   }
 
   Future<void> _loadApiFunctionalLocations() async {
@@ -4427,7 +4553,7 @@ class CreateFailureController extends GetxController
       final ctx = await _offlineDropdownContext();
       final rows = await LocalDatabaseService().queryFailureFunctionalLocations(
         businessArea: ctx.ba,
-        workCenter: ctx.wc,
+        workCenters: ctx.wcs,
         locationCode: ctx.locCode,
         userWorkCenters: ctx.userWcs,
       );
@@ -4468,15 +4594,11 @@ class CreateFailureController extends GetxController
         functionalLocationList, selectedFunctionalLocation.value);
     if (funcId <= 0) return;
     try {
-      // System / sub system are columns of the functional location row.
-      final row =
-      await LocalDatabaseService().getFailureFunctionalLocationRow(funcId);
-      final system = row?['TechObjectType']?.toString().trim() ?? '';
-      final sub = row?['SubSystem']?.toString().trim() ?? '';
-      final pairs = <Map<String, dynamic>>[
-        if (system.isNotEmpty || sub.isNotEmpty)
-          {'system': system, 'subSystem': sub},
-      ];
+      // System / sub system come from the functional location row; when the
+      // row has none, the work center's systems are offered to pick from.
+      final pairs = await LocalDatabaseService()
+          .getFailureSystemPairsForFunctionalLocation(funcId,
+          businessArea: await AuthManager().getBusinessArea() ?? 0);
       _applyFmecaSystemSubsystemPairs(pairs);
       systemController.text = occSystemValue;
       subsystemController.text = selectedFmecaSubsystem.value ?? '';
@@ -4660,12 +4782,10 @@ class CreateFailureController extends GetxController
   Future<void> _loadSiLookups() async {
     siApiMode = true;
     await _initFuture;
+    await _loadLocalPriorityDeptLocation();
     final out = await _failureService.getLookupCreateCorrNotificationRaw();
-    priorityTypeList.assignAll(_apiOptions(out['getPriorityType']));
-    departmentList.assignAll(_apiOptions(out['getDepartmentList']));
     // The form lists locationList but resolves ids through locationTypeList.
-    final locations = _apiOptions(out['getLocationType']);
-    locationTypeList.assignAll(locations);
+    final locations = locationTypeList.toList();
     locationList.assignAll(locations);
     // "Notification Type" on this form is the corrective notification type
     // (Failure, Snag, ...): getCorrNotificationTypeList.
@@ -4822,7 +4942,16 @@ class CreateFailureController extends GetxController
     var users = <LabelValue>[];
     if (dept > 0) {
       try {
-        users = await _failureService.getAssgineUsersByDept(deptId: dept);
+        // Junior Engineers of the selected department in the user's business
+        // area, from the bundled UserMaster.db (no API call).
+        final rows = await LocalDatabaseService().getJuniorEngineersForDepartment(
+          deptId: dept,
+          businessArea: await AuthManager().getBusinessArea(),
+        );
+        users = rows
+            .map((r) => LabelValue(
+            label: r['UserName'].toString(), value: r['UserId'].toString()))
+            .toList();
       } catch (e) {
         debugPrint('_loadSiPersonResponsible error: $e');
       }
@@ -4893,7 +5022,7 @@ class CreateFailureController extends GetxController
       final rows = await db.queryFailureEquipments(
         businessArea: ctx.ba,
         funcLocCode: flCode,
-        workCenter: ctx.wc,
+        workCenters: ctx.wcs,
         locationCode: ctx.locCode,
         userWorkCenters: ctx.userWcs,
       );
@@ -6175,9 +6304,7 @@ class CreateFailureController extends GetxController
           _occParseList(src, keys).where((e) => e.value != '0').toList();
 
       if (apiOnly) {
-        priorityTypeList.assignAll(_apiOptions(deptLoc['getPriorityTypeList']));
-        departmentList.assignAll(_apiOptions(deptLoc['getDepartmentList']));
-        locationTypeList.assignAll(_apiOptions(deptLoc['getLocationTypeList']));
+        await _loadLocalPriorityDeptLocation();
       }
       occLineList.assignAll(pick(deptLoc, ['getLineList']));
       occTrainSetList.assignAll(pick(deptLoc, ['getTrainSetList']));
@@ -6191,12 +6318,7 @@ class CreateFailureController extends GetxController
           ? reportedBy
           : _occWithoutSelect(userList));
 
-      final categories = pick(deptLoc, ['getFailureCategoryType']);
-      occFailureCategoryList.assignAll(categories.isNotEmpty || apiOnly
-          ? categories
-          : _occWithoutSelect(failureCategoryTypeList.isNotEmpty
-          ? failureCategoryTypeList
-          : corrNotificationTypeList));
+      occFailureCategoryList.assignAll(await _localFailureCategoryTypes());
 
       // Default "Failure Reported by" to the logged-in user, like the web.
       final currentUserId = await AuthManager().getUserId();
@@ -6289,6 +6411,12 @@ class CreateFailureController extends GetxController
     await onApiDepartmentChanged(label, keepSystem: true);
     _occApplyApiFrequency();
     await loadOccSystemSubsystems(); // options follow the department
+  }
+
+  Future<void> onOccCreateDepartmentsChanged(List<String> labels) async {
+    await onApiDepartmentsChanged(labels, keepSystem: true);
+    _occApplyApiFrequency();
+    await loadOccSystemSubsystems(); // options follow the departments
   }
 
   Future<void> onOccCreateLocationChanged(String? label) async {
@@ -6386,11 +6514,25 @@ class CreateFailureController extends GetxController
     if (!isOccRoleUser) return;
     try {
       final db = LocalDatabaseService();
-      final dept = departmentId.value ?? 0;
-      final rows = await db.getFailureSystemSubsystems(
-        businessArea: await AuthManager().getBusinessArea() ?? 0,
-        workCenter: dept > 0 ? await db.getDeptCodeById(dept) : null,
-      );
+      final ba = await AuthManager().getBusinessArea() ?? 0;
+      final ctx = await _offlineDropdownContext();
+      // One query per selected department, merged by system.
+      final merged = <String, List<String>>{};
+      final codes = ctx.wcs.isEmpty ? <String?>[null] : ctx.wcs;
+      for (final code in codes) {
+        final part = await db.getFailureSystemSubsystems(
+            businessArea: ba, workCenter: code);
+        for (final r in part) {
+          final sys = r['system']?.toString() ?? '';
+          final list = merged.putIfAbsent(sys, () => <String>[]);
+          for (final sub in (r['subSystem'] as List)) {
+            if (!list.contains(sub)) list.add(sub.toString());
+          }
+        }
+      }
+      final rows = merged.entries
+          .map((e) => <String, dynamic>{'system': e.key, 'subSystem': e.value})
+          .toList();
 
       final pairs = <Map<String, dynamic>>[];
       final systems = <String>[];
@@ -6583,10 +6725,7 @@ class CreateFailureController extends GetxController
 
       final body = <String, dynamic>{
         'PriorityId': lookupValue(priorityTypeList, selectedPriority.value),
-        'DepartmentIds': deptId,
-        'DepartmentId_1': deptId,
-        'DepartmentId_2': 0,
-        'DepartmentId_3': 0,
+        ...departmentCreateFields(deptId),
         'FailureDescription': failureDescriptionController.text.trim(),
         'LocationId':
         lookupLocationId(locationTypeList, selectedLocation.value),
@@ -6817,10 +6956,7 @@ class CreateFailureController extends GetxController
 
       final body = <String, dynamic>{
         'PriorityId': lookupValue(priorityTypeList, selectedPriority.value),
-        'DepartmentIds': deptId,
-        'DepartmentId_1': deptId,
-        'DepartmentId_2': 0,
-        'DepartmentId_3': 0,
+        ...departmentCreateFields(deptId),
         'FailureDescription': failureDescriptionController.text.trim(),
         'LocationId':
         lookupLocationId(locationTypeList, selectedLocation.value),
@@ -6931,16 +7067,14 @@ class CreateFailureController extends GetxController
       if (isFmcUser) {
         List<LabelValue> pick(List<String> keys) =>
             _occParseList(output, keys).where((e) => e.value != '0').toList();
-        priorityTypeList.assignAll(_apiOptions(output['getPriorityTypeList']));
-        departmentList.assignAll(_apiOptions(output['getDepartmentList']));
-        locationTypeList.assignAll(_apiOptions(output['getLocationTypeList']));
+        await _loadLocalPriorityDeptLocation();
         occReportedToList.assignAll(pick(['getRoleList']));
         occLineList.assignAll(pick(['getLineList']));
         occTrainSetList.assignAll(pick(['getTrainSetList']));
         occTrainOperatorList
             .assignAll(pick(['getTrainOpeartorList', 'getTrainOperatorList']));
         occReportedByList.assignAll(pick(['getFailureReportedbyList']));
-        occFailureCategoryList.assignAll(pick(['getFailureCategoryType']));
+        occFailureCategoryList.assignAll(await _localFailureCategoryTypes());
       }
       final d = Map<String, dynamic>.from(raw);
 
