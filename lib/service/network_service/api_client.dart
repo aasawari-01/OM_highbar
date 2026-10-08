@@ -38,7 +38,9 @@ class ApiClient {
     final response = await _client
         .post(uri, headers: mergedHeaders, body: encodedBody)
         .timeout(AppConstants.apiTimeout);
-    debugPrint('[POST] ${response.statusCode} — $uri $encodedBody ${jsonDecode(response.body)}');
+    // Log the raw body: decoding it here threw on an empty / non-JSON reply
+    // (FormatException: Unexpected end of input) before the response was returned.
+    debugPrint('[POST] ${response.statusCode} — $uri $encodedBody ${_logBody(response.body)}');
     return response;
   }
 
@@ -61,6 +63,29 @@ class ApiClient {
     return response;
   }
 
+  /// Sends a GET request that carries a JSON body (some endpoints, e.g.
+  /// GetAllFailuresTransactionData, are GET with {userId, syncType, ...}).
+  Future<http.Response> getWithBody(
+    String endpoint, {
+    Map<String, String>? headers,
+    Map<String, dynamic>? body,
+  }) async {
+    final uri = _buildUri(endpoint);
+    debugPrint('[GET+BODY] $uri');
+    final request = http.Request('GET', uri);
+    request.headers.addAll({
+      'Content-Type': 'application/json',
+      'accept': '*/*',
+      if (headers != null) ...headers,
+    });
+    final encodedBody = body == null ? null : jsonEncode(body);
+    if (encodedBody != null) request.body = encodedBody;
+    final streamed = await _client.send(request).timeout(AppConstants.apiTimeout);
+    final response = await http.Response.fromStream(streamed);
+    debugPrint('[GET+BODY] ${response.statusCode} — $uri $encodedBody ${_logBody(response.body)}');
+    return response;
+  }
+
   /// Sends a multipart POST request (for file uploads and form fields).
   Future<http.Response> postMultipart(
     String endpoint, {
@@ -78,7 +103,14 @@ class ApiClient {
     final streamedResponse =
         await request.send().timeout(AppConstants.apiMultipartTimeout);
     final response = await http.Response.fromStream(streamedResponse);
-    debugPrint('[MULTIPART POST] ${response.statusCode} — $uri -$fields  ${jsonDecode(response.body)}');
+    debugPrint('[MULTIPART POST] ${response.statusCode} — $uri -$fields  ${_logBody(response.body)}');
     return response;
+  }
+
+  /// Response body for the log: never throws, empty replies are shown as such,
+  /// and very large bodies are cut.
+  String _logBody(String body) {
+    if (body.isEmpty) return '<empty body>';
+    return body.length > 1500 ? '${body.substring(0, 1500)}…(${body.length} chars)' : body;
   }
 }

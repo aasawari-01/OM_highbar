@@ -212,6 +212,43 @@ mixin FailureFormState on GetxController {
   final assigneeUserNameController = TextEditingController();
   final selectedSystemDowntime = Rxn<DateTime>();
   final departmentId = RxnInt();
+
+  /// Departments picked on a create form (Station / Depot / OCC allow up to
+  /// three). The first one is mirrored into [selectedDepartment] /
+  /// [departmentId] so the rest of the form keeps working with one department.
+  final selectedDepartments = <String>[].obs;
+
+  static const int maxCreateDepartments = 3;
+
+  /// Department fields of a create request. One department (or none) gives
+  /// exactly the single-department fields; several give DepartmentIds as a
+  /// comma list and DepartmentId_1..3.
+  Map<String, dynamic> departmentCreateFields(String singleDeptId) {
+    final ids = <String>[];
+    for (final label in selectedDepartments) {
+      final id = departmentList
+          .firstWhereOrNull((e) => e.label == label)
+          ?.value;
+      if (id != null && id.isNotEmpty && id != '0' && !ids.contains(id)) {
+        ids.add(id);
+      }
+    }
+    if (ids.length <= 1) {
+      return {
+        'DepartmentIds': singleDeptId,
+        'DepartmentId_1': singleDeptId,
+        'DepartmentId_2': 0,
+        'DepartmentId_3': 0,
+      };
+    }
+    final capped = ids.take(maxCreateDepartments).toList();
+    return {
+      'DepartmentIds': capped.join(','),
+      'DepartmentId_1': capped[0],
+      'DepartmentId_2': capped.length > 1 ? int.tryParse(capped[1]) ?? 0 : 0,
+      'DepartmentId_3': capped.length > 2 ? int.tryParse(capped[2]) ?? 0 : 0,
+    };
+  }
   final selectedSystem = RxnString();
   final selectedSubsystem = RxnString();
   final systemList = <LabelValue>[].obs;

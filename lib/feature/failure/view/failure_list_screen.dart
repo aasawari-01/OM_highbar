@@ -658,6 +658,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       case 'online':
         return AppColors.green;
       case 'offline':
+      case 'pending':
         return AppColors.orangeColor;
       default:
         // Default to green (online) if syncStatus is null

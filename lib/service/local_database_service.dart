@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:sqflite/sqflite.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path/path.dart';
 import 'package:flutter/foundation.dart';
 import '../core/models/label_value.dart';
@@ -60,11 +61,18 @@ class LocalDatabaseService {
   Database? _reasonForDelayDatabase;
   Database? _natureOfWorkDatabase;
   Database? _failureCategoryTypeDatabase;
+  Database? _plantDatabase;
 
   Future<Database> _openAssetDatabase(String dbName, Future<void> Function(String) copyMethod) async {
     final path = join(await getDatabasesPath(), dbName);
     if (!await File(path).exists()) {
       await copyMethod(path);
+    }
+    // The asset is not bundled (copy failed): do not leave an empty database
+    // file behind - it would stop the copy from ever being retried once the
+    // asset is added. An in-memory database answers "no data" instead.
+    if (!await File(path).exists()) {
+      return await openDatabase(inMemoryDatabasePath);
     }
     return await openDatabase(path);
   }
@@ -81,16 +89,118 @@ class LocalDatabaseService {
     return _deptDatabase!;
   }
 
-  Future<Database> get funLocDatabase async {
-    if (_funLocDatabase != null) return _funLocDatabase!;
-    _funLocDatabase = await _openAssetDatabase('fun_loc_data.db', _copyFunLocDatabaseFromAssets);
-    return _funLocDatabase!;
+  // The big asset databases are opened once; concurrent callers share the same
+  // opening (two callers copying / re-copying the same file at once corrupts
+  // it or moves it under an open connection: SQLITE_READONLY_DBMOVED).
+  Future<Database>? _funLocOpening;
+  Future<Database>? _equipmentOpening;
+  Future<Database>? _userOpening;
+  Future<Database>? _plantOpening;
+
+  Future<Database> get funLocDatabase =>
+      _funLocDatabase != null
+          ? Future.value(_funLocDatabase!)
+          : (_funLocOpening ??= _openFunLocDatabase());
+
+  Future<Database> _openFunLocDatabase() async {
+    try {
+      await _recopyAssetOnce('fun_loc_data.db', 'master_repair_funloc_v2');
+      final db = await _openAssetDatabase('fun_loc_data.db', _copyFunLocDatabaseFromAssets);
+      await _ensureMasterIndexes(db, const [
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_fl_id ON {t}(FuncLocId)',
+        'CREATE INDEX IF NOT EXISTS idx_fl_wc_loc ON {t}(WorkCenter, Location, PlanningPlant)',
+        'CREATE INDEX IF NOT EXISTS idx_fl_loc ON {t}(Location, PlanningPlant)',
+      ]);
+      _funLocDatabase = db;
+      return db;
+    } finally {
+      _funLocOpening = null;
+    }
   }
 
-  Future<Database> get equipmentDatabase async {
-    if (_equipmentDatabase != null) return _equipmentDatabase!;
-    _equipmentDatabase = await _openAssetDatabase('equipment_data.db', _copyEquipmentDatabaseFromAssets);
-    return _equipmentDatabase!;
+  Future<Database> get equipmentDatabase =>
+      _equipmentDatabase != null
+          ? Future.value(_equipmentDatabase!)
+          : (_equipmentOpening ??= _openEquipmentDatabase());
+
+  Future<Database> _openEquipmentDatabase() async {
+    try {
+      await _recopyAssetOnce('equipment_data.db', 'master_repair_equipment_v2');
+      final db = await _openAssetDatabase('equipment_data.db', _copyEquipmentDatabaseFromAssets);
+      await _ensureMasterIndexes(db, const [
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_eq_id ON {t}(EquipId)',
+        'CREATE INDEX IF NOT EXISTS idx_eq_wc_loc ON {t}(WorkCenter, Location, PlanningPlant)',
+        'CREATE INDEX IF NOT EXISTS idx_eq_loc ON {t}(Location, PlanningPlant)',
+        'CREATE INDEX IF NOT EXISTS idx_eq_fl ON {t}(FunctionalLocation)',
+      ]);
+      _equipmentDatabase = db;
+      return db;
+    } finally {
+      _equipmentOpening = null;
+    }
+  }
+
+  Future<Database> get plantDatabase =>
+      _plantDatabase != null
+          ? Future.value(_plantDatabase!)
+          : (_plantOpening ??= _openPlantDatabase());
+
+  Future<Database> _openPlantDatabase() async {
+    try {
+      final db = await _openAssetDatabase('plant_data.db', _copyPlantDatabaseFromAssets);
+      _plantDatabase = db;
+      return db;
+    } finally {
+      _plantOpening = null;
+    }
+  }
+
+  Future<void> _copyPlantDatabaseFromAssets(String targetPath) async {
+    try {
+      final byteData = await rootBundle.load('assets/plant_id.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      await File(targetPath).writeAsBytes(bytes, flush: true);
+    } catch (e) {
+      debugPrint("_copyPlantDatabaseFromAssets: Error copying plant_id.db: $e");
+    }
+  }
+
+  /// Deletes the local copy of an asset database once, so it is copied fresh
+  /// from the bundled asset. Repairs copies whose system / sub system values
+  /// were wiped by an earlier sync (the next open re-copies the asset).
+  Future<void> _recopyAssetOnce(String dbName, String prefKey) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(prefKey) ?? false) return;
+      final path = join(await getDatabasesPath(), dbName);
+      final file = File(path);
+      if (await file.exists()) await file.delete();
+      await prefs.setBool(prefKey, true);
+    } catch (e) {
+      debugPrint('_recopyAssetOnce($dbName) error: $e');
+    }
+  }
+
+  /// Indexes the big asset tables so the dropdown filters (work center,
+  /// location, plant, functional location) do not scan every row. `{t}` is
+  /// replaced by the quoted name of the database's table.
+  Future<void> _ensureMasterIndexes(Database db, List<String> templates) async {
+    try {
+      final table = await _firstUserTable(db);
+      if (table == null) return;
+      for (final t in templates) {
+        await db.execute(t.replaceAll('{t}', '"$table"'));
+      }
+    } catch (e) {
+      debugPrint('_ensureMasterIndexes error: $e');
+    }
+  }
+
+  Future<String?> _firstUserTable(Database db) async {
+    final tables = await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table' "
+        "AND name NOT IN ('android_metadata','sqlite_sequence') ORDER BY name");
+    return tables.isEmpty ? null : tables.first['name'] as String;
   }
 
   Future<Database> get locationDatabase async {
@@ -111,10 +221,22 @@ class LocalDatabaseService {
     return _priorityDatabase!;
   }
 
-  Future<Database> get userDatabase async {
-    if (_userDatabase != null) return _userDatabase!;
-    _userDatabase = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
-    return _userDatabase!;
+  Future<Database> get userDatabase =>
+      _userDatabase != null
+          ? Future.value(_userDatabase!)
+          : (_userOpening ??= _openUserDatabase());
+
+  Future<Database> _openUserDatabase() async {
+    try {
+      final db = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
+      await _ensureMasterIndexes(db, const [
+        'CREATE INDEX IF NOT EXISTS idx_um_role_ba_dept ON {t}(RoleId, BusinessArea, DeptId)',
+      ]);
+      _userDatabase = db;
+      return db;
+    } finally {
+      _userOpening = null;
+    }
   }
 
   Future<Database> get failureCategoryDatabase async {
@@ -231,7 +353,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 18,
+      version: 19,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -846,6 +968,10 @@ class LocalDatabaseService {
         )
       ''');
     }
+    if (oldVersion < 19) {
+      // Station failure list cache (GetAllFailuresTransactionData)
+      await _createFailureTables(db);
+    }
   }
 
   Future<void> _ensureDepartmentsSchema(Database db) async {
@@ -960,6 +1086,14 @@ class LocalDatabaseService {
   }
 
   Future<void> _createFailureTables(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS StationFailureCache (
+        id INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        lastSyncedAt TEXT
+      )
+    ''');
     await db.execute('''
       CREATE TABLE IF NOT EXISTS FailureList (
         id INTEGER PRIMARY KEY,
@@ -2545,7 +2679,8 @@ class LocalDatabaseService {
 
     for (var failure in failures) {
       final data = Map<String, dynamic>.from(failure);
-      data['syncStatus'] = 'online';
+      final givenStatus = data['syncStatus']?.toString() ?? '';
+      data['syncStatus'] = givenStatus.isEmpty ? 'online' : givenStatus;
       data['lastSyncedAt'] = DateTime.now().toIso8601String();
       data['failureType'] = failureType;
 
@@ -2791,35 +2926,9 @@ class LocalDatabaseService {
     await batch.commit(noResult: true);
   }
 
-  /// Update users from API sync
-  Future<void> updateUsersFromAPI(List<dynamic> users) async {
-    final db = await database;
-    final batch = db.batch();
-
-    for (var user in users) {
-      batch.insert(
-        'MasterUsers',
-        {
-          'userId': user['userId'],
-          'userName': user['userName'],
-          'firstName': user['firstName'],
-          'lastName': user['lastName'],
-          'emailId': user['emailId'],
-          'empCode': user['empCode'],
-          'deptId': user['deptId'],
-          'deptName': user['deptName'],
-          'roleId': user['roleId'],
-          'roleDescr': user['roleDescr'],
-          'businessArea': user['businessArea'],
-          'designationID': user['designationID'],
-          'designationName': user['designationName'],
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
-
-    await batch.commit(noResult: true);
-  }
+  // Users from the API sync are saved by upsertUsersToMaster (UserMaster.db).
+  // The old updateUsersFromAPI inserted into the small MasterUsers table with
+  // columns it does not have, which failed the whole master data sync.
 
   /// Update materials from API sync
   Future<void> updateMaterialsFromAPI(List<dynamic> materials) async {
@@ -3614,5 +3723,736 @@ class LocalDatabaseService {
       debugPrint('getFailureCategoryTypes error: $e');
       return [];
     }
+  }
+
+  // ===========================================================================
+  // FAILURE FORM DROPDOWNS (offline) - functional location / equipment
+  // Mirrors the online stored procedure (GetFunctionLocEquipmentNo...):
+  //   dept + location  : WorkCenter, Location, Plant
+  //   dept only        : WorkCenter, Plant
+  //   location only    : Location, Plant, WorkCenter in the user's departments
+  //   neither          : Plant, WorkCenter in the user's departments
+  // Functional location also needs Status != 'Deletion Flag', and for business
+  // area 1200 with work center SIG / AFC only 29 character codes are listed.
+  // ===========================================================================
+
+  final Map<int, List<int>> _plantsByBusinessArea = {};
+
+  Future<List<int>> _plantsFor(int businessArea) async {
+    final cached = _plantsByBusinessArea[businessArea];
+    if (cached != null) return cached;
+    var plants = <int>[];
+    try {
+      final db = await plantDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DISTINCT Plant FROM plantMAster WHERE BusinessArea = ?',
+          [businessArea]);
+      plants = rows
+          .map((r) => int.tryParse('${r['Plant']}') ?? 0)
+          .where((p) => p > 0)
+          .toList();
+    } catch (e) {
+      debugPrint('_plantsFor: plant table unavailable: $e');
+    }
+    if (plants.isEmpty) {
+      // Fallback: the plants used by that business area's functional locations.
+      try {
+        final db = await funLocDatabase;
+        final t = await _firstUserTable(db);
+        if (t != null) {
+          final rows = await db.rawQuery(
+              'SELECT DISTINCT PlanningPlant AS p FROM "$t" WHERE BusinessArea = ?',
+              [businessArea]);
+          plants = rows
+              .map((r) => int.tryParse('${r['p']}') ?? 0)
+              .where((p) => p > 0)
+              .toList();
+        }
+      } catch (e) {
+        debugPrint('_plantsFor fallback error: $e');
+      }
+    }
+    if (plants.isNotEmpty) _plantsByBusinessArea[businessArea] = plants;
+    return plants;
+  }
+
+  Future<String?> getDeptCodeById(int deptId) async {
+    try {
+      final db = await deptDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DeptCode FROM deptMaster WHERE DeptId = ? LIMIT 1', [deptId]);
+      return rows.isEmpty ? null : rows.first['DeptCode']?.toString();
+    } catch (e) {
+      debugPrint('getDeptCodeById error: $e');
+      return null;
+    }
+  }
+
+  Future<List<String>> getDeptCodesByIds(Iterable<int> deptIds) async {
+    final codes = <String>{};
+    for (final id in deptIds) {
+      final c = await getDeptCodeById(id);
+      if (c != null && c.trim().isNotEmpty) codes.add(c.trim());
+    }
+    return codes.toList();
+  }
+
+  Future<String?> getLocationCodeById(int locationTypeId) async {
+    try {
+      final db = await locationDatabase;
+      final rows = await db.rawQuery(
+          'SELECT LocationTypeCode FROM locationMaster WHERE LocationTypeId = ? LIMIT 1',
+          [locationTypeId]);
+      return rows.isEmpty ? null : rows.first['LocationTypeCode']?.toString();
+    } catch (e) {
+      debugPrint('getLocationCodeById error: $e');
+      return null;
+    }
+  }
+
+  String _inList(Iterable<Object> values, List<Object?> args) {
+    final list = values.toList();
+    args.addAll(list);
+    return '(${List.filled(list.length, '?').join(',')})';
+  }
+
+  /// Functional locations for the failure form.
+  /// Rows: FuncLocId, FuncLocation, FuncDescription, TechObjectType (system),
+  /// SubSystem, WorkCenter, Location.
+  Future<List<Map<String, dynamic>>> queryFailureFunctionalLocations({
+    required int businessArea,
+    List<String> workCenters = const [],
+    String? locationCode,
+    List<String> userWorkCenters = const [],
+  }) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final plants = await _plantsFor(businessArea);
+      if (plants.isEmpty) return [];
+
+      final wcs = workCenters.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+      final loc = (locationCode ?? '').trim();
+      final args = <Object?>[];
+      final where = <String>[
+        "Status NOT IN ('Deletion Flag')",
+        'PlanningPlant IN ${_inList(plants, args)}',
+      ];
+
+      if (wcs.isNotEmpty) {
+        where.add('WorkCenter IN ${_inList(wcs, args)}');
+        if (loc.isNotEmpty) {
+          where.add('Location = ?');
+          args.add(loc);
+        }
+        // SIG / AFC at business area 1200 list only 29 character codes.
+        if (businessArea == 1200 &&
+            wcs.any((w) => w.toUpperCase() == 'SIG' || w.toUpperCase() == 'AFC')) {
+          where.add(
+              "(WorkCenter NOT IN ('SIG','AFC') OR length(FuncLocation) = 29)");
+        }
+      } else {
+        if (userWorkCenters.isEmpty) return [];
+        where.add('WorkCenter IN ${_inList(userWorkCenters, args)}');
+        if (loc.isNotEmpty) {
+          where.add('Location = ?');
+          args.add(loc);
+        } else if (businessArea == 1200) {
+          // Neither department nor location chosen: apply the code length rule.
+          where.add(
+              "(WorkCenter NOT IN ('SIG','AFC') OR length(FuncLocation) = 29)");
+        }
+      }
+
+      return await db.rawQuery(
+          'SELECT FuncLocId, FuncLocation, FuncDescription, TechObjectType, '
+          'SubSystem, WorkCenter, Location FROM "$t" '
+          'WHERE ${where.join(' AND ')} ORDER BY FuncLocation',
+          args);
+    } catch (e) {
+      debugPrint('queryFailureFunctionalLocations error: $e');
+      return [];
+    }
+  }
+
+  /// One functional location (system / sub system come from this row).
+  Future<Map<String, dynamic>?> getFailureFunctionalLocationRow(
+      int funcLocId) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return null;
+      final rows = await db.rawQuery(
+          'SELECT FuncLocId, FuncLocation, FuncDescription, TechObjectType, '
+          'SubSystem, WorkCenter, Location FROM "$t" WHERE FuncLocId = ? LIMIT 1',
+          [funcLocId]);
+      return rows.isEmpty ? null : rows.first;
+    } catch (e) {
+      debugPrint('getFailureFunctionalLocationRow error: $e');
+      return null;
+    }
+  }
+
+  /// Equipment for the failure form. With [funcLocCode] the list is that
+  /// functional location's equipment; otherwise it follows the same
+  /// department / location rules as the functional location list.
+  /// Rows: EquipId, EquipNo, EquipDesc, FunctionalLocation.
+  Future<List<Map<String, dynamic>>> queryFailureEquipments({
+    required int businessArea,
+    String? funcLocCode,
+    List<String> workCenters = const [],
+    String? locationCode,
+    List<String> userWorkCenters = const [],
+  }) async {
+    try {
+      final db = await equipmentDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final args = <Object?>[];
+      final where = <String>[];
+
+      final fl = (funcLocCode ?? '').trim();
+      if (fl.isNotEmpty) {
+        where.add('FunctionalLocation = ?');
+        args.add(fl);
+      } else {
+        final plants = await _plantsFor(businessArea);
+        if (plants.isEmpty) return [];
+        where.add('PlanningPlant IN ${_inList(plants, args)}');
+        final wcs = workCenters.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+        final loc = (locationCode ?? '').trim();
+        if (wcs.isNotEmpty) {
+          where.add('WorkCenter IN ${_inList(wcs, args)}');
+          if (loc.isNotEmpty) {
+            where.add('Location = ?');
+            args.add(loc);
+          }
+        } else {
+          if (userWorkCenters.isEmpty) return [];
+          where.add('WorkCenter IN ${_inList(userWorkCenters, args)}');
+          if (loc.isNotEmpty) {
+            where.add('Location = ?');
+            args.add(loc);
+          }
+        }
+      }
+
+      return await db.rawQuery(
+          'SELECT EquipId, EquipNo, EquipDesc, FunctionalLocation FROM "$t" '
+          'WHERE ${where.join(' AND ')} ORDER BY EquipNo',
+          args);
+    } catch (e) {
+      debugPrint('queryFailureEquipments error: $e');
+      return [];
+    }
+  }
+
+  /// Failure category type options for the failure forms, from the bundled
+  /// failure_categorytype.db: active rows only, in OrderNo order.
+  /// Rows: ID (value), FailureCategoryType (label).
+  Future<List<Map<String, dynamic>>> getFailureCategoryTypeOptions() async {
+    try {
+      final db = await failureCategoryDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      return await db.rawQuery(
+          'SELECT ID, FailureCategoryType FROM "$t" '
+          'WHERE IsActive = 1 ORDER BY OrderNo, ID');
+    } catch (e) {
+      debugPrint('getFailureCategoryTypeOptions error: $e');
+      return [];
+    }
+  }
+
+  /// Junior Engineers of a department in the user's business area (role id 4),
+  /// from the bundled UserMaster.db. Used for Person Responsible when a
+  /// Section Incharge creates or edits a failure.
+  /// Returns {UserId, UserName (the display label, "Mr.Name - EmpCode")}.
+  Future<List<Map<String, dynamic>>> getJuniorEngineersForDepartment({
+    required int deptId,
+    int? businessArea,
+  }) async {
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final args = <Object?>[4, deptId];
+      var ba = '';
+      if (businessArea != null) {
+        ba = ' AND BusinessArea = ?';
+        args.add(businessArea);
+      }
+      final rows = await db.rawQuery(
+          'SELECT DISTINCT UserId, UserName, Initial, FirstName, LastName, EmpCode '
+          'FROM "$t" WHERE RoleId = ? AND DeptId = ?$ba ORDER BY UserName',
+          args);
+      final seen = <int>{};
+      final out = <Map<String, dynamic>>[];
+      for (final r in rows) {
+        final id = int.tryParse('${r['UserId']}');
+        if (id == null || id <= 0 || !seen.add(id)) continue;
+        var label = _cleanMasterText(r['UserName']);
+        if (label.isEmpty) {
+          final first = _cleanMasterText(r['FirstName']);
+          final last = _cleanMasterText(r['LastName']);
+          final initial = _cleanMasterText(r['Initial']);
+          final emp = _cleanMasterText(r['EmpCode']);
+          label = '${initial.isEmpty ? '' : '$initial.'}$first${last.isEmpty ? '' : ' $last'}'
+              '${emp.isEmpty ? '' : ' - $emp'}';
+        }
+        if (label.trim().isEmpty) continue;
+        out.add({'UserId': id, 'UserName': label.trim()});
+      }
+      return out;
+    } catch (e) {
+      debugPrint('getJuniorEngineersForDepartment error: $e');
+      return [];
+    }
+  }
+
+  /// The master data stores a missing system / sub system as the text 'NULL'.
+  String _cleanMasterText(dynamic v) {
+    final s = v?.toString().trim() ?? '';
+    return s.toUpperCase() == 'NULL' ? '' : s;
+  }
+
+  final Map<String, List<Map<String, dynamic>>> _systemPairsCache = {};
+
+  /// System / sub system choices for a chosen functional location.
+  /// - Both known on the row: that single pair (filled in automatically).
+  /// - Only the system known: the sub systems used with that system in the
+  ///   same work center.
+  /// - Neither known (about 1 in 5 rows): every system / sub system of the
+  ///   row's work center, so the user can pick them.
+  /// Pairs are {system, subSystem}.
+  Future<List<Map<String, dynamic>>> getFailureSystemPairsForFunctionalLocation(
+      int funcLocId, {required int businessArea}) async {
+    final row = await getFailureFunctionalLocationRow(funcLocId);
+    if (row == null) return [];
+    final system = _cleanMasterText(row['TechObjectType']);
+    final sub = _cleanMasterText(row['SubSystem']);
+    if (system.isNotEmpty && sub.isNotEmpty) {
+      return [
+        {'system': system, 'subSystem': sub}
+      ];
+    }
+
+    final wc = _cleanMasterText(row['WorkCenter']);
+    final cacheKey = '$businessArea|$wc';
+    var grouped = _systemPairsCache[cacheKey];
+    if (grouped == null) {
+      grouped = await getFailureSystemSubsystems(
+          businessArea: businessArea, workCenter: wc.isEmpty ? null : wc);
+      _systemPairsCache[cacheKey] = grouped;
+    }
+
+    final pairs = <Map<String, dynamic>>[];
+    for (final g in grouped) {
+      final s = g['system']?.toString() ?? '';
+      if (system.isNotEmpty && s != system) continue;
+      for (final ss in (g['subSystem'] as List)) {
+        pairs.add({'system': s, 'subSystem': ss.toString()});
+      }
+      if ((g['subSystem'] as List).isEmpty) {
+        pairs.add({'system': s, 'subSystem': ''});
+      }
+    }
+    if (pairs.isEmpty && system.isNotEmpty) {
+      pairs.add({'system': system, 'subSystem': sub});
+    }
+    return pairs;
+  }
+
+  /// System -> sub systems for a department (OCC role picks them freely).
+  /// Same row shape as the API: [{system, subSystem: [..]}].
+  Future<List<Map<String, dynamic>>> getFailureSystemSubsystems({
+    required int businessArea,
+    String? workCenter,
+  }) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final plants = await _plantsFor(businessArea);
+      if (plants.isEmpty) return [];
+      final args = <Object?>[];
+      final where = <String>[
+        "Status NOT IN ('Deletion Flag')",
+        'PlanningPlant IN ${_inList(plants, args)}',
+        "TechObjectType IS NOT NULL AND TechObjectType NOT IN ('', 'NULL')",
+      ];
+      final wc = (workCenter ?? '').trim();
+      if (wc.isNotEmpty) {
+        where.add('WorkCenter = ?');
+        args.add(wc);
+      }
+      final rows = await db.rawQuery(
+          'SELECT DISTINCT TechObjectType AS system, SubSystem AS sub FROM "$t" '
+          'WHERE ${where.join(' AND ')} ORDER BY 1, 2',
+          args);
+      final grouped = <String, List<String>>{};
+      for (final r in rows) {
+        final sys = r['system']?.toString().trim() ?? '';
+        if (sys.isEmpty) continue;
+        final list = grouped.putIfAbsent(sys, () => <String>[]);
+        final sub = _cleanMasterText(r['sub']);
+        if (sub.isNotEmpty) list.add(sub);
+      }
+      return grouped.entries
+          .map((e) => <String, dynamic>{'system': e.key, 'subSystem': e.value})
+          .toList();
+    } catch (e) {
+      debugPrint('getFailureSystemSubsystems error: $e');
+      return [];
+    }
+  }
+
+  /// Date of the data that shipped in the asset databases (older of the two
+  /// newest UpdatedOn values, minus a day). The first delta sync starts from
+  /// here so nothing changed after the export is missed.
+  Future<String?> getMasterBaselineDate() async {
+    try {
+      final dates = <String>[];
+      for (final db in [await funLocDatabase, await equipmentDatabase]) {
+        final t = await _firstUserTable(db);
+        if (t == null) continue;
+        final rows = await db.rawQuery(
+            "SELECT MAX(UpdatedOn) AS m FROM \"$t\" WHERE UpdatedOn LIKE '20__-__-__%'");
+        final m = rows.isEmpty ? null : rows.first['m']?.toString();
+        if (m != null && m.length >= 10) dates.add(m.substring(0, 10));
+      }
+      if (dates.isEmpty) return null;
+      dates.sort();
+      final oldest = DateTime.tryParse(dates.first);
+      if (oldest == null) return null;
+      final d = oldest.subtract(const Duration(days: 1));
+      return '${d.year.toString().padLeft(4, '0')}-'
+          '${d.month.toString().padLeft(2, '0')}-'
+          '${d.day.toString().padLeft(2, '0')}';
+    } catch (e) {
+      debugPrint('getMasterBaselineDate error: $e');
+      return null;
+    }
+  }
+
+  /// Runs a write on an asset database; if SQLite says the file was moved or is
+  /// read-only (the file was replaced under the open connection), drops the
+  /// stale connection and retries once on a fresh one.
+  Future<void> _retryIfDbMoved(
+      Future<void> Function() action, Future<void> Function() reset) async {
+    try {
+      await action();
+    } on DatabaseException catch (e) {
+      final m = e.toString().toLowerCase();
+      if (!m.contains('readonly') && !m.contains('dbmoved')) rethrow;
+      debugPrint('Asset database was moved, reopening and retrying: $e');
+      await reset();
+      await action();
+    }
+  }
+
+  /// True for values the sync must not write over existing data: null or blank.
+  bool _isBlankSyncValue(Object? v) => v == null || (v is String && v.trim().isEmpty);
+
+  /// Inserts new rows and, for rows that already exist, updates only the
+  /// columns the API actually sent. (The API rows omit system, sub system,
+  /// business area ...; INSERT OR REPLACE would have wiped them locally.)
+  Future<void> _mergeMasterRows(
+    Database db,
+    String table,
+    String keyColumn,
+    List<Map<String, Object?>> inserts,
+    List<Map<String, Object?>> updates, {
+    void Function(int done, int total)? onProgress,
+  }) async {
+    // Written in chunks (one transaction each) so a large sync reports
+    // progress and lets the UI breathe instead of looking stuck.
+    const chunk = 2000;
+    for (var start = 0; start < inserts.length; start += chunk) {
+      final end = (start + chunk < inserts.length) ? start + chunk : inserts.length;
+      final batch = db.batch();
+      for (var i = start; i < end; i++) {
+        final key = inserts[i][keyColumn];
+        if (key == null) continue;
+        batch.insert('"$table"', inserts[i],
+            conflictAlgorithm: ConflictAlgorithm.ignore);
+        final changed = Map<String, Object?>.from(updates[i])
+          ..removeWhere((k, v) => k == keyColumn || _isBlankSyncValue(v));
+        if (changed.isNotEmpty) {
+          batch.update('"$table"', changed,
+              where: '$keyColumn = ?', whereArgs: [key]);
+        }
+      }
+      await batch.commit(noResult: true);
+      onProgress?.call(end, inserts.length);
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
+  /// Merges functional locations from the API sync into the table the
+  /// dropdowns read. New rows get status 'Created' when the API sends none
+  /// (a NULL status is filtered out by the Deletion Flag check); existing
+  /// rows keep every value the API did not send.
+  Future<void> upsertFunctionalLocationsToMaster(List<dynamic> rows,
+      {void Function(int done, int total)? onProgress}) =>
+      _retryIfDbMoved(
+          () => _upsertFunctionalLocationsToMasterOnce(rows, onProgress: onProgress),
+          () async {
+            try {
+              await _funLocDatabase?.close();
+            } catch (_) {}
+            _funLocDatabase = null;
+          });
+
+  Future<void> _upsertFunctionalLocationsToMasterOnce(List<dynamic> rows,
+      {void Function(int done, int total)? onProgress}) async {
+    final db = await funLocDatabase;
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    final now = DateTime.now().toIso8601String();
+    final inserts = <Map<String, Object?>>[];
+    final updates = <Map<String, Object?>>[];
+    for (final r in rows) {
+      if (r is! Map) continue;
+      final code = r['funcLocation']?.toString() ?? '';
+      final desc = r['funcDescription']?.toString() ?? '';
+      final sent = <String, Object?>{
+        'FuncLocId': r['funcLocId'],
+        'FuncLocation': code,
+        'FuncDescription': desc,
+        'FuncLocationName': r['funcLocationName'],
+        'ObjectNumber': r['objectNumber'],
+        'PlanningPlant': r['planningPlant'],
+        'MaintenancePlant': r['maintenancePlant'],
+        'Room': r['room'],
+        'TechObjectType': r['techObjectType'] ?? r['system'],
+        'ObjectKey': r['objectKey'],
+        'SubSystem': r['subSystem'],
+        'BusinessArea': r['businessArea'],
+        'WorkCenter': r['workCenter'],
+        'Location': r['location'],
+        'CreatedOn': r['createdOn'],
+        'UpdatedOn': r['updatedOn'],
+        'Status': r['status'],
+      };
+      updates.add(sent);
+      inserts.add({
+        ...sent,
+        'FuncLocationName': sent['FuncLocationName'] ??
+            (desc.isEmpty ? code : '$code - $desc'),
+        'MaintenancePlant': sent['MaintenancePlant'] ?? sent['PlanningPlant'],
+        'ObjectKey': sent['ObjectKey'] ?? code,
+        'UpdatedOn': sent['UpdatedOn'] ?? now,
+        'Status': _isBlankSyncValue(sent['Status']) ? 'Created' : sent['Status'],
+      });
+    }
+    await _mergeMasterRows(db, t, 'FuncLocId', inserts, updates,
+        onProgress: onProgress);
+  }
+
+  /// Writes the users from the API sync into UserMaster.db (the table Person
+  /// Responsible reads), so a newly added Junior Engineer shows up. UserMaster
+  /// has one row per user / role / department / business area (and exact
+  /// duplicates), so for every API row the old rows with that key are removed
+  /// and one fresh row is inserted. Users the API does not send stay as they are.
+  Future<void> upsertUsersToMaster(List<dynamic> rows,
+      {void Function(int done, int total)? onProgress}) =>
+      _retryIfDbMoved(
+          () => _upsertUsersToMasterOnce(rows, onProgress: onProgress),
+          () async {
+            try {
+              await _userDatabase?.close();
+            } catch (_) {}
+            _userDatabase = null;
+          });
+
+  Future<void> _upsertUsersToMasterOnce(List<dynamic> rows,
+      {void Function(int done, int total)? onProgress}) async {
+    final db = await userDatabase;
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    final now = DateTime.now().toIso8601String();
+    const chunk = 1000;
+    for (var start = 0; start < rows.length; start += chunk) {
+      final end = (start + chunk < rows.length) ? start + chunk : rows.length;
+      final batch = db.batch();
+      for (var i = start; i < end; i++) {
+        final r = rows[i];
+        if (r is! Map) continue;
+        final userId = int.tryParse('${r['userId']}');
+        if (userId == null || userId <= 0) continue;
+        final first = _cleanMasterText(r['firstName']);
+        final last = _cleanMasterText(r['lastName']);
+        final initial = _cleanMasterText(r['initial']);
+        final emp = _cleanMasterText(r['empCode']);
+        var userName = _cleanMasterText(r['userName']);
+        if (userName.isEmpty) {
+          userName = '${initial.isEmpty ? '' : '$initial.'}$first'
+              '${last.isEmpty ? '' : ' $last'}${emp.isEmpty ? '' : ' - $emp'}'
+              .trim();
+        }
+        final roleId = r['roleId'];
+        final deptId = r['deptId'];
+        final ba = r['businessArea'];
+        batch.delete('"$t"',
+            where: 'UserId = ? AND RoleId IS ? AND DeptId IS ? AND BusinessArea IS ?',
+            whereArgs: [userId, roleId, deptId, ba]);
+        batch.insert('"$t"', {
+          'UserId': userId,
+          'Initial': r['initial'],
+          'FirstName': r['firstName'],
+          'LastName': r['lastName'],
+          'EmailId': r['emailId'],
+          'EmpCode': r['empCode'],
+          'UserName': userName,
+          'DeptId': deptId,
+          'DeptName': r['deptName'],
+          'RoleId': roleId,
+          'RoleDescr': r['roleDescr'],
+          'BusinessArea': ba,
+          'DesignationID': r['designationID'],
+          'DesignationName': r['designationName'],
+          'UpdatedOn': r['updatedOn'] ?? now,
+        });
+      }
+      await batch.commit(noResult: true);
+      onProgress?.call(end, rows.length);
+      await Future<void>.delayed(Duration.zero);
+    }
+  }
+
+  /// Merges equipment from the API sync into the equipment dropdown table.
+  Future<void> upsertEquipmentsToMaster(List<dynamic> rows,
+      {void Function(int done, int total)? onProgress}) =>
+      _retryIfDbMoved(
+          () => _upsertEquipmentsToMasterOnce(rows, onProgress: onProgress),
+          () async {
+            try {
+              await _equipmentDatabase?.close();
+            } catch (_) {}
+            _equipmentDatabase = null;
+          });
+
+  Future<void> _upsertEquipmentsToMasterOnce(List<dynamic> rows,
+      {void Function(int done, int total)? onProgress}) async {
+    final db = await equipmentDatabase;
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    final now = DateTime.now().toIso8601String();
+    final inserts = <Map<String, Object?>>[];
+    final updates = <Map<String, Object?>>[];
+    for (final r in rows) {
+      if (r is! Map) continue;
+      final sent = <String, Object?>{
+        'EquipId': r['equipId'],
+        'EquipNo': r['equipNo'],
+        'EquipDesc': r['equipDesc'],
+        'ObjectNo': r['objectNo'],
+        'EquipStatus': r['equipStatus'],
+        'PlanningPlant': r['planningPlant'],
+        'WorkCenter': r['workCenter'],
+        'MaintenancePlant': r['maintenancePlant'],
+        'Location': r['location'],
+        'FunctionalLocation': r['functionalLocation'],
+        'Room': r['room'],
+        'Status': r['status'],
+        'CreatedOn': r['createdOn'],
+        'UpdatedOn': r['updatedOn'],
+      };
+      updates.add(sent);
+      inserts.add({
+        ...sent,
+        'MaintenancePlant': sent['MaintenancePlant'] ?? sent['PlanningPlant'],
+        'UpdatedOn': sent['UpdatedOn'] ?? now,
+      });
+    }
+    await _mergeMasterRows(db, t, 'EquipId', inserts, updates,
+        onProgress: onProgress);
+  }
+
+  // ===========================================================================
+  // Station failure list cache (GetAllFailuresTransactionData, stationFailures)
+  // Each row keeps the whole record: {failure, documents, history, assignments}.
+  // ===========================================================================
+
+  Future<String?> getAppSetting(String key) async {
+    final db = await database;
+    final rows = await db.rawQuery('SELECT value FROM AppSettings WHERE key = ?', [key]);
+    return rows.isEmpty ? null : rows.first['value']?.toString();
+  }
+
+  Future<void> setAppSetting(String key, String value) async {
+    final db = await database;
+    await db.rawInsert(
+        'INSERT OR REPLACE INTO AppSettings (key, value) VALUES (?, ?)', [key, value]);
+  }
+
+  /// Replaces the whole cache (full sync).
+  Future<void> replaceStationFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('StationFailureCache');
+      await _insertStationRecords(txn, records);
+    });
+  }
+
+  /// Adds / updates only the given records (incremental sync).
+  Future<void> upsertStationFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertStationRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertStationRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['failure'];
+      final id = f is Map ? int.tryParse('${f['id']}') : null;
+      if (id == null) continue;
+      batch.insert(
+        'StationFailureCache',
+        {
+          'id': id,
+          'notificationCode': f['notificationCode']?.toString(),
+          'payload': jsonEncode(r),
+          'lastSyncedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<List<Map<String, dynamic>>> getStationFailureCache() async {
+    final db = await database;
+    final rows = await db.query('StationFailureCache', orderBy: 'id DESC');
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        out.add(Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map));
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> getStationFailureCacheRow(int id) async {
+    final db = await database;
+    final rows = await db.query('StationFailureCache',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearStationFailureCache() async {
+    final db = await database;
+    await db.delete('StationFailureCache');
   }
 }

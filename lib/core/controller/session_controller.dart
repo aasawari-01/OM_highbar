@@ -61,6 +61,9 @@ class SessionController extends GetxController {
   static bool isOccFailureCreatorRole(String roleName) =>
       roleName.toUpperCase().contains('CHIEF CONTROLLER');
 
+  static bool isInspectionJERole(String roleName) =>
+      roleName.toLowerCase().contains('inspection junior engineer');
+
   /// Roles an OCC failure can be "Reported To" besides OCC itself. They update
   /// the failure after OCC has created it (OCC then cannot edit it).
   static bool isOccDelegateRole(String roleName) {

@@ -38,14 +38,16 @@ class SyncIconButton extends StatelessWidget {
               debugPrint("Error finding station failure controller: $e");
             }
           } else {
-            final syncService = MasterDataSyncService();
+            final syncService = Get.find<MasterDataSyncService>();
             if (failureType != null) {
               syncService.syncFailureList(failureType!);
+              // Also sync pending submissions
+              syncService.syncPendingSubmissions();
             } else {
-              syncService.syncMasterData();
+              // Dashboard / create screens: same as the login sync - changed
+              // master data since the last sync date, then pending submissions.
+              syncService.syncMasterAndPending();
             }
-            // Also sync pending submissions
-            syncService.syncPendingSubmissions();
           }
         },
       ),

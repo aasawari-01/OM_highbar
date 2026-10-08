@@ -40,6 +40,7 @@ class AppUrls {
   /// FMC user's OCC failure inbox (same call the web inbox makes).
   static const String getOccFailureInbox = 'OCCMaintainance/getFailureList';
   static const String getStationFailureCreationById = 'OCCMaintainance/getStationFailureCreationById';
+  static const String getAllFailuresTransactionData = 'mobileAppAPI/GetAllFailuresTransactionData';
   static const String getStationFailureList = 'OCCMaintainance/getStationFailureList';
   static const String getStationFailureListWithData = 'mobileAppAPI/GetStationFailureListWithData';
   static const String insertChangeDepartmentFailure = 'OCCMaintainance/insertChangeDepartmentFailure';
@@ -79,5 +80,9 @@ class AppUrls {
   static const String editNotificationDetails =
       'CorrectiveNotification/editNotificationDetails';
   static const String createNotificationDetails = 'CorrectiveNotification/createNotificationDetails';
-
+  static const String getJEInspectionList = 'Inspection/getJEInspectionList';
+  static const String saveCommonInspectionCheckListData = 'Inspection/SaveCommonInspectionCheckListData';
+  static const String updateIsSavedCommonInspection = 'Inspection/UpdateIsSavedCommonInspection';
+  static const String getCommonInspection = 'Inspection/GetCommonInspection';
+  static const String skipInspectionById = 'Inspection/SkipInspectionById';
 }

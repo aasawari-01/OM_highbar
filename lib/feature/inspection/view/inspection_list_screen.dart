@@ -10,6 +10,7 @@ import '../../../core/controller/session_controller.dart';
 import 'inspection_detail_screen.dart';
 import 'inspection_screen.dart';
 import 'common_inspection_checklist_screen.dart';
+import 'je_inspection_list_screen.dart';
 
 class InspectionListScreen extends StatelessWidget {
   const InspectionListScreen({super.key});
@@ -43,6 +44,11 @@ class InspectionListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Inspection Junior Engineer gets the API-backed JE inspection list.
+    final role = Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
+    if (SessionController.isInspectionJERole(role)) {
+      return const JEInspectionListScreen();
+    }
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
@@ -97,7 +103,10 @@ class InspectionListScreen extends StatelessWidget {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: SessionController.isInspectionJERole(
+              Get.find<SessionController>().selectedRole.value?.roleDescr ?? '')
+          ? null
+          : FloatingActionButton(
         backgroundColor: AppColors.orangeColor,
         elevation: 4,
         shape: const CircleBorder(),

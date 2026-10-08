@@ -15,6 +15,7 @@ import '../../../../utils/responsive_helper.dart';
 import '../../../../utils/widgets/cust_button.dart';
 import '../../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../../utils/widgets/cust_dropdown.dart';
+import '../../../../utils/widgets/cust_multi_dropdown.dart';
 import '../../../../utils/widgets/cust_loader.dart';
 import '../../../../utils/widgets/cust_popup.dart';
 import '../../../../utils/widgets/cust_section.dart';
@@ -932,6 +933,30 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     return Form(key: _formKey, child: _buildJeChangeNotificationForm(context));
   }
 
+  /// Department picker for the create forms: same look as the single
+  /// dropdown, but several departments can be ticked (limit in the controller).
+  Widget _departmentMultiField(Future<void> Function(List<String>) onChanged) {
+    return Obx(() {
+      final picked = controller.selectedDepartments.isNotEmpty
+          ? controller.selectedDepartments.toList()
+          : (controller.selectedDepartment.value != null
+          ? <String>[controller.selectedDepartment.value!]
+          : <String>[]);
+      return CustMultiDropdown(
+        label: "Department *",
+        hint: "Select...",
+        items: controller.departmentList
+            .map((e) => e.label ?? '')
+            .where((l) => l.isNotEmpty && l != 'Select')
+            .toList(),
+        selectedValues: picked,
+        onChanged: (v) => onChanged(v),
+        validator: (v) =>
+        (v == null || v.isEmpty) ? 'Please select Department' : null,
+      );
+    });
+  }
+
   Widget _buildStationCreateForm(BuildContext context) {
     return Form(
       key: _stationFormKey,
@@ -973,7 +998,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ),
                       const SizedBox(width: AppConstants.elementSpacing),
                       Expanded(
-                        child: CustDropdown(
+                        child: _isStationCreate
+                            ? _departmentMultiField((v) =>
+                            controller.onApiDepartmentsChanged(v))
+                            : CustDropdown(
                           label: "Department *",
                           hint: "Select...",
                           items: controller.departmentList
@@ -5129,7 +5157,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       onChanged: (v) => controller.selectedPriority.value = v,
                       requiredName: "Priority",
                     ),
-                    _occDropdown(
+                    controller.isOccRoleUser
+                        ? _departmentMultiField((v) =>
+                        controller.onOccCreateDepartmentsChanged(v))
+                        : _occDropdown(
                       label: "Department *",
                       options: controller.departmentList,
                       selected: controller.selectedDepartment,
@@ -5612,14 +5643,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     },
                   ),
                   gap,
-                  _occDropdown(
-                    label: "Department *",
-                    options: controller.departmentList,
-                    selected: controller.selectedDepartment,
-                    onChanged: (v) async =>
-                    await controller.onApiDepartmentChanged(v),
-                    requiredName: "Department",
-                  ),
+                  _departmentMultiField(
+                          (v) => controller.onApiDepartmentsChanged(v)),
                   gap,
                   _occDropdown(
                     label: "Location *",

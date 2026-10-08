@@ -243,10 +243,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
       final body = <String, dynamic>{
         "PriorityId": priorityId,
-        "DepartmentIds": deptIdStr,
-        "DepartmentId_1": deptIdStr,
-        "DepartmentId_2": 0,
-        "DepartmentId_3": 0,
+        ...departmentCreateFields(deptIdStr),
         "FailureDescription": description,
         "LocationId": locationId,
         "SubLocation": subLocationController.text.trim(),
@@ -404,35 +401,60 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
                   value: locationId.toString()))
               .label;
 
-          // Generate offline failure number in DEPT/MM-YYYY/XXXX format
-          final offlineFailureNo =
-          await _generateOfflineFailureNumber(deptCode);
+          // The server creates one failure per selected department, so each
+          // department gets its own offline entry (max 3). The single
+          // functional location belongs to one department (its work center):
+          // only that entry shows it. Entry ids are negative and encode the
+          // pending submission id: -(submissionId * 10 + index).
+          final deptLabels = selectedDepartments.isNotEmpty
+              ? selectedDepartments.toList()
+              : <String>[
+            if ((selectedDepartment.value ?? '').isNotEmpty)
+              selectedDepartment.value!
+          ];
+          final flId = int.tryParse(funcLocId) ?? 0;
+          final flRow = flId > 0
+              ? await dbService.getFailureFunctionalLocationRow(flId)
+              : null;
+          final flWorkCenter =
+          (flRow?['WorkCenter'] ?? '').toString().trim().toUpperCase();
+          final labels = deptLabels.isEmpty ? <String>[''] : deptLabels;
+          for (var i = 0; i < labels.length && i < 3; i++) {
+            final label = labels[i];
+            final deptId = int.tryParse(lookupValue(departmentList, label)) ?? 0;
+            final code =
+                (deptId > 0 ? await dbService.getDeptCodeById(deptId) : null) ??
+                    deptCode;
+            final offlineFailureNo = await _generateOfflineFailureNumber(code);
+            final showsFl = labels.length <= 1 ||
+                (flWorkCenter.isNotEmpty && flWorkCenter == code.toUpperCase());
 
-          final failureItem = {
-            'id': id, // Use pending submission ID
-            'failureNo': offlineFailureNo,
-            'failureDescription': body['FailureDescription'] ?? '',
-            'functionalLocation':
-            body['FuncationLocationIds']?.toString() ?? '',
-            'statusName': 'Pending Sync',
-            'failureOccuranceDateTime':
-            body['ActualFailureOccuranceDate'] ?? '',
-            'actualFailureOccuranceDatetime':
-            body['ActualFailureOccuranceDate'] ?? '',
-            'subLocation': body['SubLocation'] ?? '',
-            'trainId': body['TrainId'] ?? '',
-            'system': body['System'] ?? '',
-            'locationName': locationName,
-            'priority': body['PriorityId']?.toString() ?? '',
-            'departmentName': body['DepartmentIds']?.toString() ?? '',
-            'creationType': 'station',
-            'syncStatus': 'offline',
-            'lastSyncedAt': DateTime.now().toIso8601String(),
-            'failureType': 'Station',
-          };
-          await dbService.insertFailureList([failureItem], 'Station');
-          debugPrint(
-              "createStationFailure: Added to FailureList table for immediate display with failureNo: $offlineFailureNo");
+            final failureItem = {
+              'id': -(id * 10 + i),
+              'failureNo': offlineFailureNo,
+              'failureDescription': body['FailureDescription'] ?? '',
+              'functionalLocation':
+              showsFl ? (selectedFunctionalLocation.value ?? '') : '',
+              'statusName': 'Pending Sync',
+              'failureOccuranceDateTime':
+              body['ActualFailureOccuranceDate'] ?? '',
+              'actualFailureOccuranceDatetime':
+              body['ActualFailureOccuranceDate'] ?? '',
+              'subLocation': body['SubLocation'] ?? '',
+              'trainId': body['TrainId'] ?? '',
+              'system': body['System'] ?? '',
+              'locationName': locationName,
+              'priority': selectedPriority.value ?? '',
+              'departmentName': label,
+              'creationType': 'station',
+              'syncStatus': 'offline',
+              'lastSyncedAt': DateTime.now().toIso8601String(),
+              'failureType': 'Station',
+            };
+            await dbService.insertFailureList([failureItem], 'Station');
+            debugPrint(
+                "createStationFailure: Added offline entry for '$label' with failureNo: $offlineFailureNo");
+          }
 
           refreshFailureListAfterSubmission(isStation);
         } catch (dbError) {

@@ -90,11 +90,10 @@ class LoginController extends GetxController {
         // Sync master data from API first
         debugPrint("_startMasterDataSync: Calling syncMasterDataFromAPI");
         await syncService.syncMasterDataFromAPI();
-        // Then sync failure lists with null lastSyncDate to get all data at login
-        debugPrint("_startMasterDataSync: Calling syncFailureList for Station");
-        await syncService.syncFailureList('Station', forceFullSync: true);
-        debugPrint("_startMasterDataSync: Calling syncFailureList for Maintenance");
-        await syncService.syncFailureList('Maintenance', forceFullSync: true);
+        // Station failures (list + details) are stored locally at login so the
+        // Station list works offline.
+        debugPrint("_startMasterDataSync: Calling syncStationFailures");
+        await syncService.syncStationFailures();
         debugPrint("_startMasterDataSync: Calling syncPendingSubmissions");
         await syncService.syncPendingSubmissions();
         debugPrint("_startMasterDataSync: All syncs completed");

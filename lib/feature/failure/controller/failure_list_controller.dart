@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import 'package:get/get.dart';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../../../core/controller/session_controller.dart';
 import '../../../service/local_database_service.dart';
 import '../model/failure_list_response.dart';
 import '../service/failure_service.dart';
+import '../../../service/master_data_sync_service.dart';
 
 enum JEFailureListTab { inbox, jointInspection }
 
@@ -272,7 +274,7 @@ class FailureListController extends GetxController {
           }
         }
       } else if (_useStationFailureListApi) {
-        await _fetchStationControllerFailures();
+        await _fetchStationControllerFailures(forceAll: forceRefresh);
       } else if (failureType.toLowerCase() == 'station') {
         debugPrint("fetchFailures: Station Controller - fetching from API if possible");
         
@@ -424,38 +426,116 @@ class FailureListController extends GetxController {
     }
   }
 
-  /// Station Controller list (OCCMaintainance/getStationFailureList): online
-  /// first, cached copy when the request fails.
-  Future<void> _fetchStationControllerFailures() async {
-    try {
-      final rows = await _failureService.getStationFailureList();
-      final items = <FailureItem>[];
-      for (final r in rows) {
-        try {
-          items.add(FailureItem.fromJson(r));
-        } catch (e) {
-          debugPrint('_fetchStationControllerFailures: skipped bad row: $e');
-        }
-      }
-      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-      failures.assignAll(items);
-      await _dbService.clearFailureList(failureType);
-      if (items.isNotEmpty) {
-        await _dbService.insertFailureList(
-            items.map((e) => e.toJson()).toList(), failureType);
-      } else {
-        errorMessage.value = 'No failures found.';
-      }
-    } catch (e) {
-      debugPrint('_fetchStationControllerFailures: API failed, using local copy: $e');
+  /// GetAllFailuresTransactionData station row -> the shape FailureItem reads
+  /// for station list items. That API sends no encrypted failure id, so the
+  /// numeric id stands in for it (the details screen then uses the row).
+  Map<String, dynamic> _stationRowFromTransaction(Map<String, dynamic> record) {
+    final f = Map<String, dynamic>.from(record['failure'] as Map);
+    String? date(dynamic v) {
+      final d = DateTime.tryParse(v?.toString() ?? '');
+      return d == null ? v?.toString() : DateFormat('dd-MM-yyyy HH:mm').format(d);
+    }
+
+    int? asInt(dynamic v) =>
+        v is bool ? (v ? 1 : 0) : (v is num ? v.toInt() : int.tryParse('${v ?? ''}'));
+
+    return {
+      'id': asInt(f['id']),
+      'syncStatus': 'synced',
+      'failureId': f['notificationCode']?.toString(),
+      'failureCreationId': f['failureCreationId']?.toString() ?? f['id']?.toString(),
+      'failureDescription': f['failureDescription'],
+      'funcationLocation': f['functionalLocation'],
+      'location': f['location'],
+      'subLocation': f['subLocation'],
+      'departmentName': f['departmentName'],
+      'priority': f['priority'],
+      'lineName': f['lineName'],
+      'statusName': f['statusName'],
+      'statusId': asInt(f['statusId']),
+      'occRequestStatusId': asInt(f['occRequestStatusId']),
+      'occRequestStatusName': f['occRequestStatusName'],
+      'actualFailureOccuranceDate': date(f['actualFailureOccuranceDate']),
+      'actualFailureCompletedDateTime': date(f['actualFailureCompletedDateTime']),
+      'createdDate': date(f['createdDate']),
+      'failureReportedby': f['failureReportedBy'],
+      'failureCategoryTypeText': f['failureCategoryTypeText'],
+      'failureRectificationDetails': f['failureRectificationDetails'],
+      'carriedOutRemarks': f['carriedOutRemarks'],
+      'trainId': f['trainId']?.toString(),
+      'system': f['system'],
+      'isTripAffected': f['isTripAffected'] is bool ? f['isTripAffected'] : null,
+      'tripDelayUpline': asInt(f['tripDelayUpline']),
+      'tripDelayDownline': asInt(f['tripDelayDownline']),
+      'tripCancel': asInt(f['tripCancel']),
+      'isTrainReplace': f['isTrainReplace'] is bool ? f['isTrainReplace'] : null,
+      'trainReplace': asInt(f['trainReplace']),
+      'isTrainDeboarded': f['isTrainDeboarded'] is bool ? f['isTrainDeboarded'] : null,
+      'trainDeboarded': asInt(f['trainDeboarded']),
+      'isPassengerAffected': f['passengerAffected'] == 'Yes'
+          ? true
+          : (f['passengerAffected'] == 'No' ? false : null),
+      'numberOfPassengerAffected': asInt(f['numberOfPassengerAffected']),
+      'trappedDuration': asInt(f['trappedDuration']),
+      'rescusedDuration': asInt(f['rescusedDuration']),
+      'trainDelayInMin': asInt(f['trainDelayInMin']),
+      'noOfTranWithdrawal': asInt(f['noOfTranWithdrawal']),
+      'departmentId_1': asInt(f['departmentId']),
+      'locationId': asInt(f['locationId']),
+      'funcationLocationId': asInt(f['functionalLocationId']),
+    };
+  }
+
+  /// Station Controller list (mobileAppAPI/GetAllFailuresTransactionData).
+  /// The first sync (or a forced refresh) downloads everything; later syncs
+  /// send the last sync date and merge only the changes. The list always shows
+  /// the local copy, so it also works offline. Failures saved offline and not
+  /// sent yet are listed too (orange dot); synced ones show a green dot.
+  Future<void> _fetchStationControllerFailures({bool forceAll = false}) async {
+    // Download / merge the station failures into the local copy (also done at
+    // login); the list below always shows the local copy.
+    final synced = await Get.find<MasterDataSyncService>()
+        .syncStationFailures(forceAll: forceAll);
+    if (!synced) {
+      debugPrint('_fetchStationControllerFailures: server not reached, using local copy');
       isOfflineMode.value = true;
-      final local = await _dbService.getFailureList(failureType);
-      if (local.isNotEmpty) {
-        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
-      } else {
-        errorMessage.value =
-        'No data available. Please check your internet connection.';
+    }
+
+    final items = <FailureItem>[];
+    for (final r in await _dbService.getStationFailureCache()) {
+      try {
+        items.add(FailureItem.fromJson(_stationRowFromTransaction(r)));
+      } catch (e) {
+        debugPrint('_fetchStationControllerFailures: skipped bad row: $e');
       }
+    }
+    items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+
+    // Created offline and not sent yet: kept in FailureList until synced.
+    final pending = <FailureItem>[];
+    for (final r in await _dbService.getFailureList(failureType)) {
+      if (r['syncStatus'] == 'offline') {
+        try {
+          pending.add(FailureItem.fromJson(r));
+        } catch (_) {}
+      }
+    }
+    // Newest submission first; its departments in the order they were picked.
+    // Offline ids are -(submissionId * 10 + index) (older ones: the plain id).
+    ({int sid, int idx}) offlineKey(FailureItem f) {
+      final id = f.id ?? 0;
+      return id < 0 ? (sid: (-id) ~/ 10, idx: (-id) % 10) : (sid: id, idx: 0);
+    }
+
+    pending.sort((a, b) {
+      final ka = offlineKey(a), kb = offlineKey(b);
+      return ka.sid != kb.sid ? kb.sid.compareTo(ka.sid) : ka.idx.compareTo(kb.idx);
+    });
+    failures.assignAll([...pending, ...items]);
+    if (failures.isEmpty) {
+      errorMessage.value = isOfflineMode.value
+          ? 'No data available. Please sync with internet connection.'
+          : 'No failures found.';
     }
   }
 
@@ -800,44 +880,14 @@ class FailureListController extends GetxController {
     try {
       isLoading.value = true;
       errorMessage.value = "";
-      
-      final apiFailures = await _failureService.getStationFailureListWithData(lastSyncDate: null);
-      if (apiFailures.isNotEmpty) {
-        final failureItems = apiFailures.map((e) => FailureItem.fromJson(e)).toList();
-        await _dbService.clearFailureList('Station');
-        await _dbService.insertFailureList(failureItems.map((e) => e.toJson()).toList(), 'Station');
-        debugPrint("refreshAllStationFailures: Saved ${failureItems.length} station failures to local DB");
-        // Update last sync date
-        await _setStationFailureLastSyncDate(DateTime.now().toIso8601String().split('T')[0]);
-        // Reload from local DB
-        final localFailures = await _dbService.getFailureList('Station');
-        final localFailureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
-        final filteredItems = localFailureItems.where((item) => _matchesFailureType(item)).toList();
-        failures.assignAll(filteredItems);
-        debugPrint("refreshAllStationFailures: Loaded ${filteredItems.length} failures from local DB");
-        Get.snackbar(
-          'Sync Complete',
-          'Successfully synced ${failureItems.length} station failures',
-          backgroundColor: AppColors.green,
-          colorText: AppColors.white1,
-        );
-      } else {
-        await _dbService.clearFailureList('Station');
-        failures.clear();
-        Get.snackbar(
-          'Sync Complete',
-          'No station failures found',
-          backgroundColor: AppColors.orangeColor,
-          colorText: AppColors.white1,
-        );
-      }
-    } catch (e) {
-      debugPrint("refreshAllStationFailures: Error: $e");
-      errorMessage.value = "Error: $e";
+      isOfflineMode.value = false;
+      await _fetchStationControllerFailures(forceAll: true);
       Get.snackbar(
-        'Sync Failed',
-        'Failed to sync station failures: $e',
-        backgroundColor: AppColors.red,
+        isOfflineMode.value ? 'Offline' : 'Sync Complete',
+        isOfflineMode.value
+            ? 'No connection - showing the saved station failures'
+            : 'Successfully synced ${failures.length} station failures',
+        backgroundColor: isOfflineMode.value ? AppColors.orangeColor : AppColors.green,
         colorText: AppColors.white1,
       );
     } finally {

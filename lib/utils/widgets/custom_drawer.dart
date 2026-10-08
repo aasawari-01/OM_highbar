@@ -9,6 +9,7 @@ import '../../feature/auth_login/view/login_view.dart';
 import '../../feature/failure/view/failure_list_screen.dart';
 import '../../feature/failure/view/rst/rst_list_screen.dart';
 import '../../feature/inspection/view/inspection_list_screen.dart';
+import '../../feature/inspection/view/je_inspection_list_screen.dart';
 import '../../feature/inspection/view/top_management/inspection_dashboard_screen.dart';
 import '../../feature/inspection/view/top_management/top_management_create_inspection_screen.dart';
 import '../../feature/failure/view/rst/rst_failure_screen.dart';
@@ -173,7 +174,25 @@ class _CustomDrawerState extends State<CustomDrawer> {
           ),
 
           Expanded(
-            child: ListView(
+            child: Obx(() {
+              // Inspection Junior Engineer: only the JE inspection list.
+              if (SessionController.isInspectionJERole(
+                  sessionController.selectedRole.value?.roleDescr ?? '')) {
+                return ListView(
+                  padding: const EdgeInsets.symmetric(vertical: AppConstants.elementSpacing),
+                  children: [
+                    _drawerSection(
+                      title: 'Inspection',
+                      sectionKey: 'inspection_top',
+                      icon: TablerIcons.clipboard_list,
+                      children: [
+                        _drawerItem('JE Inspection List', 'inspection_layout', const JEInspectionListScreen())
+                      ],
+                    ),
+                  ],
+                );
+              }
+              return ListView(
               padding: const EdgeInsets.symmetric(vertical: AppConstants.elementSpacing),
               children: [
                 _drawerItem('ESS', 'ess', null, leadingIcon: TablerIcons.users),
@@ -336,7 +355,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
 
                 }),
               ],
-            ),
+            );}),
           ),
           const Divider(height: 1, color: AppColors.dividerColor2),
 
