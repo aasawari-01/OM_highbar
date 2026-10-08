@@ -9,8 +9,8 @@ class PriorityModel {
 
   factory PriorityModel.fromJson(Map<String, dynamic> json) {
     return PriorityModel(
-      priorityId: json['priorityId'] as int?,
-      priorityDesc: json['priorityDesc']?.toString(),
+      priorityId: json['PriorityId'] ?? json['priorityId'] as int?,
+      priorityDesc: json['PriorityDesc']?.toString() ?? json['priorityDesc']?.toString(),
     );
   }
 

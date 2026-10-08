@@ -9,11 +9,11 @@ class YesNoToggle extends StatelessWidget {
   final bool enabled;
 
   const YesNoToggle({
-    Key? key,
+    super.key,
     required this.value,
     required this.onChanged,
     this.enabled = true,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +21,7 @@ class YesNoToggle extends StatelessWidget {
       padding: const EdgeInsets.all(2),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(20),
-        color: enabled?const Color(0xFFE5E5E5).withOpacity(0.5):AppColors.textFieldFillColor,
+        color: enabled?const Color(0xFFE5E5E5).withValues(alpha: 0.5):AppColors.textFieldFillColor,
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -34,7 +34,7 @@ class YesNoToggle extends StatelessWidget {
               decoration: BoxDecoration(
                 color: !value ? Colors.white : Colors.transparent,
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: !value ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)] : [],
+                boxShadow: !value ? [BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 4)] : [],
               ),
               child: CustText(
                 name: "No",
@@ -52,12 +52,12 @@ class YesNoToggle extends StatelessWidget {
               decoration: BoxDecoration(
                 color: value? AppColors.green : Colors.transparent,
                 borderRadius: BorderRadius.circular(20),
-                boxShadow: value ? [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4)] : [],
+                boxShadow: value ? [BoxShadow(color: AppColors.black.withValues(alpha: 0.1), blurRadius: 4)] : [],
               ),
               child: CustText(
                 name: "Yes",
                 size: 14,
-                color: value ? Colors.white : Colors.grey.shade600,
+                color: value ? AppColors.white1 : AppColors.textDarkSecondary,
                 fontWeightName: value ? FontWeight.bold : FontWeight.normal,
               ),
             ),

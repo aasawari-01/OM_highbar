@@ -1,23 +1,38 @@
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import '../../../core/models/label_value.dart';
 
 class FailureDetailResponse {
   final int? responseCode;
   final String? responseMessage;
   final FailureDetailOutput? responseOutput;
+  final String? failureRectificationJson;
 
   FailureDetailResponse({
     this.responseCode,
     this.responseMessage,
     this.responseOutput,
+    this.failureRectificationJson,
   });
 
   factory FailureDetailResponse.fromJson(Map<String, dynamic> json) {
+    String? rcaJson;
+    final rcaValue = json['FailureRectificationJson'];
+    if (rcaValue != null) {
+      if (rcaValue is String) {
+        rcaJson = rcaValue;
+      } else if (rcaValue is List) {
+        rcaJson = jsonEncode(rcaValue);
+      }
+    }
+
     return FailureDetailResponse(
       responseCode: json['responseCode'] as int?,
       responseMessage: json['responseMessage'] as String?,
       responseOutput: json['responseOutput'] != null
           ? FailureDetailOutput.fromJson(json['responseOutput'] as Map<String, dynamic>)
           : null,
+      failureRectificationJson: rcaJson,
     );
   }
 }
@@ -35,6 +50,7 @@ class FailureDetailOutput {
   final List<LabelValue>? getStorageLocation;
   final List<LabelValue>? getPriorityType;
   final List<LabelValue>? getCorrNotificationTypeList;
+  final List<LabelValue>? getFailureType;
   final List<LabelValue>? getFaultData;
   final List<LabelValue>? getReasonForDelayList;
   final List<NotificationActionHistory>? getNotificationActionUserHistory;
@@ -66,6 +82,7 @@ class FailureDetailOutput {
     this.getStorageLocation,
     this.getPriorityType,
     this.getCorrNotificationTypeList,
+    this.getFailureType,
     this.getFaultData,
     this.getReasonForDelayList,
     this.getNotificationActionUserHistory,
@@ -99,6 +116,7 @@ class FailureDetailOutput {
       getStorageLocation: _mapList(json['getStorageLocation']),
       getPriorityType: _mapList(json['getPriorityType']),
       getCorrNotificationTypeList: _mapList(json['getCorrNotificationTypeList']),
+      getFailureType: _mapList(json['getFailureType']),
       getFaultData: _mapList(json['getFaultData']),
       getReasonForDelayList: _mapList(json['getReasonForDelayList']),
       getRootCausetData: _mapList(json['getRootCausetData']),
@@ -111,18 +129,16 @@ class FailureDetailOutput {
 
       getNotificationActionUserHistory: json['getNotificationActionUserHistory'] != null
           ? (json['getNotificationActionUserHistory'] as List)
-              .map((e) => NotificationActionHistory.fromJson(e as Map<String, dynamic>))
-              .toList()
+          .map((e) => NotificationActionHistory.fromJson(e as Map<String, dynamic>))
+          .toList()
           : null,
 
       getNotificationHistory: json['getNotificationHistory'] != null
           ? (json['getNotificationHistory'] as List)
-              .map((e) => NotificationHistory.fromJson(e as Map<String, dynamic>))
-              .toList()
+          .map((e) => NotificationHistory.fromJson(e as Map<String, dynamic>))
+          .toList()
           : null,
-      getCreateVMModel: json['getCreateVMModel'] != null
-          ? CreateVMModel.fromJson(json['getCreateVMModel'] as Map<String, dynamic>)
-          : null,
+      getCreateVMModel: _parseCreateVm(json),
       getObjectANDFaultList: (json['getObjectANDFaultList'] ?? json['failureRectificationDetails']) != null
           ? List<Map<String, dynamic>>.from(json['getObjectANDFaultList'] ?? json['failureRectificationDetails'])
           : null,
@@ -142,27 +158,61 @@ class FailureDetailOutput {
           ? List<Map<String, dynamic>>.from(json['getImageBefor'])
           : null,
       getJoinInspectionHistory: (json['joinInspectionHistory'] ??
-                  json['getJointInspectionHistory'] ??
-                  json['JoinInspectionHistory']) !=
-              null
+          json['getJointInspectionHistory'] ??
+          json['JoinInspectionHistory']) !=
+          null
           ? List<Map<String, dynamic>>.from(json['getJoinInspectionHistory'] ??
-              json['joinInspectionHistory'] ??
-              json['getJointInspectionHistory'] ??
-              json['JoinInspectionHistory'])
+          json['joinInspectionHistory'] ??
+          json['getJointInspectionHistory'] ??
+          json['JoinInspectionHistory'])
           : null,
     );
   }
+
+  static CreateVMModel? _parseCreateVm(Map<String, dynamic> json) {
+    dynamic raw;
+    for (final e in json.entries) {
+      final k = e.key.toString().toLowerCase();
+      if (k == 'getcreatevmmodel' || k == 'createvmmodel') {
+        raw = e.value;
+        break;
+      }
+    }
+
+    // Fallback: the model may be flat inside responseOutput
+    if (raw == null && json.containsKey('notificationId')) {
+      raw = json;
+    }
+
+    if (raw == null) return null;
+    if (raw is String && raw.trim().isNotEmpty) raw = jsonDecode(raw);
+    if (raw is List && raw.isNotEmpty) raw = raw.first;
+    if (raw is Map) {
+      return CreateVMModel.fromJson(Map<String, dynamic>.from(raw));
+    }
+    return null;
+  }
 }
+
+
 
 class NotificationActionHistory {
   final int? notificationId;
   final int? assgineUserId;
   final int? statusId;
+
   final String? statusName;
   final String? remark;
+
+  final int? createdBy;
   final String? actionBy;
   final String? actionOn;
+
   final String? assginedUserName;
+
+  final int? updatedUserId;
+  final String? updatedUserName;
+  final String? updatedOn;
 
   NotificationActionHistory({
     this.notificationId,
@@ -170,27 +220,57 @@ class NotificationActionHistory {
     this.statusId,
     this.statusName,
     this.remark,
+    this.createdBy,
     this.actionBy,
     this.actionOn,
     this.assginedUserName,
+    this.updatedUserId,
+    this.updatedUserName,
+    this.updatedOn,
   });
 
-  factory NotificationActionHistory.fromJson(Map<String, dynamic> json) {
+  factory NotificationActionHistory.fromJson(
+      Map<String, dynamic> json) {
     return NotificationActionHistory(
       notificationId: json['notificationId'] as int?,
       assgineUserId: json['assgineUserId'] as int?,
       statusId: json['statusId'] as int?,
-      statusName: json['statusName'] as String?,
-      remark: (json['remark'] ?? json['description']) as String?,
-      actionBy: (json['actionBy'] ?? json['createdBy']) as String?,
-      actionOn: (json['actionOn'] ?? json['createdOn']) as String?,
-      assginedUserName: json['assginedUserName'] as String?,
+
+      statusName: json['statusName']?.toString(),
+      remark: json['remark']?.toString(),
+
+      // createdBy is a number in API response
+      createdBy: json['createdBy'] as int?,
+
+      // actionBy is a String in API response
+      actionBy: json['actionBy']?.toString(),
+
+      actionOn: json['actionOn']?.toString(),
+
+      assginedUserName: json['assginedUserName']?.toString(),
+
+      updatedUserId: json['updatedUserId'] as int?,
+      updatedUserName: json['updatedUserName']?.toString(),
+      updatedOn: json['updatedOn']?.toString(),
     );
   }
 
   @override
   String toString() {
-    return 'NotificationActionHistory(notificationId: $notificationId, statusName: $statusName, remark: $remark, actionBy: $actionBy, actionOn: $actionOn)';
+    return 'NotificationActionHistory('
+        'notificationId: $notificationId, '
+        'assgineUserId: $assgineUserId, '
+        'statusId: $statusId, '
+        'statusName: $statusName, '
+        'remark: $remark, '
+        'createdBy: $createdBy, '
+        'actionBy: $actionBy, '
+        'actionOn: $actionOn, '
+        'assginedUserName: $assginedUserName, '
+        'updatedUserId: $updatedUserId, '
+        'updatedUserName: $updatedUserName, '
+        'updatedOn: $updatedOn'
+        ')';
   }
 }
 
@@ -236,13 +316,15 @@ class CreateVMModel {
   final String? category;
   final String? deptCode;
   final int? locationTypeId;
-  final int? corr_NotificationTypeId;
+  final int? corrNotificationTypeId;
+  final String? trainRunningKm;
+  final String? systemDowntime;
 
   final List<Map<String, dynamic>>? getObjectANDFaultList;
   final List<Map<String, dynamic>>? getObjectANDFaultActionList;
   final List<Map<String, dynamic>>? getObjectANDFaultRootCauseList;
 
-  final String? remark_JE;
+  final String? remarkJe;
   final String? imagesPaths;
   final String? imagesPathsAfter;
   final String? imagesPathsRCA;
@@ -265,6 +347,32 @@ class CreateVMModel {
   final String? failureType;
   final String? assignedUseeName;
   final String? underObservationDate;
+  final String? systems;
+  final String? subSystems;
+  final String? failureRectificationJson;
+  // field
+  final int? frequency;
+
+  // Filled when the failure came from an OCC failure (created by the Chief
+  // Controller, assigned on by FMC / TPC / CSS / RSC). Shown read-only.
+  final String? reportedTo;
+  final String? otherRequestFrom;
+  final String? occSystemName;
+  final String? occSubLocation;
+  final String? occLineName;
+  final String? occTrainSetName;
+  final String? occLocationText;
+  final String? occTrainId;
+  final String? occFailureCategory;
+  final String? occTrainOperatorName;
+  final String? occTrainReplacedRemark;
+  final String? occTrainReplacedTime;
+  final String? occWayOfRescue;
+
+
+
+// fromJson
+
 
   CreateVMModel({
     this.id,
@@ -298,7 +406,7 @@ class CreateVMModel {
     this.reasonForDelayId,
     this.category,
     this.deptCode,
-    this.remark_JE,
+    this.remarkJe,
     this.imagesPaths,
     this.imagesPathsAfter,
     this.imagesPathsRCA,
@@ -320,11 +428,31 @@ class CreateVMModel {
     this.failureType,
     this.assignedUseeName,
     this.underObservationDate,
+    this.systems,
+    this.subSystems,
     this.locationTypeId,
-    this.corr_NotificationTypeId,
+    this.corrNotificationTypeId,
     this.getObjectANDFaultList,
     this.getObjectANDFaultActionList,
     this.getObjectANDFaultRootCauseList,
+    this.failureRectificationJson,
+    this.trainRunningKm,
+    this.systemDowntime,
+    // constructor
+    this.frequency,
+    this.reportedTo,
+    this.otherRequestFrom,
+    this.occSystemName,
+    this.occSubLocation,
+    this.occLineName,
+    this.occTrainSetName,
+    this.occLocationText,
+    this.occTrainId,
+    this.occFailureCategory,
+    this.occTrainOperatorName,
+    this.occTrainReplacedRemark,
+    this.occTrainReplacedTime,
+    this.occWayOfRescue,
   });
 
   static int? _asInt(dynamic value) {
@@ -351,6 +479,11 @@ class CreateVMModel {
   }
 
   factory CreateVMModel.fromJson(Map<String, dynamic> json) {
+    debugPrint("CreateVMModel.fromJson: JSON keys = ${json.keys.toList()}");
+    debugPrint("CreateVMModel.fromJson: systems=${json['systems']}, subSystems=${json['subSystems']}");
+    debugPrint("CreateVMModel.fromJson: subsystem=${json['subsystem']}, Subsystem=${json['Subsystem']}");
+    debugPrint("CreateVMModel.fromJson: subSystem=${json['subSystem']}, SubSystem=${json['SubSystem']}");
+    debugPrint("CreateVMModel.fromJson: Full JSON sample = ${json.toString().substring(0, json.toString().length > 500 ? 500 : json.toString().length)}");
     return CreateVMModel(
       id: json['Id'] as String?,
       notificationId: CreateVMModel._asInt(json['notificationId']),
@@ -374,7 +507,7 @@ class CreateVMModel {
       funcDescription: json['funcDescription'] as String?,
       locationName: _asString(json['locationName'] ?? json['locationTypeName']),
       funcLocation: _asString(
-        json['funcLocation']
+          json['funcLocation']
       ),
       equipmentName: _asString(json['equipmentName'] ?? json['equipmentNo']),
       priorityId: json['priorityId'] as int?,
@@ -385,7 +518,7 @@ class CreateVMModel {
       reasonForDelayId: json['reasonForDelayId'] as int?,
       category: json['category'] as String?,
       deptCode: json['deptCode'] as String?,
-      remark_JE: json['remark_JE'] as String?,
+      remarkJe: json['remark_JE'] as String?,
       imagesPaths: json['imagesPaths'] as String?,
       imagesPathsAfter: json['imagesPathsAfter'] as String?,
       imagesPathsRCA: json['imagesPathsRCA'] as String?,
@@ -419,8 +552,10 @@ class CreateVMModel {
       failureType: json['failureType'] as String?,
       assignedUseeName: json['assignedUseeName'] as String?,
       underObservationDate: json['underObservationDate'] as String?,
+      systems: _asString(json['systems'] ?? json['Systems'] ?? json['system'] ?? json['System']),
+      subSystems: _asString(json['subSystems'] ?? json['SubSystems'] ?? json['subsystem'] ?? json['Subsystem'] ?? json['subSystem'] ?? json['SubSystem']),
       locationTypeId: json['locationTypeId'] as int?,
-      corr_NotificationTypeId: json['corr_NotificationTypeId'] as int?,
+      corrNotificationTypeId: json['corr_NotificationTypeId'] as int?,
       getObjectANDFaultList: json['getObjectANDFaultList'] != null
           ? (json['getObjectANDFaultList'] as List).map((e) => e as Map<String, dynamic>).toList()
           : null,
@@ -430,7 +565,36 @@ class CreateVMModel {
       getObjectANDFaultRootCauseList: json['getObjectANDFaultRootCauseList'] != null
           ? (json['getObjectANDFaultRootCauseList'] as List).map((e) => e as Map<String, dynamic>).toList()
           : null,
+      failureRectificationJson: _parseRcaJson(json['FailureRectificationJson'] ?? json['failureRectificationJson']),
+
+      trainRunningKm: _asString(json['trainRunningKM']),
+      systemDowntime: _asString(json['systemDowntime']),
+      frequency: _asInt(json['frequency'] ?? json['Frequency']),
+      reportedTo: _asString(json['reportedTo'] ??
+          json['reportedToName'] ??
+          json['occReportedTo'] ??
+          json['occReportedToName']),
+      otherRequestFrom: _asString(json['otherRequestFrom']),
+      occSystemName: _asString(json['systemNameOCC']),
+      occSubLocation: _asString(json['subLocationOCC']),
+      occLineName: _asString(json['occLineIdName'] ?? json['occLineName']),
+      occTrainSetName:
+      _asString(json['occTrainSetName'] ?? json['occTrainSetIdName']),
+      occLocationText: _asString(json['occLocationText']),
+      occTrainId: _asString(json['trainNumberOCC']),
+      occFailureCategory: _asString(json['occFailureCategoryType']),
+      occTrainOperatorName: _asString(json['occTrainOpeartorName']),
+      occTrainReplacedRemark: _asString(json['occTrainReplacedWithRemark']),
+      occTrainReplacedTime: _asString(json['occTrainReplacedWithTime']),
+      occWayOfRescue: _asString(json['occWayOfRescueRemark']),
     );
+  }
+
+  static String? _parseRcaJson(dynamic value) {
+    if (value == null) return null;
+    if (value is String) return value;
+    if (value is List) return jsonEncode(value);
+    return null;
   }
 }
 

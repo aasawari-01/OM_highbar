@@ -4,15 +4,18 @@ import 'package:get/get.dart';
 import 'package:om_mobile/constants/colors.dart';
 import 'package:om_mobile/constants/app_constants.dart';
 import 'package:om_mobile/constants/strings.dart';
-import 'package:om_mobile/service/session_controller.dart';
+import '../../core/controller/session_controller.dart';
 import '../../feature/auth_login/view/login_view.dart';
 import '../../feature/failure/view/failure_list_screen.dart';
 import '../../feature/failure/view/rst/rst_list_screen.dart';
 import '../../feature/inspection/view/inspection_list_screen.dart';
+import '../../feature/inspection/view/je_inspection_list_screen.dart';
 import '../../feature/inspection/view/top_management/inspection_dashboard_screen.dart';
 import '../../feature/inspection/view/top_management/top_management_create_inspection_screen.dart';
 import '../../feature/failure/view/rst/rst_failure_screen.dart';
 import '../../feature/ibl/view/ibl_screen.dart';
+import '../../feature/occ_to_sc_comm/view/create_occ_instruction.dart';
+import '../../feature/occ_to_sc_comm/view/occ_to_sc_inbox.dart';
 import '../../service/auth_manager.dart';
 import 'cust_dropdown.dart';
 import 'cust_button.dart';
@@ -32,7 +35,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
   String? _expandedSubSectionKey;
   Set<String> _openSections = {};
   Set<String> _openSubSections = {};
-  
+
   final SessionController sessionController = Get.find<SessionController>();
 
   void _handleSectionExpansion(String sectionKey, bool isSubSection) {
@@ -69,6 +72,12 @@ class _CustomDrawerState extends State<CustomDrawer> {
     _openSubSections.clear();
   }
 
+  /// Chief Controller (not FMC / TPC / CSS / RSC): sees its own OCC failure
+  /// list instead of JE inboxes.
+  bool _isOccRole(String role) =>
+      SessionController.isOccFailureCreatorRole(role) &&
+          !SessionController.isOccDelegateRole(role);
+
   void _onMenuTap(String menu, Widget screen) {
     setState(() {
       _selectedMenu = menu;
@@ -84,6 +93,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
 
   @override
   Widget build(BuildContext context) {
+
+    print("selected role is ${sessionController.selectedRole.string}");
     return Drawer(
       width: MediaQuery.sizeOf(context).width / 1.3,
       backgroundColor: Colors.white,
@@ -110,7 +121,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
               bottom: false,
               child: Row(
                 children: [
-                   Container(
+                  Container(
                     width: 54,
                     height: 54,
                     decoration: const BoxDecoration(
@@ -138,18 +149,18 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         ),
                         const SizedBox(height: 2),
                         CustText(
-                          name: sessionController.selectedRole.value?.roleDescr ?? 'No Role Selected',
+                          name: sessionController.designationName.value ?? 'No Role Selected',
                           size: 12,
                           color: AppColors.textDarkSecondary,
                           fontWeightName: FontWeight.w400,
                         ),
-                        const SizedBox(height: 2),
-                        CustText(
-                          name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
-                          size: 12,
-                          color: AppColors.textDarkSecondary,
-                          fontWeightName: FontWeight.w400,
-                        ),
+                        // const SizedBox(height: 2),
+                        // CustText(
+                        //   name: sessionController.selectedDepartment.value?.deptName ?? 'No Dept Selected',
+                        //   size: 12,
+                        //   color: AppColors.textDarkSecondary,
+                        //   fontWeightName: FontWeight.w400,
+                        // ),
                       ],
                     )),
                   ),
@@ -161,9 +172,27 @@ class _CustomDrawerState extends State<CustomDrawer> {
               ),
             ),
           ),
-          
+
           Expanded(
-            child: ListView(
+            child: Obx(() {
+              // Inspection Junior Engineer: only the JE inspection list.
+              if (SessionController.isInspectionJERole(
+                  sessionController.selectedRole.value?.roleDescr ?? '')) {
+                return ListView(
+                  padding: const EdgeInsets.symmetric(vertical: AppConstants.elementSpacing),
+                  children: [
+                    _drawerSection(
+                      title: 'Inspection',
+                      sectionKey: 'inspection_top',
+                      icon: TablerIcons.clipboard_list,
+                      children: [
+                        _drawerItem('JE Inspection List', 'inspection_layout', const JEInspectionListScreen())
+                      ],
+                    ),
+                  ],
+                );
+              }
+              return ListView(
               padding: const EdgeInsets.symmetric(vertical: AppConstants.elementSpacing),
               children: [
                 _drawerItem('ESS', 'ess', null, leadingIcon: TablerIcons.users),
@@ -178,14 +207,35 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   children: [
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final availableRoles = sessionController.roles.map((r) => r.roleDescr).toList();
+                      print("Drawer - Current role: '$role'");
+                      print("Drawer - Available roles: $availableRoles");
+                      print("Drawer - Number of available roles: ${availableRoles.length}");
+                      
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      print("Drawer - isSectionIncharge: $isSectionIncharge");
+                      
+                      if (isSectionIncharge) {
+                        return _drawerItem('Maintenance Failure', 'section_incharge_failure', const FailureListScreen(failureType: 'Maintenance'));
+                      }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('Maintenance JE Inbox', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance'));
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
+
+                      print("role is $role");
+                      // DCC sees Depot Failure in place of Station Failure.
+                      if (role.toUpperCase().contains('DCC')) {
+                        return _drawerItem('Depot Failure', 'dcc_depot_failure', const FailureListScreen(failureType: 'Depot'));
+                      }
                       final canAccessStationFailure =
                           role.contains('Station Controller') || role.contains('Junior Engineer');
                       if (!canAccessStationFailure) {
@@ -195,24 +245,40 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC')) {
                         return const SizedBox.shrink();
+                      }
+                      // OCC role: its own OCC failure list (create / update / close).
+                      if (_isOccRole(role)) {
+                        return _drawerItem('OCC Failure', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
                       }
                       return _drawerItem('OCC JE Inbox', 'occ_failure', const FailureListScreen(failureType: 'OCC'));
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('Depot JE Inbox', 'depot_failure', const FailureListScreen(failureType: 'Depot'));
                     }),
                     Obx(() {
                       final role = sessionController.selectedRole.value?.roleDescr ?? '';
+                      final isSectionIncharge = role.contains('Section Incharge');
+                      if (isSectionIncharge) {
+                        return const SizedBox.shrink(); // Section Incharge already has unified Failure List
+                      }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController) {
+                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('RST JE Inbox', 'rst_failure', const RstListScreen());
@@ -262,8 +328,34 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     _drawerItem('Create Inspection', 'inspection_tm_create', const TopManagementCreateInspectionScreen()),
                   ],
                 ),
+
+                divider(),
+                // Inspection (Top Management)
+
+                Obx(() {
+
+                  final role = sessionController.selectedRole.value?.roleDescr ?? '';
+
+                  final canAccessOCCtoSC =
+                      role.contains('Station Controller') || role.contains('OCC');
+                  final isOcc =
+                  role.contains('OCC');
+                  print("role Is $canAccessOCCtoSC---$isOcc");
+                  return canAccessOCCtoSC ?_drawerSection(
+                    title: 'OCC to SC Communication',
+                    sectionKey: 'occ_to_sc_communication',
+                    icon: TablerIcons.clipboard_check,
+                    children: [
+
+
+                      // isOcc?_drawerItem('Create Instructions', 'create_instructions', const CreateOccScCommunicationScreen()):Container(),
+                      _drawerItem('Instructions', 'inbox_occ', OccScInboxScreen(isOcc: isOcc,)),
+                    ],
+                  ):Container();
+
+                }),
               ],
-            ),
+            );}),
           ),
           const Divider(height: 1, color: AppColors.dividerColor2),
 
@@ -296,7 +388,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
     IconData? icon,
   }) {
     bool isExpanded = isSubSection ? _openSubSections.contains(sectionKey) : _openSections.contains(sectionKey);
-    
+
     return Stack(
       children: [
         Theme(
@@ -314,8 +406,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
             dense: true,
             visualDensity: const VisualDensity(
               vertical: -2,
-              ),
-              onExpansionChanged: (expanded) {
+            ),
+            onExpansionChanged: (expanded) {
               if (expanded) {
                 _handleSectionExpansion(sectionKey, isSubSection);
               } else {
@@ -416,13 +508,13 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   fontWeightName: FontWeight.w400,
                   color: AppColors.textDarkSecondary,
                 ),
-                const SizedBox(height: AppConstants.headerSpacing),
-                CustDropdown(
-                  label: AppStrings.selectLine,
-                  hint: AppStrings.selectYourLine,
-                  items: const ['Line 1', 'Line 2'], 
-                  onChanged: (val) {},
-                ),
+                // const SizedBox(height: AppConstants.headerSpacing),
+                // CustDropdown(
+                //   label: AppStrings.selectLine,
+                //   hint: AppStrings.selectYourLine,
+                //   items: const ['Line 1', 'Line 2'],
+                //   onChanged: (val) {},
+                // ),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(
                   label: AppStrings.selectDepartment,
@@ -435,12 +527,30 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   },
                 )),
                 const SizedBox(height: AppConstants.elementSpacing),
+                // Obx(() => CustDropdown(
+                //   label: AppStrings.selectRole,
+                //   hint: AppStrings.chooseYourRole,
+                //   items: sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
+                //   selectedValue: sessionController.selectedRole.value?.roleDescr,
+                //   onChanged: (val) {
+                //     if (val != null) {
+                //       final role = sessionController.roles.firstWhere((e) => e.roleDescr == val);
+                //       sessionController.changeRole(role);
+                //     }
+                //   },
+                // )),
                 Obx(() => CustDropdown(
                   label: AppStrings.selectRole,
-                  hint: AppStrings.chooseYourRole,
-                  items: sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
+                  hint: sessionController.selectedDepartment.value == null
+                      ? AppStrings.selectDepartmentFirst   // new string, or reuse an existing one
+                      : AppStrings.chooseYourRole,
+                  items: sessionController.selectedDepartment.value == null
+                      ? const []
+                      : sessionController.roles.map((e) => e.roleDescr ?? '').toList(),
                   selectedValue: sessionController.selectedRole.value?.roleDescr,
-                  onChanged: (val) {
+                  onChanged: sessionController.selectedDepartment.value == null
+                      ? (_) {}
+                      : (val) {
                     if (val != null) {
                       final role = sessionController.roles.firstWhere((e) => e.roleDescr == val);
                       sessionController.changeRole(role);
@@ -467,7 +577,15 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         color1: AppColors.orangeColor,
                         color2: AppColors.orangeColor,
                         textDarkPrimary: Colors.white,
-                        onSelected: (_) {
+                        onSelected: (_) async {
+                          final dept = sessionController.selectedDepartment.value;
+                          final role = sessionController.selectedRole.value;
+                          if (dept?.deptId != null) {
+                            await AuthManager().setSelectedDept(dept!.deptId!);
+                          }
+                          if (role?.roleId != null) {
+                            await AuthManager().setSelectedRole(role!.roleId!);
+                          }
                           Navigator.pop(context);
                         },
                       ),

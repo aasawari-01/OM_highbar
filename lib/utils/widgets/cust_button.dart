@@ -51,7 +51,7 @@ class CustButton extends StatelessWidget {
           ),
           boxShadow: [
             BoxShadow(
-              color: borderColor?.withOpacity(0.5) ?? Colors.transparent,
+              color: borderColor?.withValues(alpha: 0.5) ?? Colors.transparent,
               blurRadius: 1,
               spreadRadius: 1,
               offset: const Offset(0, 0),

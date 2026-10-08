@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:om_mobile/constants/app_constants.dart';
 import '../../constants/colors.dart';
-import '../../utils/responsive_helper.dart';
 import 'cust_text.dart';
 
 class CustDataCard extends StatelessWidget {
@@ -12,12 +11,12 @@ class CustDataCard extends StatelessWidget {
   final Widget? bottomAction;
 
   const CustDataCard({
-    Key? key,
+    super.key,
     required this.items,
     this.onDelete,
     this.onEdit,
     this.bottomAction,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -28,10 +27,10 @@ class CustDataCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: AppColors.white1,
         borderRadius: BorderRadius.circular(AppConstants.cardRadius),
-        border: Border.all(color: AppColors.textFieldFillColor.withOpacity(0.5)),
+        border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: Colors.black.withValues(alpha: 0.03),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),

@@ -4,26 +4,51 @@ import 'package:get/get.dart';
 import 'package:om_mobile/constants/app_constants.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../constants/colors.dart';
-import '../../../utils/responsive_helper.dart';
-import 'cust_text.dart';
+import '../../../feature/failure/controller/failure_list_controller.dart';
 import 'cust_popup.dart';
 
 class SyncIconButton extends StatelessWidget {
-  const SyncIconButton({Key? key}) : super(key: key);
+  final String? failureType;
+
+  const SyncIconButton({super.key, this.failureType});
 
   void _showSyncPopup(BuildContext context) {
+    final title = failureType != null ? "Sync $failureType Failures" : "Sync Master Data";
+    final message = failureType != null 
+        ? "This will sync the $failureType failure list from the server. Continue?"
+        : "This will sync all master data from the server. Continue?";
+
     Get.dialog(
       CustPopup(
         icon: TablerIcons.cloud_upload,
         iconColor: AppColors.orangeColor,
-        title: "Sync Master Data",
-        message: "This will sync all master data from the server. Continue?",
+        title: title,
+        message: message,
         cancelText: "Cancel",
         confirmText: "Sync",
         onCancel: () => Get.back(),
         onConfirm: () {
           Get.back();
-          MasterDataSyncService().syncMasterData();
+          if (failureType == 'Station') {
+            // For station failures, use the controller's refreshAllStationFailures method
+            try {
+              final controller = Get.find<FailureListController>(tag: 'Station');
+              controller.refreshAllStationFailures();
+            } catch (e) {
+              debugPrint("Error finding station failure controller: $e");
+            }
+          } else {
+            final syncService = Get.find<MasterDataSyncService>();
+            if (failureType != null) {
+              syncService.syncFailureList(failureType!);
+              // Also sync pending submissions
+              syncService.syncPendingSubmissions();
+            } else {
+              // Dashboard / create screens: same as the login sync - changed
+              // master data since the last sync date, then pending submissions.
+              syncService.syncMasterAndPending();
+            }
+          }
         },
       ),
     );
@@ -37,14 +62,18 @@ class SyncIconButton extends StatelessWidget {
       
       return GestureDetector(
         onTap: isSyncing ? null : () => _showSyncPopup(context),
-        child: Stack(
-          children: [
-            Icon(
-              TablerIcons.cloud_upload,
-              size: AppConstants.iconSize,
-              color: isSyncing ? AppColors.green : AppColors.white1,
-            ),
-          ],
+        child: SizedBox(
+          width: AppConstants.iconSize,
+          height: AppConstants.iconSize,
+          child: Stack(
+            children: [
+              Icon(
+                TablerIcons.cloud_upload,
+                size: AppConstants.iconSize,
+                color: isSyncing ? AppColors.green : AppColors.white1,
+              ),
+            ],
+          ),
         ),
       );
     });

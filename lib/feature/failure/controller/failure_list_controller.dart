@@ -1,59 +1,111 @@
 import 'dart:convert';
-import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
+import 'package:intl/intl.dart';
 import 'package:get/get.dart';
-import 'package:http/http.dart' as http;
+
 import 'package:flutter/material.dart';
 import 'package:om_mobile/constants/colors.dart';
-import '../../../constants/app_constants.dart';
-import '../../../core/models/label_value.dart';
 import '../../../service/network_service/api_client.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../../../service/auth_manager.dart';
-import '../../../service/session_controller.dart';
-import '../../../utils/widgets/cust_button.dart';
-import '../../../utils/widgets/cust_dropdown.dart';
-import '../../../utils/widgets/cust_loader.dart';
-import '../../../utils/widgets/cust_text.dart';
+import '../../../core/controller/session_controller.dart';
+import '../../../service/local_database_service.dart';
 import '../model/failure_list_response.dart';
 import '../service/failure_service.dart';
+import '../../../service/master_data_sync_service.dart';
 
-enum StationFailureListTab { active, closed }
 enum JEFailureListTab { inbox, jointInspection }
 
 class FailureListController extends GetxController {
   final FailureService _failureService = FailureService();
   final ApiClient _apiClient = ApiClient();
   final SessionController _sessionController = Get.find<SessionController>();
+  final LocalDatabaseService _dbService = LocalDatabaseService();
 
   final RxList<FailureItem> failures = <FailureItem>[].obs;
   final RxString searchQuery = "".obs;
   final RxBool isLoading = false.obs;
   final RxString errorMessage = "".obs;
+  final RxBool isOfflineMode = false.obs;
+  
+  // Staff filter for Section Incharge
+  final RxList<StaffItem> staffList = <StaffItem>[].obs;
+  final RxnInt selectedStaffId = RxnInt(null);
+  final RxnString selectedStaffName = RxnString(null);
 
   List<FailureItem> get filteredFailures {
-    if (searchQuery.value.trim().isEmpty) return failures;
+    var list = failures.where((item) => _matchesFailureType(item)).toList();
+    
+    // Station Filter for Station Controller
+    if (failureType.toLowerCase() == 'station') {
+      final session = Get.find<SessionController>();
+      final selectedStationId = session.selectedStationId.value;
+      final selectedStationName = session.selectedStationName.value;
+      debugPrint("filteredFailures: Station filter - selectedStationId=$selectedStationId, selectedStationName=$selectedStationName");
+      
+      if (selectedStationId != null && selectedStationId.isNotEmpty && selectedStationId != '0') {
+        final beforeFilter = list.length;
+        
+        // Log all location names for debugging BEFORE filtering
+        debugPrint("filteredFailures: All location names in current list (before filter):");
+        for (var item in list) {
+          debugPrint("  - locationName: '${item.locationName}', locationId: '${item.locationId}'");
+        }
+        
+        // Try to filter by locationId first
+        list = list.where((item) => (item.locationId?.toString() ?? '') == selectedStationId).toList();
+        debugPrint("filteredFailures: After locationId filter: ${list.length} results");
+        
+        // If no results, try filtering by locationName with partial match
+        if (list.isEmpty && selectedStationName != null && selectedStationName.isNotEmpty) {
+          debugPrint("filteredFailures: No results by locationId, trying locationName match");
+          // Normalize station name: remove spaces, dashes, convert to lowercase
+          final normalizedStationName = selectedStationName.toLowerCase().replaceAll(RegExp(r'[\s\-]'), '');
+          debugPrint("filteredFailures: Normalized station name: $normalizedStationName");
+          
+          // Need to use the original unfiltered list for name matching
+          final originalList = failures.where((item) => _matchesFailureType(item)).toList();
+          
+          debugPrint("filteredFailures: Comparing with ${originalList.length} failures");
+          list = originalList.where((item) {
+            final locationName = (item.locationName ?? '').toLowerCase().replaceAll(RegExp(r'[\s\-]'), '');
+            debugPrint("filteredFailures: Comparing '$locationName' with '$normalizedStationName'");
+            // Check if normalized names match or contain each other
+            return locationName.contains(normalizedStationName) || 
+                   normalizedStationName.contains(locationName) ||
+                   locationName == normalizedStationName;
+          }).toList();
+          debugPrint("filteredFailures: Location name match results: ${list.length}");
+        }
+        
+        debugPrint("filteredFailures: Station filter - before=$beforeFilter, after=${list.length}");
+      }
+    }
+    
+    // Status Filter
+    if (selectedStatusFilter.value.isNotEmpty) {
+      final status = selectedStatusFilter.value.toLowerCase();
+      list = list.where((item) => (item.statusName ?? '').toLowerCase() == status).toList();
+    }
+    
+    if (searchQuery.value.trim().isEmpty) return list;
+    
     final q = searchQuery.value.trim().toLowerCase();
-    return failures.where((item) {
+    return list.where((item) {
       final code = (item.notificationCode ?? '').toLowerCase();
       final loc = (item.locationName ?? '').toLowerCase();
       final status = (item.statusName ?? '').toLowerCase();
       return code.contains(q) || loc.contains(q) || status.contains(q);
     }).toList();
   }
-  final selectedStationTab = StationFailureListTab.active.obs;
+  final RxString selectedStatusFilter = "".obs;
   final selectedJETab = JEFailureListTab.inbox.obs;
   String failureType = 'Maintenance';
 
   void setFailureType(String type) {
     failureType = type;
+    debugPrint("setFailureType: type='$type', final failureType='$failureType'");
   }
 
-  @override
-  void onInit() {
-    super.onInit();
-    // fetchFailures() is called by the view after setFailureType()
-    // to avoid double-calls and ensure failureType is set first.
-  }
 
   bool get _isJE {
     final role = _sessionController.selectedRole.value?.roleDescr ?? '';
@@ -65,16 +117,46 @@ class FailureListController extends GetxController {
     return role.contains('Station Controller');
   }
 
+  bool get _isSectionIncharge {
+    final role = _sessionController.selectedRole.value?.roleDescr ?? '';
+    final result = role.contains('Section Incharge');
+    debugPrint("_isSectionIncharge: role='$role', result=$result");
+    return result;
+  }
+
+  /// FMC / TPC / CSS / RSC users get the OCC failures reported to them from a
+  /// dedicated API.
+  bool get _isFmc {
+    final role = _sessionController.selectedRole.value?.roleDescr ?? '';
+    return SessionController.isOccDelegateRole(role);
+  }
+
+  /// DCC users see depot failures for the depot they selected.
+  bool get isDcc {
+    final role = _sessionController.selectedRole.value?.roleDescr ?? '';
+    return role.toUpperCase().contains('DCC');
+  }
+
+  /// Chief Controller (the OCC-failure creator role) sees the OCC failures
+  /// from getFailureList.
+  bool get _isOccRole {
+    final role = _sessionController.selectedRole.value?.roleDescr ?? '';
+    return SessionController.isOccFailureCreatorRole(role) && !_isFmc;
+  }
+
+  bool get _useOccFailureListApi =>
+      failureType.toLowerCase() == 'occ' && _isOccRole;
+
+  bool get _useDepotFailureListApi => failureType.toLowerCase() == 'depot' && isDcc;
+
   bool get _useStationFailureListApi => failureType.toLowerCase() == 'station' && _isStationController;
 
   bool get showStationTabs => _useStationFailureListApi;
   bool get showJETabs => _isJE;
-
-  void setStationTab(StationFailureListTab tab) {
-    if (selectedStationTab.value == tab) return;
-    selectedStationTab.value = tab;
-    fetchFailures();
-  }
+  bool get showSectionInchargeList => _isSectionIncharge;
+  
+  // Section Incharge uses the same failure list as general users
+  bool get useSectionInchargeApi => _isSectionIncharge;
 
   void setJETab(JEFailureListTab tab) {
     if (selectedJETab.value == tab) return;
@@ -83,15 +165,40 @@ class FailureListController extends GetxController {
   }
 
   bool _matchesFailureType(FailureItem item) {
-    if (_isJE && selectedJETab.value == JEFailureListTab.jointInspection) return true;
-    
     final filter = failureType.trim().toLowerCase();
+    debugPrint("_matchesFailureType: filter='$filter', _isSectionIncharge=$_isSectionIncharge, _isJE=$_isJE, _useStationFailureListApi=$_useStationFailureListApi");
+    
     if (filter.isEmpty) return true;
+
+    if (_isFmc) return true;
+
+    if (_useDepotFailureListApi) return true;
+
+    if (_useOccFailureListApi) return true;
 
     if (_useStationFailureListApi) return true;
 
-    final creation = (item.creationType ?? '').trim().toLowerCase();
+    // Section Incharge sees all failure types
+    if (_isSectionIncharge) {
+      debugPrint("_matchesFailureType: Section Incharge - showing all failures");
+      return true;
+    }
 
+    final creation = (item.creationType ?? '').trim().toLowerCase();
+    debugPrint("_matchesFailureType: creationType='$creation'");
+
+    // For JE users: Maintenance tab shows Manual, Station tab shows Station
+    if (_isJE) {
+      if (filter == 'maintenance' || filter == 'maintainance') {
+        return creation == 'manual';
+      }
+      if (filter == 'station') {
+        return creation == 'station';
+      }
+      return true;
+    }
+
+    // For non-JE users
     if (filter == 'maintenance' || filter == 'maintainance') {
       return creation == 'manual';
     }
@@ -102,269 +209,761 @@ class FailureListController extends GetxController {
     return other == filter || other.contains(filter);
   }
 
-  String _messageFromResponse(http.Response response) {
-    try {
-      final decoded = jsonDecode(response.body);
-      if (decoded is Map<String, dynamic>) {
-        final message = decoded['responseMessage']?.toString().trim();
-        if (message != null && message.isNotEmpty) return message;
-      }
-    } catch (_) {
-      // Fall back to the status code below when the server does not return JSON.
-    }
-    return "Server error: ${response.statusCode}";
-  }
-  final popupStationList = <LabelValue>[].obs;
-  final isPopupStationLoading = false.obs;
-  final session = Get.find<SessionController>();
 
-  Future<void> fetchAndShowStationPopup() async {
-    isPopupStationLoading.value = true;
-
-    Get.dialog(
-      WillPopScope(
-        onWillPop: () async => false,
-        child: Dialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          elevation: 8,
-          backgroundColor: Colors.transparent,
-          child: Container(
-            decoration: BoxDecoration(
-              color: AppColors.white1,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.textDarkSecondary,
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            padding: const EdgeInsets.all(15),
-            child: Obx(() {
-              if (isPopupStationLoading.value) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CustLoader(),
-                    const SizedBox(height: 16),
-                    const Text("Fetching stations...", style: TextStyle(color: AppColors.textDarkSecondary)),
-                  ],
-                );
-              }
-
-              return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: GestureDetector(
-                      onTap: () {
-                        Get.back();
-                        Get.back();
-                      },
-                      child: const Icon(TablerIcons.x, color: AppColors.textDarkPrimary, size: 24),
-                    ),
-                  ),
-                  CustText(name: "Select Station", size: AppConstants.headerSize, color: AppColors.black, fontWeightName: FontWeight.w600),
-                  const SizedBox(height: 16),
-                  Obx(() => CustDropdown(
-                    label: "Station",
-                    hint: "Select Station",
-                    items: popupStationList
-                        .map((e) => e.label ?? "")
-                        .toList(),
-                    selectedValue: session.selectedStationName.value,
-                    onChanged: (val) {
-                      session.selectedStationName.value = val;
-
-                      session.selectedStationId.value =
-                          popupStationList
-                              .firstWhere(
-                                (e) => e.label == val,
-                            orElse: () => LabelValue(value: "0"),
-                          )
-                              .value;
-                    },
-                  )),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: CustOutlineButton(
-                          name: "Cancel",
-                          size: double.infinity,
-                          sHeight: 35,
-                          onSelected: (_) {
-                            Get.back();
-                            Get.back();
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: CustButton(
-                          name: "OK",
-                          size: double.infinity,
-                          sHeight: 35,
-                            onSelected: (_) async {
-                              if (session.selectedStationId.value == null) {
-                                Get.snackbar(
-                                  "Error",
-                                  "Please select a station",
-                                  backgroundColor: Colors.red,
-                                  colorText: Colors.white,
-                                );
-                                return;
-                              }
-
-                              Get.back();
-
-                              await fetchFailures();
-                            }
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              );
-            }),
-          ),
-        ),
-      ),
-      barrierDismissible: false,
-    );
-
-    try {
-      final stations = await _failureService.getStationNames();
-      popupStationList.assignAll(stations);
-    } catch (e) {
-      debugPrint('Error fetching stations: $e');
-    } finally {
-      isPopupStationLoading.value = false;
-    }
-  }
-
-  Future<void> fetchFailures() async {
+  Future<void> fetchFailures({bool forceRefresh = false}) async {
     try {
       isLoading.value = true;
       errorMessage.value = "";
+      isOfflineMode.value = false;
+      debugPrint("fetchFailures: Starting fetch for type $failureType, forceRefresh=$forceRefresh, isJE=$_isJE");
 
-      final String? userIdStr = await AuthManager().getUserId();
-      final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
-
-      final http.Response response;
-
-      if (_useStationFailureListApi) {
-        final isClosedList = selectedStationTab.value == StationFailureListTab.closed;
-        response = await _apiClient.post(
-          isClosedList ? AppUrls.getStationFailureClosedList : AppUrls.getStationFailureList,
-          body: {
-              "LocationId":
-              int.tryParse(session.selectedStationId.value ?? "0") ?? 0,
-            "UserId": userId,
-            "DepartmentIds": "",
-            "Action": isClosedList ? "ClosedFailureList" : "",
-          },
-        );
-      } else if (_isJE && selectedJETab.value == JEFailureListTab.jointInspection) {
-        response = await _apiClient.post(
-          AppUrls.jeJointInboxList,
-          body: {
-            "assignedUserId": userId,
-            "jobCardId": null,
-            "id": null,
-            "deptId": null,
-            "startDate": null,
-            "endDate": null
-          },
-        );
-      } else {
-        final int deptId = _sessionController.selectedDepartment.value?.deptId ?? 0;
-        response = await _apiClient.post(
-          AppUrls.jeInboxList,
-          body: {
-            "assignedUserId": userId,
-            "deptId": deptId,
-          },
-        );
-      }
-
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonBody = jsonDecode(response.body);
-        debugPrint("jsonBody===$jsonBody");
-        final result = FailureListResponse.fromJson(jsonBody);
-        if (result.responseCode == 200) {
-          final allItems = result.responseOutput;
-          final filteredItems = allItems.where((item) => _matchesFailureType(item)).toList();
-          // Reverse order for joint inspection inbox
-          if (_isJE && selectedJETab.value == JEFailureListTab.jointInspection) {
-            failures.assignAll(filteredItems.reversed.toList());
-          } else {
-            failures.assignAll(filteredItems);
+      if (_isFmc) {
+        await _fetchFmcFailures();
+      } else if (_useDepotFailureListApi) {
+        await _fetchDepotFailures();
+      } else if (_useOccFailureListApi) {
+        await _fetchOccRoleFailures();
+      } else if (_isJE) {
+        // JE users fetch from API with offline fallback (same pattern as Station Controller)
+        debugPrint("fetchFailures: JE user - fetching from API with offline fallback");
+        
+        // Use composite key for JE: 'JE_inbox' or 'JE_jointInspection'
+        final jeFailureType = 'JE_${selectedJETab.value.name}';
+        debugPrint("fetchFailures: JE failureType key: $jeFailureType");
+        
+        // Try to fetch from API
+        bool apiSuccess = false;
+        try {
+          await _fetchFromApi();
+          if (failures.isNotEmpty) {
+            // Save to local DB on API success using JE-specific key
+            await _dbService.clearFailureList(jeFailureType);
+            await _dbService.insertFailureList(failures.map((e) => e.toJson()).toList(), jeFailureType);
+            debugPrint("fetchFailures: Saved ${failures.length} JE failures to local DB with key: $jeFailureType");
+            apiSuccess = true;
           }
+        } catch (e) {
+          debugPrint("fetchFailures: JE API failed, falling back to local DB: $e");
+          isOfflineMode.value = true;
+          errorMessage.value = ""; // Clear error when falling back to local DB
+        }
+        
+        // If API failed or returned empty, load from local DB
+        if (!apiSuccess || failures.isEmpty) {
+          debugPrint("fetchFailures: JE - loading failures from local DB with key: $jeFailureType");
+          final localFailures = await _dbService.getFailureList(jeFailureType);
+          debugPrint("fetchFailures: Found ${localFailures.length} failures in local DB");
+          
+          if (localFailures.isNotEmpty) {
+            final failureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
+            final filteredItems = failureItems.where((item) => _matchesFailureType(item)).toList();
+            
+            _sortJeFailures(filteredItems);
+
+            failures.assignAll(filteredItems);
+            errorMessage.value = ""; // Clear error message when local data loads successfully
+            debugPrint("fetchFailures: Loaded ${filteredItems.length} failures from local DB for JE");
+          } else {
+            debugPrint("fetchFailures: No local data found for JE with key: $jeFailureType");
+            isOfflineMode.value = true;
+            if (!apiSuccess) {
+              errorMessage.value = "No data available. Please sync with internet connection.";
+            } else {
+              errorMessage.value = "No failures found.";
+            }
+          }
+        }
+      } else if (_useStationFailureListApi) {
+        await _fetchStationControllerFailures(forceAll: forceRefresh);
+      } else if (failureType.toLowerCase() == 'station') {
+        debugPrint("fetchFailures: Station Controller - fetching from API if possible");
+        
+        // Try to fetch from API
+        bool apiSuccess = false;
+        try {
+          // Get last sync date for station failures
+          final lastSyncDate = await _getStationFailureLastSyncDate();
+          final apiFailures = await _failureService.getStationFailureListWithData(lastSyncDate: lastSyncDate);
+          if (apiFailures.isNotEmpty) {
+            final failureItems = apiFailures.map((e) => FailureItem.fromJson(e)).toList();
+            await _dbService.clearFailureList(failureType);
+            await _dbService.insertFailureList(failureItems.map((e) => e.toJson()).toList(), failureType);
+            debugPrint("fetchFailures: Saved ${failureItems.length} station failures to local DB");
+            // Update last sync date
+            await _setStationFailureLastSyncDate(DateTime.now().toIso8601String().split('T')[0]);
+            apiSuccess = true;
+          } else if (lastSyncDate == null) {
+            // Only clear local DB if this was a full sync (lastSyncDate=null) and server returned empty
+            await _dbService.clearFailureList(failureType);
+            debugPrint("fetchFailures: Full sync returned empty, cleared local DB");
+          }
+          // If lastSyncDate is not null (incremental sync) and apiFailures is empty, do nothing
+          // This means no new data since last sync, keep existing local data
+        } catch (e) {
+          debugPrint("fetchFailures: API failed, falling back to local DB: $e");
+          isOfflineMode.value = true;
+        }
+        
+        debugPrint("fetchFailures: Station Controller - loading Station failures from local DB");
+        final localFailures = await _dbService.getFailureList(failureType);
+        debugPrint("fetchFailures: Found ${localFailures.length} failures in local DB");
+        
+        if (localFailures.isNotEmpty) {
+          final failureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
+          final filteredItems = failureItems.where((item) => _matchesFailureType(item)).toList();
+          failures.assignAll(filteredItems);
+          debugPrint("fetchFailures: Loaded ${filteredItems.length} failures from local DB for type $failureType");
         } else {
-          errorMessage.value = result.responseMessage ?? "Failed to load data";
+          debugPrint("fetchFailures: No local data found for type $failureType");
+          isOfflineMode.value = true;
+          if (!apiSuccess) {
+            errorMessage.value = "No data available. Please sync with internet connection.";
+          } else {
+            errorMessage.value = "No failures found.";
+          }
+        }
+      } else if (_isSectionIncharge) {
+        // Section Incharge users fetch from API with offline fallback
+        debugPrint("fetchFailures: Section Incharge - fetching from API with offline fallback");
+        
+        final cacheKey = 'SectionIncharge_list';
+        debugPrint("fetchFailures: Section Incharge failureType key: $cacheKey");
+        
+        // Try to fetch from API
+        bool apiSuccess = false;
+        try {
+          await _fetchFromApi();
+          if (failures.isNotEmpty) {
+            // Save to local DB on API success
+            await _dbService.clearFailureList(cacheKey);
+            await _dbService.insertFailureList(failures.map((e) => e.toJson()).toList(), cacheKey);
+            debugPrint("fetchFailures: Saved ${failures.length} Section Incharge failures to local DB");
+            apiSuccess = true;
+          }
+        } catch (e) {
+          debugPrint("fetchFailures: Section Incharge API failed, falling back to local DB: $e");
+          isOfflineMode.value = true;
+          errorMessage.value = "";
+        }
+        
+        // If API failed or returned empty, load from local DB
+        if (!apiSuccess || failures.isEmpty) {
+          debugPrint("fetchFailures: Section Incharge - loading failures from local DB");
+          final localFailures = await _dbService.getFailureList(cacheKey);
+          debugPrint("fetchFailures: Found ${localFailures.length} failures in local DB");
+          
+          if (localFailures.isNotEmpty) {
+            final failureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
+            final filteredItems = failureItems.where((item) => _matchesFailureType(item)).toList();
+            
+            // Sort by notificationId in descending order (newest first) - matching React code
+            filteredItems.sort((a, b) {
+              final aId = a.id ?? 0;
+              final bId = b.id ?? 0;
+              return bId.compareTo(aId); // Descending order
+            });
+            
+            failures.assignAll(filteredItems);
+            errorMessage.value = "";
+            debugPrint("fetchFailures: Loaded ${filteredItems.length} failures from local DB for Section Incharge (sorted by notificationId)");
+          } else {
+            debugPrint("fetchFailures: No local data found for Section Incharge");
+            isOfflineMode.value = true;
+            if (!apiSuccess) {
+              errorMessage.value = "No data available. Please sync with internet connection.";
+            } else {
+              errorMessage.value = "No failures found.";
+            }
+          }
         }
       } else {
-        failures.clear();
-        errorMessage.value = _messageFromResponse(response);
+        // For other types (Maintenance, etc.) for non-JE users
+        debugPrint("fetchFailures: Fetching $failureType failures from API");
+        await _fetchFromApi();
       }
     } catch (e) {
+      debugPrint("fetchFailures: Error loading: $e");
       errorMessage.value = "Error: $e";
+      isOfflineMode.value = true;
+    } finally {
+      isLoading.value = false;
+      debugPrint("fetchFailures: Complete, total failures: ${failures.length}");
+    }
+  }
+
+  /// FMC inbox: online first, cached copy when offline.
+  Future<void> _fetchFmcFailures() async {
+    const cacheKey = 'FMC_list';
+    try {
+      final rows = await _failureService.getOccFailureInbox();
+      final items = <FailureItem>[];
+      for (final r in rows) {
+        try {
+          items.add(_fmcItemFromRow(r));
+        } catch (e) {
+          debugPrint('_fetchFmcFailures: skipped bad row: $e');
+        }
+      }
+      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      failures.assignAll(items);
+      await _dbService.clearFailureList(cacheKey);
+      if (items.isNotEmpty) {
+        await _dbService.insertFailureList(
+            items.map((e) => e.toJson()).toList(), cacheKey);
+      } else {
+        errorMessage.value = 'No failures found.';
+      }
+    } catch (e) {
+      debugPrint('_fetchFmcFailures: API failed, using local copy: $e');
+      isOfflineMode.value = true;
+      final local = await _dbService.getFailureList(cacheKey);
+      if (local.isNotEmpty) {
+        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
+      } else {
+        errorMessage.value =
+        'No data available. Please check your internet connection.';
+      }
+    }
+  }
+
+  /// GetAllFailuresTransactionData station row -> the shape FailureItem reads
+  /// for station list items. That API sends no encrypted failure id, so the
+  /// numeric id stands in for it (the details screen then uses the row).
+  Map<String, dynamic> _stationRowFromTransaction(Map<String, dynamic> record) {
+    final f = Map<String, dynamic>.from(record['failure'] as Map);
+    String? date(dynamic v) {
+      final d = DateTime.tryParse(v?.toString() ?? '');
+      return d == null ? v?.toString() : DateFormat('dd-MM-yyyy HH:mm').format(d);
+    }
+
+    int? asInt(dynamic v) =>
+        v is bool ? (v ? 1 : 0) : (v is num ? v.toInt() : int.tryParse('${v ?? ''}'));
+
+    return {
+      'id': asInt(f['id']),
+      'syncStatus': 'synced',
+      'failureId': f['notificationCode']?.toString(),
+      'failureCreationId': f['failureCreationId']?.toString() ?? f['id']?.toString(),
+      'failureDescription': f['failureDescription'],
+      'funcationLocation': f['functionalLocation'],
+      'location': f['location'],
+      'subLocation': f['subLocation'],
+      'departmentName': f['departmentName'],
+      'priority': f['priority'],
+      'lineName': f['lineName'],
+      'statusName': f['statusName'],
+      'statusId': asInt(f['statusId']),
+      'occRequestStatusId': asInt(f['occRequestStatusId']),
+      'occRequestStatusName': f['occRequestStatusName'],
+      'actualFailureOccuranceDate': date(f['actualFailureOccuranceDate']),
+      'actualFailureCompletedDateTime': date(f['actualFailureCompletedDateTime']),
+      'createdDate': date(f['createdDate']),
+      'failureReportedby': f['failureReportedBy'],
+      'failureCategoryTypeText': f['failureCategoryTypeText'],
+      'failureRectificationDetails': f['failureRectificationDetails'],
+      'carriedOutRemarks': f['carriedOutRemarks'],
+      'trainId': f['trainId']?.toString(),
+      'system': f['system'],
+      'isTripAffected': f['isTripAffected'] is bool ? f['isTripAffected'] : null,
+      'tripDelayUpline': asInt(f['tripDelayUpline']),
+      'tripDelayDownline': asInt(f['tripDelayDownline']),
+      'tripCancel': asInt(f['tripCancel']),
+      'isTrainReplace': f['isTrainReplace'] is bool ? f['isTrainReplace'] : null,
+      'trainReplace': asInt(f['trainReplace']),
+      'isTrainDeboarded': f['isTrainDeboarded'] is bool ? f['isTrainDeboarded'] : null,
+      'trainDeboarded': asInt(f['trainDeboarded']),
+      'isPassengerAffected': f['passengerAffected'] == 'Yes'
+          ? true
+          : (f['passengerAffected'] == 'No' ? false : null),
+      'numberOfPassengerAffected': asInt(f['numberOfPassengerAffected']),
+      'trappedDuration': asInt(f['trappedDuration']),
+      'rescusedDuration': asInt(f['rescusedDuration']),
+      'trainDelayInMin': asInt(f['trainDelayInMin']),
+      'noOfTranWithdrawal': asInt(f['noOfTranWithdrawal']),
+      'departmentId_1': asInt(f['departmentId']),
+      'locationId': asInt(f['locationId']),
+      'funcationLocationId': asInt(f['functionalLocationId']),
+    };
+  }
+
+  /// Station Controller list (mobileAppAPI/GetAllFailuresTransactionData).
+  /// The first sync (or a forced refresh) downloads everything; later syncs
+  /// send the last sync date and merge only the changes. The list always shows
+  /// the local copy, so it also works offline. Failures saved offline and not
+  /// sent yet are listed too (orange dot); synced ones show a green dot.
+  Future<void> _fetchStationControllerFailures({bool forceAll = false}) async {
+    // Download / merge the station failures into the local copy (also done at
+    // login); the list below always shows the local copy.
+    final synced = await Get.find<MasterDataSyncService>()
+        .syncStationFailures(forceAll: forceAll);
+    if (!synced) {
+      debugPrint('_fetchStationControllerFailures: server not reached, using local copy');
+      isOfflineMode.value = true;
+    }
+
+    final items = <FailureItem>[];
+    for (final r in await _dbService.getStationFailureCache()) {
+      try {
+        items.add(FailureItem.fromJson(_stationRowFromTransaction(r)));
+      } catch (e) {
+        debugPrint('_fetchStationControllerFailures: skipped bad row: $e');
+      }
+    }
+    items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+
+    // Created offline and not sent yet: kept in FailureList until synced.
+    final pending = <FailureItem>[];
+    for (final r in await _dbService.getFailureList(failureType)) {
+      if (r['syncStatus'] == 'offline') {
+        try {
+          pending.add(FailureItem.fromJson(r));
+        } catch (_) {}
+      }
+    }
+    // Newest submission first; its departments in the order they were picked.
+    // Offline ids are -(submissionId * 10 + index) (older ones: the plain id).
+    ({int sid, int idx}) offlineKey(FailureItem f) {
+      final id = f.id ?? 0;
+      return id < 0 ? (sid: (-id) ~/ 10, idx: (-id) % 10) : (sid: id, idx: 0);
+    }
+
+    pending.sort((a, b) {
+      final ka = offlineKey(a), kb = offlineKey(b);
+      return ka.sid != kb.sid ? kb.sid.compareTo(ka.sid) : ka.idx.compareTo(kb.idx);
+    });
+    failures.assignAll([...pending, ...items]);
+    if (failures.isEmpty) {
+      errorMessage.value = isOfflineMode.value
+          ? 'No data available. Please sync with internet connection.'
+          : 'No failures found.';
+    }
+  }
+
+  /// OCC role list (OCCMaintainance/getFailureList, action FailureList):
+  /// online first, cached copy when offline.
+  Future<void> _fetchOccRoleFailures() async {
+    const cacheKey = 'OCC_role_list';
+    try {
+      final rows = await _failureService.getOccFailureInbox(action: 'FailureList');
+      final items = <FailureItem>[];
+      for (final r in rows) {
+        try {
+          items.add(_fmcItemFromRow(r));
+        } catch (e) {
+          debugPrint('_fetchOccRoleFailures: skipped bad row: $e');
+        }
+      }
+      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      failures.assignAll(items);
+      await _dbService.clearFailureList(cacheKey);
+      if (items.isNotEmpty) {
+        await _dbService.insertFailureList(
+            items.map((e) => e.toJson()).toList(), cacheKey);
+      } else {
+        errorMessage.value = 'No failures found.';
+      }
+    } catch (e) {
+      debugPrint('_fetchOccRoleFailures: API failed, using local copy: $e');
+      isOfflineMode.value = true;
+      final local = await _dbService.getFailureList(cacheKey);
+      if (local.isNotEmpty) {
+        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
+      } else {
+        errorMessage.value =
+        'No data available. Please check your internet connection.';
+      }
+    }
+  }
+
+  /// DCC depot failures for the selected depot: online first, cached copy
+  /// (per depot) when offline.
+  Future<void> _fetchDepotFailures() async {
+    final depotId = int.tryParse(_sessionController.selectedDepotId.value ?? '') ?? 0;
+    if (depotId == 0) {
+      failures.clear();
+      errorMessage.value = 'Please select a depot first';
+      return;
+    }
+    final cacheKey = 'Depot_list_$depotId';
+    try {
+      final rows = await _failureService.getDepotFailureList(depotId);
+      final items = <FailureItem>[];
+      for (final r in rows) {
+        try {
+          items.add(_fmcItemFromRow(r, creationType: 'Depot'));
+        } catch (e) {
+          debugPrint('_fetchDepotFailures: skipped bad row: $e');
+        }
+      }
+      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+      failures.assignAll(items);
+      await _dbService.clearFailureList(cacheKey);
+      if (items.isNotEmpty) {
+        await _dbService.insertFailureList(
+            items.map((e) => e.toJson()).toList(), cacheKey);
+      } else {
+        errorMessage.value = 'No failures found.';
+      }
+    } catch (e) {
+      debugPrint('_fetchDepotFailures: API failed, using local copy: $e');
+      isOfflineMode.value = true;
+      final local = await _dbService.getFailureList(cacheKey);
+      if (local.isNotEmpty) {
+        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
+      } else {
+        errorMessage.value =
+        'No data available. Please check your internet connection.';
+      }
+    }
+  }
+
+  /// Maps one inbox row without strict casts (the row shape is not fixed).
+  FailureItem _fmcItemFromRow(Map<String, dynamic> m, {String creationType = 'OCC'}) {
+    String? s(String k) {
+      final v = m[k]?.toString().trim();
+      return (v == null || v.isEmpty || v == 'null') ? null : v;
+    }
+
+    int? i(String k) => int.tryParse(m[k]?.toString() ?? '');
+
+    String? first(List<String> keys) {
+      for (final k in keys) {
+        final v = s(k);
+        if (v != null) return v;
+      }
+      return null;
+    }
+
+    return FailureItem(
+      id: i('id'),
+      // failureCreationId is the encrypted id getFailureCreationById expects.
+      failureNo: first(['failureCreationId', 'id']),
+      notificationCode: first(['failureId', 'notificationCode', 'failureNo']),
+      failureDescription: first(['failureDescription', 'description']),
+      functionalLocation: first(['funcationLocation', 'functionalLocation']),
+      statusName: first(['statusName', 'mainStatusName', 'status']),
+      statusDescription: first(['statusDescription', 'statusName']),
+      failureOccuranceDateTime: first([
+        'actualFailureOccuranceDate',
+        'actualFailureOccuranceDatetime',
+        'failureOccuranceDateTime'
+      ]),
+      locationName: first(['locationName', 'location']),
+      creationType: creationType,
+      priority: s('priority'),
+      departmentName: first(['departmentName', 'failureDeptName']),
+      subLocation: s('subLocation'),
+      trainId: s('trainId'),
+      system: first(['system', 'systems']),
+      createdDate: first(['createdDate', 'createdSystemDate']),
+      lineName: s('lineName'),
+      statusId: i('statusId'),
+      occRequestStatusName:
+      creationType == 'Depot' ? first(['occRequestStatusName']) : null,
+      createdByName: s('createdByName'),
+      currentlyWith: s('currentlyWith'),
+      syncStatus: 'online',
+      lastSyncedAt: DateTime.now().toIso8601String(),
+    );
+  }
+
+  /// Creation order of a failure. The failure number is department / MM-YYYY /
+  /// sequence (e.g. SIG/10-2026/0015), so month-year then sequence tells which
+  /// is newer; JE inbox rows often have no usable `id`, so the id is only the
+  /// fallback.
+  int _recencyKey(FailureItem item) {
+    final no = item.notificationCode ?? item.failureNo ?? '';
+    final m = RegExp(r'(\d{1,2})-(\d{4})/(\d+)').firstMatch(no);
+    if (m != null) {
+      final month = int.parse(m.group(1)!);
+      final year = int.parse(m.group(2)!);
+      final seq = int.parse(m.group(3)!);
+      return (year * 100 + month) * 1000000 + seq;
+    }
+    return item.id ?? 0;
+  }
+
+  /// JE lists are ordered purely by recency (not grouped by creation type, or
+  /// a new OCC failure would always sit below older Manual / Station / Depot
+  /// ones): JE Inbox newest first, Joint Inspection Inbox oldest first.
+  void _sortJeFailures(List<FailureItem> items) {
+    final oldestFirst =
+        selectedJETab.value == JEFailureListTab.jointInspection;
+    items.sort((a, b) {
+      final byRecency = _recencyKey(a).compareTo(_recencyKey(b));
+      return oldestFirst ? byRecency : -byRecency;
+    });
+  }
+
+  Future<void> _fetchFromApi() async {
+    try {
+      final String? userIdStr = await AuthManager().getUserId();
+      final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
+      
+      final sessionController = Get.find<SessionController>();
+      final int deptId = sessionController.selectedDepartment.value?.deptId ?? 0;
+      
+      // Skip if no department selected
+      if (deptId == 0) {
+        debugPrint("_fetchFromApi: No department selected (deptId=0)");
+        errorMessage.value = "Please select a department first";
+        return;
+      }
+      
+      // Use appropriate API endpoint based on user role
+      String apiUrl;
+      Map<String, dynamic> body;
+      
+      if (_isSectionIncharge) {
+        // Section Incharge uses NotificationListSI endpoint
+        apiUrl = AppUrls.sectionInchargeNotificationList;
+        
+        // Include staff filter if selected
+        final assignedUserId = selectedStaffId.value;
+        body = {
+          "userId": userId,
+          "deptID": deptId,
+          "fromDate": null,
+          "toDate": null,
+          "assignedUserId": assignedUserId,
+        };
+        debugPrint("_fetchFromApi: Calling Section Incharge API: $apiUrl with assignedUserId: $assignedUserId");
+      } else {
+        // JE users use their respective endpoints
+        apiUrl = selectedJETab.value == JEFailureListTab.jointInspection
+            ? AppUrls.jeJointInboxList
+            : AppUrls.jeInboxList;
+        body = {
+          "assignedUserId": userId,
+          "deptId": deptId,
+        };
+        debugPrint("_fetchFromApi: Calling JE API: $apiUrl for tab: ${selectedJETab.value}");
+      }
+      
+      final response = await _apiClient.post(
+        apiUrl,
+        body: body,
+      );
+      
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> jsonBody = jsonDecode(response.body);
+        if (jsonBody['responseCode'] == 200) {
+          final result = FailureListResponse.fromJson(jsonBody);
+          if (result.responseCode == 200) {
+            final allItems = result.responseOutput;
+            final filteredItems = allItems.where((item) => _matchesFailureType(item)).toList();
+            
+            // Sort by notificationId in descending order (newest first) - matching React code
+            if (_isSectionIncharge) {
+              filteredItems.sort((a, b) {
+                final aId = a.id ?? 0;
+                final bId = b.id ?? 0;
+                return bId.compareTo(aId); // Descending order
+              });
+            }
+            else {
+              _sortJeFailures(filteredItems);
+            }
+            
+            failures.assignAll(filteredItems);
+            debugPrint("_fetchFromApi: Loaded ${filteredItems.length} failures from API (sorted by ${_isSectionIncharge ? 'notificationId' : 'creationType'})");
+            
+            // Extract staff list for Section Incharge from userDetails
+            if (_isSectionIncharge && jsonBody['responseOutput'] != null) {
+              final userDetails = jsonBody['responseOutput']['userDetails'] as List<dynamic>?;
+              if (userDetails != null && userDetails.isNotEmpty) {
+                final staffItems = userDetails.map((e) => StaffItem.fromJson(e as Map<String, dynamic>)).toList();
+                staffList.assignAll(staffItems);
+                debugPrint("_fetchFromApi: Loaded ${staffItems.length} staff members for Section Incharge");
+              }
+            }
+            
+            // Data will be saved to local DB in fetchFailures method after API success
+            // This enables offline fallback for JE users
+          } else {
+            errorMessage.value = result.responseMessage ?? "Failed to fetch failures";
+          }
+        } else {
+          errorMessage.value = jsonBody['responseMessage'] ?? "Failed to fetch failures";
+        }
+      } else {
+        // Try to extract error message from response body even for non-200 status codes
+        try {
+          final Map<String, dynamic> jsonBody = jsonDecode(response.body);
+          errorMessage.value = jsonBody['responseMessage'] ?? "Server error: ${response.statusCode}";
+        } catch (e) {
+          errorMessage.value = "Server error: ${response.statusCode}";
+        }
+      }
+    } catch (e) {
+      debugPrint("_fetchFromApi: Error fetching from API: $e");
+      errorMessage.value = "Error: $e";
+      isOfflineMode.value = true;
+    }
+  }
+
+  /// DCC depot list: Re-open / Close (web: updateDepotAcknowledgeStatus).
+  Future<void> reOpenDepotFailure(int id, String remark, {String? failureNo}) =>
+      _updateDepotStatus(id, 'UPDATE_REOPEN_OCC_DEPOT', remark,
+          successMessage: 'Failure No.${failureNo ?? id} re-open successfully.');
+
+  Future<void> closeDepotFailure(int id, {String? failureNo}) =>
+      _updateDepotStatus(id, 'UPDATE_CLOSED_OCC_DEPOT', 'Closed Request',
+          successMessage: 'Failure No.${failureNo ?? id} closed successfully.');
+
+  Future<void> _updateDepotStatus(int id, String action, String description,
+      {required String successMessage, int statusId = 202}) async {
+    try {
+      isLoading.value = true;
+      errorMessage.value = '';
+      final response = await _failureService.updateDepotStatus(
+        id: id,
+        action: action,
+        description: description,
+        statusId: statusId,
+      );
+      final ok = response['responseCode'] == 200 ||
+          response['responseMessage']?.toString().toLowerCase() == 'success';
+      if (ok) {
+        Get.snackbar('Success', successMessage,
+            backgroundColor: AppColors.green, colorText: AppColors.white1);
+        await fetchFailures();
+      } else {
+        Get.snackbar('Error',
+            response['responseMessage']?.toString() ?? 'Failed to perform action',
+            backgroundColor: AppColors.red, colorText: AppColors.white1);
+      }
+    } catch (e) {
+      Get.snackbar('Error', e.toString(),
+          backgroundColor: AppColors.red, colorText: AppColors.white1);
     } finally {
       isLoading.value = false;
     }
   }
 
   Future<void> reOpenFailure(int id, String remark) async {
+    debugPrint("reOpenFailure: Called with id: $id, remark: $remark");
     await _updateStationAcknowledgeStatus(id, "UPDATE_REOPEN_OCC_Station", remark);
   }
 
   Future<void> closeFailure(int id) async {
+    debugPrint("closeFailure: Called with id: $id");
     await _updateStationAcknowledgeStatus(id, "UPDATE_CLOSED_OCC_Station", "Closed Request");
   }
 
-  Future<void> _updateStationAcknowledgeStatus(int id, String action, String description) async {
+
+  Future<void> acknowledgeFailure(int id, String remark, String submitStatus, {String? failureNo}) async {
+    await _updateStationAcknowledgeStatus(id, "UPDATE_Acknowledge_OCC_Station", remark, submitStatus: submitStatus, failureNo: failureNo);
+  }
+
+  Future<String?> _getStationFailureLastSyncDate() async {
+    final db = await _dbService.database;
+    final result = await db.rawQuery(
+      "SELECT value FROM AppSettings WHERE key = 'stationFailureLastSyncDate'"
+    );
+    if (result.isNotEmpty) {
+      return result.first['value']?.toString();
+    }
+    return null; // Return null to get all data on first sync
+  }
+
+  Future<void> _setStationFailureLastSyncDate(String date) async {
+    final db = await _dbService.database;
+    await db.rawInsert(
+      "INSERT OR REPLACE INTO AppSettings (key, value) VALUES ('stationFailureLastSyncDate', ?)",
+      [date]
+    );
+  }
+
+  /// Force refresh station failures without lastSyncDate (get all data)
+  Future<void> refreshAllStationFailures() async {
+    try {
+      isLoading.value = true;
+      errorMessage.value = "";
+      isOfflineMode.value = false;
+      await _fetchStationControllerFailures(forceAll: true);
+      Get.snackbar(
+        isOfflineMode.value ? 'Offline' : 'Sync Complete',
+        isOfflineMode.value
+            ? 'No connection - showing the saved station failures'
+            : 'Successfully synced ${failures.length} station failures',
+        backgroundColor: isOfflineMode.value ? AppColors.orangeColor : AppColors.green,
+        colorText: AppColors.white1,
+      );
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  Future<void> _updateStationAcknowledgeStatus(
+    int id,
+    String action,
+    String description, {
+    String? submitStatus,
+    String? failureNo,
+  }) async {
     try {
       isLoading.value = true;
       errorMessage.value = "";
 
       final String? userIdStr = await AuthManager().getUserId();
       final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
-      final String userName = _sessionController.userName.value;
+      final String userName =
+          (await AuthManager().getFullName()) ?? _sessionController.userName.value;
 
-      final Map<String, dynamic> payload = {
-        "Id": id,
-        "StatusId": 202,
-        "Action": action,
-        "CreatedBy": userId,
-        "CreatedByName": userName,
-        "Description": description,
-      };
+      final int statusId = submitStatus == "deny"
+          ? 198
+          : submitStatus == "accept"
+              ? 197
+              : 202;
 
-      final response = await _apiClient.post(
-        AppUrls.updateStationAcknowledgeStatus,
-        body: payload,
+      final response = await _failureService.updateStationAcknowledgeStatus(
+        id: id,
+        action: action,
+        description: description,
+        statusId: statusId,
+        createdBy: userId,
+        createdByName: userName,
       );
 
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> jsonBody = jsonDecode(response.body);
-        if (jsonBody['responseCode'] == 200) {
-          Get.snackbar("Success", jsonBody['responseMessage'] ?? "Action completed successfully.", backgroundColor: Colors.green, colorText: Colors.white);
-          fetchFailures(); // Refresh list
-        } else {
-          errorMessage.value = jsonBody['responseMessage'] ?? "Failed to perform action";
-          Get.snackbar("Error", errorMessage.value, backgroundColor: AppColors.red, colorText: AppColors.white1);
+      if (response['responseCode'] == 200 ||
+          response['responseMessage'] == "Success" ||
+          response['responseMessage'] == "success") {
+        final String notifCode = failureNo ?? id.toString();
+        String successMsg =
+            response['responseMessage'] ?? "Action completed successfully.";
+        if (submitStatus == "accept") {
+          successMsg =
+              "Failure No.$notifCode acknowledge accepted successfully.";
+        } else if (submitStatus == "deny") {
+          successMsg =
+              "Failure No.$notifCode acknowledge denied successfully.";
         }
+        Get.snackbar(
+          "Success",
+          successMsg,
+          backgroundColor: AppColors.green,
+          colorText: AppColors.white1,
+        );
+        fetchFailures(); // Refresh list
       } else {
-        errorMessage.value = "Server error: ${response.statusCode}";
-        Get.snackbar("Error", errorMessage.value, backgroundColor: AppColors.red, colorText: AppColors.white1);
+        errorMessage.value =
+            response['responseMessage'] ?? "Failed to perform action";
+        Get.snackbar(
+          "Error",
+          errorMessage.value,
+          backgroundColor: AppColors.red,
+          colorText: AppColors.white1,
+        );
       }
     } catch (e) {
       errorMessage.value = "Error: $e";
-      Get.snackbar("Error", errorMessage.value, backgroundColor: AppColors.red, colorText: AppColors.white1);
+      Get.snackbar(
+        "Error",
+        errorMessage.value,
+        backgroundColor: AppColors.red,
+        colorText: AppColors.white1,
+      );
     } finally {
       isLoading.value = false;
     }

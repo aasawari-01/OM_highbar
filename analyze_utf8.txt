@@ -1,0 +1,429 @@
+﻿Resolving dependencies...
+Downloading packages...
+  async 2.11.0 (2.13.1 available)
+  boolean_selector 2.1.1 (2.1.2 available)
+  characters 1.4.0 (1.4.1 available)
+  charts_flutter 0.12.0 (discontinued)
+  cross_file 0.3.5+1 (0.3.5+4 available)
+  crypto 3.0.6 (3.0.7 available)
+  cupertino_icons 1.0.8 (1.0.9 available)
+  dbus 0.7.11 (0.7.14 available)
+  dropdown_search 6.0.2 (7.0.0 available)
+  equatable 2.0.7 (2.1.0 available)
+  ffi 2.1.3 (2.2.0 available)
+  file_picker 10.3.8 (12.0.0 available)
+  fl_chart 1.1.1 (1.2.0 available)
+  flutter_easyloading 3.0.5 (4.0.2 available)
+  flutter_plugin_android_lifecycle 2.0.34 (2.0.35 available)
+  get 4.7.2 (4.7.3 available)
+  google_fonts 6.2.1 (8.2.1 available)
+  http 1.4.0 (1.6.0 available)
+  http_parser 4.0.2 (4.1.2 available)
+  image_picker 1.2.1 (1.2.3 available)
+  image_picker_android 0.8.13+14 (0.8.13+19 available)
+  image_picker_ios 0.8.13+3 (0.8.13+6 available)
+  intl 0.17.0 (0.20.3 available)
+  lints 6.0.0 (6.1.0 available)
+  matcher 0.12.17 (0.12.20 available)
+  material_color_utilities 0.11.1 (0.13.1 available)
+  meta 1.16.0 (1.19.0 available)
+  path_provider 2.1.5 (2.1.6 available)
+  path_provider_android 2.2.15 (2.3.1 available)
+  path_provider_foundation 2.4.1 (2.6.0 available)
+  path_provider_linux 2.2.1 (2.2.2 available)
+  path_provider_platform_interface 2.1.2 (2.1.3 available)
+  permission_handler 12.0.3 (13.0.1 available)
+  permission_handler_android 13.0.1 (14.0.0 available)
+  permission_handler_apple 9.4.10 (9.6.1 available)
+  permission_handler_html 0.1.3+5 (0.1.4+1 available)
+  permission_handler_platform_interface 4.3.0 (4.4.0 available)
+  permission_handler_windows 0.2.1 (0.2.2 available)
+  petitparser 7.0.1 (7.0.2 available)
+  pointycastle 3.9.1 (4.0.0 available)
+  shared_preferences 2.5.4 (2.5.5 available)
+  shared_preferences_android 2.4.20 (2.4.27 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  source_span 1.10.0 (1.10.2 available)
+  sqflite 2.4.2 (2.4.3 available)
+  sqflite_android 2.4.2+2 (2.4.3 available)
+  sqflite_common 2.5.6 (2.5.11 available)
+  sqflite_common_ffi 2.3.7+1 (2.4.2+1 available)
+  sqflite_darwin 2.4.2 (2.4.3+1 available)
+  sqflite_platform_interface 2.4.0 (2.4.1 available)
+  sqlite3 2.9.4 (3.5.1 available)
+  string_scanner 1.2.0 (1.4.1 available)
+  synchronized 3.4.0 (3.4.1+2 available)
+  term_glyph 1.2.1 (1.2.2 available)
+  test_api 0.7.6 (0.7.13 available)
+  vector_math 2.2.0 (2.4.2 available)
+  vm_service 14.2.5 (15.2.0 available)
+  win32 5.10.1 (6.4.0 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+1 package is discontinued.
+58 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+Analyzing om_mobile...                                          
+
+warning - Unused import: 'dart:io' - lib\db_schema.dart:1:8 - unused_import
+   info - Don't invoke 'print' in production code - lib\db_schema.dart:11:5 - avoid_print
+   info - Don't invoke 'print' in production code - lib\db_schema.dart:14:7 - avoid_print
+warning - Unused import: '../../../utils/widgets/cust_button.dart' - lib\feature\auth_login\controller\login_controller.dart:8:8 - unused_import
+warning - Unused import: '../../../utils/widgets/cust_text.dart' - lib\feature\auth_login\controller\login_controller.dart:9:8 - unused_import
+warning - Unused import: '../../../utils/widgets/cust_dropdown.dart' - lib\feature\auth_login\controller\login_controller.dart:10:8 - unused_import
+warning - Unused import: '../../../utils/widgets/cust_loader.dart' - lib\feature\auth_login\controller\login_controller.dart:11:8 - unused_import
+warning - Unused import: '../../../service/global_master_data_controller.dart' - lib\feature\auth_login\controller\login_controller.dart:18:8 - unused_import
+warning - Unused import: '../../../core/models/label_value.dart' - lib\feature\auth_login\controller\login_controller.dart:19:8 - unused_import
+warning - Unused import: '../../../constants/app_constants.dart' - lib\feature\auth_login\controller\login_controller.dart:20:8 - unused_import
+warning - Unused import: '../../../constants/colors.dart' - lib\feature\auth_login\controller\login_controller.dart:21:8 - unused_import
+warning - The value of the field '_failureService' isn't used - lib\feature\auth_login\controller\login_controller.dart:28:24 - unused_field
+   info - Unnecessary braces in a string interpolation - lib\feature\auth_login\service\auth_service.dart:36:36 - unnecessary_brace_in_string_interps
+   info - Constructors for public widgets should have a named 'key' parameter - lib\feature\auth_login\view\forgot_password_view.dart:9:7 - use_key_in_widget_constructors
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\auth_login\view\forgot_password_view.dart:58:47 - deprecated_member_use
+   info - The parameter name 'bool' matches a visible type name - lib\feature\auth_login\view\forgot_password_view.dart:76:36 - avoid_types_as_parameter_names
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\auth_login\view\forgot_password_view.dart:89:51 - deprecated_member_use
+   info - The import of 'package:flutter/services.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' - lib\feature\auth_login\view\login_view.dart:2:8 - unnecessary_import
+   info - The import of 'package:get/get_core/src/get_main.dart' is unnecessary because all of the used elements are also provided by the import of 'package:get/get.dart' - lib\feature\auth_login\view\login_view.dart:5:8 - unnecessary_import
+warning - Unused import: '../../../utils/responsive_helper.dart' - lib\feature\auth_login\view\login_view.dart:14:8 - unused_import
+   info - Constructors for public widgets should have a named 'key' parameter - lib\feature\auth_login\view\login_view.dart:19:7 - use_key_in_widget_constructors
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\auth_login\view\login_view.dart:38:35 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\auth_login\view\login_view.dart:49:43 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\auth_login\view\login_view.dart:53:43 - deprecated_member_use
+   info - The parameter name 'bool' matches a visible type name - lib\feature\auth_login\view\login_view.dart:173:38 - avoid_types_as_parameter_names
+   info - The import of 'package:flutter/foundation.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' - lib\feature\failure\controller\create_failure_controller.dart:2:8 - unnecessary_import
+warning - Unused import: 'dart:typed_data' - lib\feature\failure\controller\create_failure_controller.dart:4:8 - unused_import
+warning - The value of the field '_apiClient' isn't used - lib\feature\failure\controller\create_failure_controller.dart:47:19 - unused_field
+warning - The value of the field '_syncService' isn't used - lib\feature\failure\controller\create_failure_controller.dart:48:36 - unused_field
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\create_failure_controller.dart:57:35 - deprecated_member_use
+   info - The member 'showPendingJointInspectionPopup' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\create_failure_controller.dart:69:8 - annotate_overrides
+   info - The member 'refreshFailureListAfterSubmission' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\create_failure_controller.dart:92:8 - annotate_overrides
+   info - The member 'resolveNotificationId' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\create_failure_controller.dart:298:7 - annotate_overrides
+   info - 'WillPopScope' is deprecated and shouldn't be used. Use PopScope instead. The Android predictive back feature will not work with WillPopScope. This feature was deprecated after v3.12.0-1.0.pre - lib\feature\failure\controller\create_failure_controller.dart:312:7 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\create_failure_controller.dart:399:61 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\create_failure_controller.dart:808:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\create_failure_controller.dart:818:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\create_failure_controller.dart:836:39 - deprecated_member_use
+warning - The declaration '_newestFirst' isn't referenced - lib\feature\failure\controller\create_failure_controller.dart:864:32 - unused_element
+warning - The value of the local variable 'objectPartId' isn't used - lib\feature\failure\controller\create_failure_controller.dart:1175:21 - unused_local_variable
+warning - The value of the local variable 'faultId' isn't used - lib\feature\failure\controller\create_failure_controller.dart:1176:21 - unused_local_variable
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\create_failure_controller.dart:1435:39 - deprecated_member_use
+   info - The member 'fetchJointInspectionUsers' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\create_failure_controller.dart:1550:16 - annotate_overrides
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\create_failure_controller.dart:1765:9 - overridden_fields
+   info - The member 'masterDepartments' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\create_failure_controller.dart:1765:9 - annotate_overrides
+   info - The member 'lookupValue' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\create_failure_controller.dart:2660:10 - annotate_overrides
+   info - The member 'lookupLocationId' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\create_failure_controller.dart:2670:7 - annotate_overrides
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3068:33 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3069:60 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3073:74 - dead_null_aware_expression
+warning - The receiver can't be null, so the null-aware operator '?.' is unnecessary - lib\feature\failure\controller\create_failure_controller.dart:3077:35 - invalid_null_aware_operator
+warning - The receiver can't be null, so the null-aware operator '?.' is unnecessary - lib\feature\failure\controller\create_failure_controller.dart:3097:40 - invalid_null_aware_operator
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3129:33 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3130:60 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3144:37 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3145:65 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\create_failure_controller.dart:3148:69 - dead_null_aware_expression
+warning - The receiver can't be null, so the null-aware operator '?.' is unnecessary - lib\feature\failure\controller\create_failure_controller.dart:3151:53 - invalid_null_aware_operator
+warning - Unused import: 'dart:convert' - lib\feature\failure\controller\failure_data_loading_logic.dart:1:8 - unused_import
+   info - The import of 'package:flutter/material.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/foundation.dart' - lib\feature\failure\controller\failure_data_loading_logic.dart:3:8 - unnecessary_import
+warning - Unused import: '../../../constants/app_constants.dart' - lib\feature\failure\controller\failure_data_loading_logic.dart:5:8 - unused_import
+warning - Unused import: '../../../service/network_service/api_client.dart' - lib\feature\failure\controller\failure_data_loading_logic.dart:9:8 - unused_import
+warning - Unused import: '../../../service/network_service/app_urls.dart' - lib\feature\failure\controller\failure_data_loading_logic.dart:10:8 - unused_import
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:140:40 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:140:58 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:151:37 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:151:52 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\failure_data_loading_logic.dart:187:32 - dead_null_aware_expression
+   info - The member 'dispose' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\failure_form_state.dart:202:8 - annotate_overrides
+warning - This method overrides a method annotated as '@mustCallSuper' in 'ListNotifierMixin', but doesn't invoke the overridden method - lib\feature\failure\controller\failure_form_state.dart:202:8 - must_call_super
+warning - Unused import: '../../../constants/colors.dart' - lib\feature\failure\controller\failure_joint_inspection_logic.dart:5:8 - unused_import
+warning - The declaration '_parseJointInspectionHistoryFromResponse' isn't referenced - lib\feature\failure\controller\failure_joint_inspection_logic.dart:61:8 - unused_element
+warning - Unused import: '../../../constants/app_constants.dart' - lib\feature\failure\controller\failure_list_controller.dart:6:8 - unused_import
+   info - Unnecessary override - lib\feature\failure\controller\failure_list_controller.dart:66:8 - unnecessary_overrides
+warning - The declaration '_messageFromResponse' isn't referenced - lib\feature\failure\controller\failure_list_controller.dart:123:10 - unused_element
+warning - Unused import: 'package:flutter/material.dart' - lib\feature\failure\controller\failure_rca_logic.dart:1:8 - unused_import
+warning - Unused import: '../../../constants/colors.dart' - lib\feature\failure\controller\failure_rca_logic.dart:4:8 - unused_import
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:14:9 - overridden_fields
+   info - The member 'popupRootCauseFiles' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\failure_rca_logic.dart:14:9 - annotate_overrides
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:15:9 - overridden_fields
+   info - The member 'popupActionTakenFiles' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\failure_rca_logic.dart:15:9 - annotate_overrides
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:16:9 - overridden_fields
+   info - The member 'selectedPopupRootCause' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\failure_rca_logic.dart:16:9 - annotate_overrides
+   info - Field overrides a field inherited from 'FailureFormState' - lib\feature\failure\controller\failure_rca_logic.dart:17:9 - overridden_fields
+   info - The member 'selectedPopupActionTaken' overrides an inherited member but isn't annotated with '@override' - lib\feature\failure\controller\failure_rca_logic.dart:17:9 - annotate_overrides
+warning - Unused import: '../model/failure_list_response.dart' - lib\feature\failure\controller\failure_submit_logic.dart:17:8 - unused_import
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\failure_submit_logic.dart:57:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\failure_submit_logic.dart:104:37 - deprecated_member_use
+   info - Don't invoke 'print' in production code - lib\feature\failure\controller\failure_submit_logic.dart:332:7 - avoid_print
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\failure_submit_logic.dart:421:39 - deprecated_member_use
+warning - The value of the local variable 'dt' isn't used - lib\feature\failure\controller\failure_submit_logic.dart:623:33 - unused_local_variable
+   info - Unnecessary use of 'toList' in a spread - lib\feature\failure\controller\failure_submit_logic.dart:650:20 - unnecessary_to_list_in_spreads
+   info - Unnecessary use of 'toList' in a spread - lib\feature\failure\controller\failure_submit_logic.dart:665:20 - unnecessary_to_list_in_spreads
+   info - Don't invoke 'print' in production code - lib\feature\failure\controller\failure_submit_logic.dart:669:5 - avoid_print
+warning - The '!' will have no effect because the receiver can't be null - lib\feature\failure\controller\failure_ui_helper_logic.dart:136:36 - unnecessary_non_null_assertion
+warning - Unused import: 'package:get/get_connect/http/src/multipart/multipart_file.dart' - lib\feature\failure\controller\rst_failure_controller.dart:4:8 - unused_import
+warning - The operand can't be 'null', so the condition is always 'true' - lib\feature\failure\controller\rst_failure_controller.dart:597:40 - unnecessary_null_comparison
+warning - The '!' will have no effect because the receiver can't be null - lib\feature\failure\controller\rst_failure_controller.dart:598:65 - unnecessary_non_null_assertion
+   info - The local variable '_val' starts with an underscore - lib\feature\failure\controller\rst_failure_controller.dart:760:13 - no_leading_underscores_for_local_identifiers
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\controller\rst_failure_controller.dart:892:39 - deprecated_member_use
+warning - The declaration '_formatDateIfValid' isn't referenced - lib\feature\failure\controller\rst_failure_controller.dart:1159:11 - unused_element
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\failure\controller\rst_failure_controller.dart:1275:62 - dead_null_aware_expression
+   info - Don't invoke 'print' in production code - lib\feature\failure\controller\rst_failure_controller.dart:1402:3 - avoid_print
+   info - Don't invoke 'print' in production code - lib\feature\failure\controller\rst_failure_controller.dart:1432:5 - avoid_print
+warning - Unused import: 'package:om_mobile/constants/colors.dart' - lib\feature\failure\controller\rst_list_controller.dart:2:8 - unused_import
+   info - Don't invoke 'print' in production code - lib\feature\failure\controller\rst_list_controller.dart:33:7 - avoid_print
+   info - The variable name 'corr_NotificationTypeId' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:240:14 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:246:17 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:304:10 - non_constant_identifier_names
+   info - The variable name 'corr_NotificationTypeId' isn't a lowerCamelCase identifier - lib\feature\failure\model\failure_detail_response.dart:329:10 - non_constant_identifier_names
+   info - The variable name 'assignUserId_SIC' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:157:14 - non_constant_identifier_names
+   info - The variable name 'assignedUserId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:161:14 - non_constant_identifier_names
+   info - The variable name 'deptId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:162:14 - non_constant_identifier_names
+   info - The variable name 'functionLocation_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:163:14 - non_constant_identifier_names
+   info - The variable name 'equipmentId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:164:14 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:166:17 - non_constant_identifier_names
+   info - The variable name 'statusId_IBL' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:191:14 - non_constant_identifier_names
+   info - The variable name 'assignUserId_SIC' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:267:10 - non_constant_identifier_names
+   info - The variable name 'assignedUserId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:271:10 - non_constant_identifier_names
+   info - The variable name 'deptId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:272:10 - non_constant_identifier_names
+   info - The variable name 'functionLocation_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:273:10 - non_constant_identifier_names
+   info - The variable name 'equipmentId_JI' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:274:10 - non_constant_identifier_names
+   info - The variable name 'remark_JE' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:276:10 - non_constant_identifier_names
+   info - The variable name 'statusId_IBL' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:301:10 - non_constant_identifier_names
+   info - Use the null-aware operator '?.' rather than an explicit 'null' comparison - lib\feature\failure\model\rst_failure_full_response.dart:381:22 - prefer_null_aware_operators
+   info - Use the null-aware operator '?.' rather than an explicit 'null' comparison - lib\feature\failure\model\rst_failure_full_response.dart:399:19 - prefer_null_aware_operators
+   info - The variable name 'jI_Dept_Id' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:567:13 - non_constant_identifier_names
+   info - The variable name 'jI_Dept_Name' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:568:16 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePersonId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:569:13 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePerson' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:570:16 - non_constant_identifier_names
+   info - The variable name 'jI_Remark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:571:17 - non_constant_identifier_names
+   info - The variable name 'jI_FunctionalLocation' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:573:17 - non_constant_identifier_names
+   info - The variable name 'jI_EquipementName' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:574:17 - non_constant_identifier_names
+   info - The variable name 'jI_Status' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:575:16 - non_constant_identifier_names
+   info - The variable name 'jI_StatusId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:576:13 - non_constant_identifier_names
+   info - The variable name 'jI_UserRemark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:577:17 - non_constant_identifier_names
+   info - The variable name 'jI_Dept_Id' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:581:19 - non_constant_identifier_names
+   info - The variable name 'jI_Dept_Name' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:582:19 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePersonId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:583:19 - non_constant_identifier_names
+   info - The variable name 'jI_ResponsiblePerson' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:584:19 - non_constant_identifier_names
+   info - The variable name 'jI_Remark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:585:19 - non_constant_identifier_names
+   info - The variable name 'jI_FunctionalLocation' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:587:10 - non_constant_identifier_names
+   info - The variable name 'jI_EquipementName' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:588:10 - non_constant_identifier_names
+   info - The variable name 'jI_Status' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:589:19 - non_constant_identifier_names
+   info - The variable name 'jI_StatusId' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:590:19 - non_constant_identifier_names
+   info - The variable name 'jI_UserRemark' isn't a lowerCamelCase identifier - lib\feature\failure\model\rst_failure_full_response.dart:591:10 - non_constant_identifier_names
+warning - Unused import: '../../../core/models/rst_failure_type.dart' - lib\feature\failure\service\failure_service.dart:6:8 - unused_import
+warning - Unused import: '../../../core/models/rst_object_part.dart' - lib\feature\failure\service\failure_service.dart:7:8 - unused_import
+warning - Unused import: '../../../core/models/rst_material.dart' - lib\feature\failure\service\failure_service.dart:8:8 - unused_import
+warning - Unused import: '../../../core/models/rst_train_status.dart' - lib\feature\failure\service\failure_service.dart:9:8 - unused_import
+   info - Don't invoke 'print' in production code - lib\feature\failure\service\failure_service.dart:510:5 - avoid_print
+   info - Don't invoke 'print' in production code - lib\feature\failure\service\failure_service.dart:511:5 - avoid_print
+   info - Don't invoke 'print' in production code - lib\feature\failure\service\failure_service.dart:680:5 - avoid_print
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\create_failure_screen.dart:43:9 - use_super_parameters
+   info - Invalid use of a private type in a public API - lib\feature\failure\view\create_failure_screen.dart:54:3 - library_private_types_in_public_api
+warning - The value of the field '_ptw' isn't used - lib\feature\failure\view\create_failure_screen.dart:65:9 - unused_field
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen.dart:109:7 - avoid_print
+warning - The value of the local variable 'dt' isn't used - lib\feature\failure\view\create_failure_screen.dart:160:23 - unused_local_variable
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen.dart:185:7 - avoid_print
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen.dart:190:7 - avoid_print
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen.dart:195:5 - avoid_print
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:266:41 - deprecated_member_use
+   info - Unnecessary override - lib\feature\failure\view\create_failure_screen.dart:306:8 - unnecessary_overrides
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:347:50 - deprecated_member_use
+warning - The declaration '_buildActionCard' isn't referenced - lib\feature\failure\view\create_failure_screen.dart:1428:10 - unused_element
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1441:35 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1461:58 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1486:47 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1523:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1546:41 - deprecated_member_use
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen.dart:1555:13 - avoid_print
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1559:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1578:62 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:1581:35 - deprecated_member_use
+warning - The declaration '_buildPopupTab' isn't referenced - lib\feature\failure\view\create_failure_screen.dart:1899:10 - unused_element
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:2376:57 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:2379:41 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:2660:53 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\create_failure_screen.dart:2663:37 - deprecated_member_use
+   info - Statements in an if should be enclosed in a block - lib\feature\failure\view\create_failure_screen.dart:2858:33 - curly_braces_in_flow_control_structures
+   info - Invalid use of a private type in a public API - lib\feature\failure\view\create_failure_screen_je.dart:3:42 - library_private_types_in_public_api
+   info - Statements in an if should be enclosed in a block - lib\feature\failure\view\create_failure_screen_je.dart:508:29 - curly_braces_in_flow_control_structures
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen_je.dart:987:33 - avoid_print
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen_je.dart:988:33 - avoid_print
+   info - Don't invoke 'print' in production code - lib\feature\failure\view\create_failure_screen_je.dart:989:33 - avoid_print
+   info - Invalid use of a private type in a public API - lib\feature\failure\view\create_failure_screen_station.dart:3:35 - library_private_types_in_public_api
+   info - Statements in an if should be enclosed in a block - lib\feature\failure\view\create_failure_screen_station.dart:312:23 - curly_braces_in_flow_control_structures
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\failure_list_screen.dart:27:9 - use_super_parameters
+   info - 'WillPopScope' is deprecated and shouldn't be used. Use PopScope instead. The Android predictive back feature will not work with WillPopScope. This feature was deprecated after v3.12.0-1.0.pre - lib\feature\failure\view\failure_list_screen.dart:81:7 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\failure_list_screen.dart:176:61 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\failure_list_screen.dart:421:38 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\failure_list_screen.dart:470:73 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\maintenance_history_screen.dart:14:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\maintenance_history_screen.dart:234:35 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\maintenance_history_screen.dart:301:35 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\maintenance_history_screen.dart:341:43 - deprecated_member_use
+   info - Unnecessary use of 'toList' in a spread - lib\feature\failure\view\maintenance_history_screen.dart:394:12 - unnecessary_to_list_in_spreads
+   info - Statements in an if should be enclosed in a block - lib\feature\failure\view\maintenance_history_screen.dart:431:15 - curly_braces_in_flow_control_structures
+   info - Statements in an if should be enclosed in a block - lib\feature\failure\view\maintenance_history_screen.dart:469:15 - curly_braces_in_flow_control_structures
+warning - Unused import: '../../../../service/network_service/app_urls.dart' - lib\feature\failure\view\rst\rst_failure_screen.dart:19:8 - unused_import
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\rst\rst_failure_screen.dart:28:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:928:66 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:931:35 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:1422:80 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:1423:67 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:1650:80 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:1651:67 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:1879:68 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:1882:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:1907:92 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:2095:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:2114:37 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_failure_screen.dart:2120:37 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\rst\rst_list_screen.dart:17:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\rst_list_screen.dart:163:38 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\rst\sic_checklist_screen.dart:10:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\sic_checklist_screen.dart:54:59 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\rst\sic_checklist_screen.dart:109:61 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\view_detail_screen.dart:11:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\view_detail_screen.dart:81:64 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\failure\view\view_detail_screen.dart:97:56 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\view_detail_screen.dart:264:9 - use_super_parameters
+   info - Parameter 'key' could be a super parameter - lib\feature\failure\view\view_detail_screen.dart:288:9 - use_super_parameters
+warning - Unused import: '../../../constants/app_data.dart' - lib\feature\filter\view\filter.dart:4:8 - unused_import
+warning - Unused import: 'package:get/get.dart' - lib\feature\filter\view\filter.dart:10:8 - unused_import
+warning - Unused import: '../../../service/session_controller.dart' - lib\feature\filter\view\filter.dart:11:8 - unused_import
+warning - Unused import: '../../../core/models/label_value.dart' - lib\feature\filter\view\filter.dart:12:8 - unused_import
+warning - Unused import: '../../../service/local_database_service.dart' - lib\feature\filter\view\filter.dart:13:8 - unused_import
+warning - Unused import: '../../../service/auth_manager.dart' - lib\feature\filter\view\filter.dart:14:8 - unused_import
+warning - Unused import: '../../../service/network_service/api_client.dart' - lib\feature\filter\view\filter.dart:15:8 - unused_import
+warning - Unused import: '../../../service/network_service/app_urls.dart' - lib\feature\filter\view\filter.dart:16:8 - unused_import
+warning - Unused import: 'dart:convert' - lib\feature\filter\view\filter.dart:17:8 - unused_import
+   info - Parameter 'key' could be a super parameter - lib\feature\filter\view\filter.dart:22:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\filter\view\filter.dart:149:51 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\filter\view\filter.dart:192:51 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\filter\view\filter.dart:235:51 - deprecated_member_use
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\common_inspection_checklist_screen.dart:153:10 - unused_element
+   info - Parameter 'key' could be a super parameter - lib\feature\inspection\view\inspection_detail_screen.dart:13:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\inspection\view\inspection_detail_screen.dart:113:70 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\inspection\view\inspection_detail_screen.dart:129:83 - deprecated_member_use
+   info - Unnecessary use of 'toList' in a spread - lib\feature\inspection\view\inspection_detail_screen.dart:198:88 - unnecessary_to_list_in_spreads
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\inspection_list_screen.dart:115:10 - unused_element
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\inspection\view\inspection_list_screen.dart:163:36 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\inspection\view\top_management\inspection_dashboard_screen.dart:131:33 - deprecated_member_use
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\top_management\top_management_create_inspection_screen.dart:170:10 - unused_element
+warning - The declaration '_buildProfileAction' isn't referenced - lib\feature\inspection\view\top_management\top_management_inspection_observation_screen.dart:218:10 - unused_element
+   info - Parameter 'key' could be a super parameter - lib\feature\ptw\view\ptw_form_screen.dart:20:9 - use_super_parameters
+warning - The value of the field '_selectedUploadType' isn't used - lib\feature\ptw\view\ptw_form_screen.dart:45:11 - unused_field
+warning - The left operand can't be null, so the right operand is never executed - lib\feature\ptw\view\ptw_form_screen.dart:203:55 - dead_null_aware_expression
+  error - Undefined name 'stationListValue' - lib\feature\ptw\view\ptw_form_screen.dart:314:24 - undefined_identifier
+  error - Undefined name 'stationListValue' - lib\feature\ptw\view\ptw_form_screen.dart:326:24 - undefined_identifier
+  error - Undefined name 'stationListValue' - lib\feature\ptw\view\ptw_form_screen.dart:352:24 - undefined_identifier
+  error - Undefined name 'stationListValue' - lib\feature\ptw\view\ptw_form_screen.dart:364:24 - undefined_identifier
+   info - Missing type annotation - lib\feature\ptw\view\ptw_form_screen.dart:397:33 - strict_top_level_inference
+   info - The local variable '_selectedLocationType' starts with an underscore - lib\feature\ptw\view\ptw_form_screen.dart:397:33 - no_leading_underscores_for_local_identifiers
+  error - Undefined name 'stationListValue' - lib\feature\ptw\view\ptw_form_screen.dart:549:22 - undefined_identifier
+  error - Undefined name 'stationListValue' - lib\feature\ptw\view\ptw_form_screen.dart:573:22 - undefined_identifier
+   info - Don't invoke 'print' in production code - lib\feature\ptw\view\ptw_form_screen.dart:589:5 - avoid_print
+   info - Parameter 'key' could be a super parameter - lib\feature\ptw\view\ptw_form_screen.dart:596:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\ptw\view\ptw_form_screen.dart:646:42 - deprecated_member_use
+  error - The getter 'textBlueSecondary' isn't defined for the type 'AppColors' - lib\feature\ptw\view\ptw_form_screen.dart:655:32 - undefined_getter
+  error - Undefined name 'stationListValue' - lib\feature\ptw\view\ptw_form_screen.dart:753:40 - undefined_identifier
+  error - Invalid constant value - lib\feature\ptw\view\ptw_form_screen.dart:773:57 - invalid_constant
+  error - The getter 'textBlueSecondary' isn't defined for the type 'AppColors' - lib\feature\ptw\view\ptw_form_screen.dart:773:67 - undefined_getter
+  error - Invalid constant value - lib\feature\ptw\view\ptw_form_screen.dart:779:77 - invalid_constant
+  error - The getter 'textBlueSecondary' isn't defined for the type 'AppColors' - lib\feature\ptw\view\ptw_form_screen.dart:779:87 - undefined_getter
+   info - The import of 'package:get/get_core/src/get_main.dart' is unnecessary because all of the used elements are also provided by the import of 'package:get/get.dart' - lib\feature\tabs\view\home_screen.dart:5:8 - unnecessary_import
+   info - Parameter 'key' could be a super parameter - lib\feature\tabs\view\home_screen.dart:21:9 - use_super_parameters
+warning - The value of the field '_homeController' isn't used - lib\feature\tabs\view\home_screen.dart:28:24 - unused_field
+   info - Unnecessary 'const' keyword - lib\feature\tabs\view\home_screen.dart:113:37 - unnecessary_const
+   info - Unnecessary 'const' keyword - lib\feature\tabs\view\home_screen.dart:121:37 - unnecessary_const
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:231:33 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:292:38 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:569:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:583:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:594:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:651:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:663:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:685:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:697:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:709:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:762:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:773:49 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\feature\tabs\view\home_screen.dart:784:49 - deprecated_member_use
+warning - Unused import: '../../../utils/responsive_helper.dart' - lib\feature\tabs\view\notification_screen.dart:5:8 - unused_import
+   info - Parameter 'key' could be a super parameter - lib\feature\tabs\view\notification_screen.dart:11:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\main.dart:23:32 - deprecated_member_use
+warning - Unused import: 'package:http/http.dart' - lib\service\auth_manager.dart:4:8 - unused_import
+   info - Don't invoke 'print' in production code - lib\service\auth_manager.dart:50:5 - avoid_print
+warning - Unused import: '../core/models/priority.dart' - lib\service\global_master_data_controller.dart:4:8 - unused_import
+warning - Unused import: '../core/models/location.dart' - lib\service\global_master_data_controller.dart:5:8 - unused_import
+warning - Unused import: '../core/models/functional_location.dart' - lib\service\global_master_data_controller.dart:6:8 - unused_import
+warning - Unused import: '../core/models/equipment.dart' - lib\service\global_master_data_controller.dart:7:8 - unused_import
+warning - Unused import: '../core/models/department.dart' - lib\service\global_master_data_controller.dart:8:8 - unused_import
+warning - Unused import: '../core/models/failure_category.dart' - lib\service\global_master_data_controller.dart:9:8 - unused_import
+warning - Unused import: '../core/models/master_user.dart' - lib\service\global_master_data_controller.dart:10:8 - unused_import
+warning - Unused import: '../core/models/rca_failure_category.dart' - lib\service\global_master_data_controller.dart:11:8 - unused_import
+warning - Unused import: '../core/models/notification_type.dart' - lib\service\global_master_data_controller.dart:12:8 - unused_import
+warning - Unused import: '../core/models/root_cause.dart' - lib\service\global_master_data_controller.dart:13:8 - unused_import
+warning - Unused import: '../core/models/action_taken.dart' - lib\service\global_master_data_controller.dart:14:8 - unused_import
+warning - Unused import: '../core/models/cause_of_failure.dart' - lib\service\global_master_data_controller.dart:15:8 - unused_import
+   info - Unnecessary override - lib\service\global_master_data_controller.dart:65:8 - unnecessary_overrides
+warning - The left operand can't be null, so the right operand is never executed - lib\service\global_master_data_controller.dart:164:32 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\service\global_master_data_controller.dart:180:32 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\service\global_master_data_controller.dart:304:36 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\service\global_master_data_controller.dart:321:40 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\service\global_master_data_controller.dart:321:58 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\service\global_master_data_controller.dart:334:33 - dead_null_aware_expression
+warning - The left operand can't be null, so the right operand is never executed - lib\service\global_master_data_controller.dart:359:32 - dead_null_aware_expression
+warning - The declaration '_printSampleData' isn't referenced - lib\service\local_database_service.dart:456:16 - unused_element
+   info - The import of 'package:flutter/foundation.dart' is unnecessary because all of the used elements are also provided by the import of 'package:flutter/material.dart' - lib\service\master_data_sync_service.dart:2:8 - unnecessary_import
+warning - Unused import: '../service/local_database_service.dart' - lib\service\session_controller.dart:6:8 - unused_import
+   info - Don't invoke 'print' in production code - lib\service\session_controller.dart:134:5 - avoid_print
+   info - Use 'isEmpty' instead of 'length' to test whether the collection is empty - lib\utils\validator.dart:60:9 - prefer_is_empty
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\accordion_card.dart:13:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\accordion_card.dart:31:33 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\accordion_card.dart:52:56 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\accordion_card.dart:88:54 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\cust_button.dart:54:35 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_data_card.dart:13:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\cust_data_card.dart:30:64 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\cust_data_card.dart:33:33 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_date_time_picker.dart:24:9 - use_super_parameters
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\cust_date_time_picker.dart:102:9 - use_build_context_synchronously
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_dropdown.dart:23:9 - use_super_parameters
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_loader.dart:5:9 - use_super_parameters
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_popup.dart:20:9 - use_super_parameters
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_radio.dart:14:9 - use_super_parameters
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_section.dart:12:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\cust_section.dart:30:38 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\cust_toggle.dart:11:9 - use_super_parameters
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\cust_toggle.dart:24:48 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\cust_toggle.dart:37:68 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\cust_toggle.dart:55:67 - deprecated_member_use
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\custom_app_bar.dart:14:9 - use_super_parameters
+   info - Unnecessary use of 'toList' in a spread - lib\utils\widgets\custom_bottom_sheet.dart:69:16 - unnecessary_to_list_in_spreads
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\custom_dialog.dart:8:9 - use_super_parameters
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\custom_drawer.dart:23:9 - use_super_parameters
+   info - The private field _openSections could be 'final' - lib\utils\widgets\custom_drawer.dart:33:15 - prefer_final_fields
+   info - The private field _openSubSections could be 'final' - lib\utils\widgets\custom_drawer.dart:34:15 - prefer_final_fields
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\custom_drawer.dart:77:21 - use_build_context_synchronously
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\custom_drawer.dart:79:9 - use_build_context_synchronously
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\utils\widgets\custom_drawer.dart:102:39 - deprecated_member_use
+   info - The 'children' argument should be last in widget constructor invocations - lib\utils\widgets\custom_drawer.dart:333:13 - sort_child_properties_last
+   info - Unnecessary instance of 'Container' - lib\utils\widgets\custom_drawer.dart:356:12 - avoid_unnecessary_containers
+   info - Don't use 'BuildContext's across async gaps - lib\utils\widgets\custom_drawer.dart:498:41 - use_build_context_synchronously
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\file_upload_section.dart:12:9 - use_super_parameters
+   info - Don't invoke 'print' in production code - lib\utils\widgets\file_upload_section.dart:35:7 - avoid_print
+   info - Unnecessary use of 'toList' in a spread - lib\utils\widgets\file_upload_section.dart:116:20 - unnecessary_to_list_in_spreads
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\horizontal_paginated_view.dart:7:9 - use_super_parameters
+   info - Invalid use of a private type in a public API - lib\utils\widgets\horizontal_paginated_view.dart:10:3 - library_private_types_in_public_api
+   info - Parameter 'key' could be a super parameter - lib\utils\widgets\sync_icon_button.dart:12:9 - use_super_parameters
+  error - The named parameter 'initialRoute' is required, but there's no corresponding argument - test\widget_test.dart:16:35 - missing_required_argument
+warning - Unused import: 'package:flutter/material.dart' - test_db.dart:1:8 - unused_import
+warning - Unused import: 'package:flutter/services.dart' - test_db.dart:2:8 - unused_import
+warning - Unused import: 'dart:io' - test_db.dart:4:8 - unused_import
+   info - Don't invoke 'print' in production code - test_db.dart:18:7 - avoid_print
+   info - Don't invoke 'print' in production code - test_db.dart:21:7 - avoid_print
+   info - Don't invoke 'print' in production code - test_db.dart:26:9 - avoid_print
+   info - Don't invoke 'print' in production code - test_db.dart:28:9 - avoid_print
+   info - Don't invoke 'print' in production code - test_db.dart:32:7 - avoid_print
+

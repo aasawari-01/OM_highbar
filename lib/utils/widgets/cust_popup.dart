@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
-import 'package:get/get.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../../constants/colors.dart';
 import '../../constants/app_constants.dart';
 import 'cust_button.dart';
@@ -20,7 +18,7 @@ class CustPopup extends StatelessWidget {
   final Color? iconColor;
 
   const CustPopup({
-    Key? key,
+    super.key,
     this.title,
     this.message,
     this.confirmText,
@@ -31,7 +29,7 @@ class CustPopup extends StatelessWidget {
     this.showIcon = true,
     this.icon = Icons.cloud_upload_outlined,
     this.iconColor = Colors.black,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

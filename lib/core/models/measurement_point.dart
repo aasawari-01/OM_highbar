@@ -23,15 +23,15 @@ class MeasurementPointModel {
 
   factory MeasurementPointModel.fromJson(Map<String, dynamic> json) {
     return MeasurementPointModel(
-      measId: json['measId'] as int?,
-      measPoint: json['measPoint']?.toString() ?? '',
-      measPointDesc: json['measPointDesc']?.toString() ?? '',
-      measRangeUnit: json['measRangeUnit']?.toString() ?? '',
-      internalCharNo: json['internalCharNo']?.toString() ?? '',
-      targetValue: json['targetValue']?.toString() ?? '',
-      objectNo: json['objectNo']?.toString() ?? '',
-      createdOn: json['createdOn']?.toString(),
-      updatedOn: json['updatedOn']?.toString(),
+      measId: json['measId'] as int? ?? json['MeasId'] as int?,
+      measPoint: json['measPoint']?.toString() ?? json['MeasPoint']?.toString() ?? '',
+      measPointDesc: json['measPointDesc']?.toString() ?? json['MeasPointDesc']?.toString() ?? '',
+      measRangeUnit: json['measRangeUnit']?.toString() ?? json['MeasRangeUnit']?.toString() ?? '',
+      internalCharNo: json['internalCharNo']?.toString() ?? json['InternalCharNo']?.toString() ?? '',
+      targetValue: json['targetValue']?.toString() ?? json['TargetValue']?.toString() ?? '',
+      objectNo: json['objectNo']?.toString() ?? json['ObjectNo']?.toString() ?? '',
+      createdOn: json['createdOn']?.toString() ?? json['CreatedOn']?.toString(),
+      updatedOn: json['updatedOn']?.toString() ?? json['UpdatedOn']?.toString(),
     );
   }
 

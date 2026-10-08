@@ -6,10 +6,11 @@ import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
 import '../../../utils/widgets/sync_icon_button.dart';
 import 'package:get/get.dart';
-import '../../../service/session_controller.dart';
+import '../../../core/controller/session_controller.dart';
 import 'inspection_detail_screen.dart';
 import 'inspection_screen.dart';
 import 'common_inspection_checklist_screen.dart';
+import 'je_inspection_list_screen.dart';
 
 class InspectionListScreen extends StatelessWidget {
   const InspectionListScreen({super.key});
@@ -43,6 +44,11 @@ class InspectionListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Inspection Junior Engineer gets the API-backed JE inspection list.
+    final role = Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
+    if (SessionController.isInspectionJERole(role)) {
+      return const JEInspectionListScreen();
+    }
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
@@ -97,7 +103,10 @@ class InspectionListScreen extends StatelessWidget {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
+      floatingActionButton: SessionController.isInspectionJERole(
+              Get.find<SessionController>().selectedRole.value?.roleDescr ?? '')
+          ? null
+          : FloatingActionButton(
         backgroundColor: AppColors.orangeColor,
         elevation: 4,
         shape: const CircleBorder(),
@@ -112,30 +121,7 @@ class InspectionListScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildProfileAction() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        const CircleAvatar(
-          radius: 16,
-          backgroundColor: AppColors.white1,
-        ),
-        Positioned(
-          right: 0,
-          bottom: 2,
-          child: Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: AppColors.green,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.white1, width: 1.5),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+
 }
 
 class _InspectionCard extends StatelessWidget {
@@ -160,7 +146,7 @@ class _InspectionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppConstants.cardRadius),
         boxShadow: [
           BoxShadow(
-            color: AppColors.black.withOpacity(0.2),
+            color: AppColors.black.withValues(alpha: 0.2),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),

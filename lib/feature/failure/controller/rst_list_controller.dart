@@ -1,5 +1,5 @@
+import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
-import 'package:om_mobile/constants/colors.dart';
 import '../model/rst_list_response.dart';
 import '../service/failure_service.dart';
 
@@ -30,7 +30,7 @@ class RstListController extends GetxController {
     try {
       final response = await _failureService.getRstList();
       final rstResponse = RstListResponse.fromJson(response);
-      print("rstResponse===$rstResponse");
+      debugPrint("rstResponse===$rstResponse");
       if (rstResponse.responseCode == 200) {
         rstItems.assignAll(rstResponse.responseOutput);
       } else {

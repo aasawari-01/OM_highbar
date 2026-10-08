@@ -1,9 +1,10 @@
 class AppUrls {
   /// Base URL for all API .
-   static const String baseUrl = "http://192.168.24.158:5000/api/";
-   static const String imageUrl = "http://192.168.24.158:5000/";
+  static const String baseUrl = "http://192.168.24.158:5000/api/";
+  static const String imageUrl = "http://192.168.24.158:5000/";
+  static const String baseUrl8080 = "http://192.168.24.158:8080/api/";
 
-   /// Auth endpoints
+  /// Auth endpoints
   static const String login = 'UserLogin/userLoginValidate';
   static const String logout = 'UserLogin/userLogout';
 
@@ -21,12 +22,37 @@ class AppUrls {
   static const String getFunctionLocEquipmentNoByDeptId = 'JECorrectivesMaintenance/getFunctionLocEquipmentNoByDeptId';
   static const String addUpdateDeleteJointInspection = 'JECorrectivesMaintenance/addUpdateDeleteJointInspection';
   static const String createStationFailure = 'OCCMaintainance/insertStationFailureDetails';
-  static const String getStationFailureList = 'OCCMaintainance/getStationFailureList';
-  static const String getStationFailureClosedList = 'OCCMaintainance/getStationFailureClosedList';
+  /// OCC failure create. Same endpoints the web "Create OCC Failure" page uses.
+  static const String getOccFailureLookups = 'OCCMaintainance/getFailureCreationById';
+  /// Reported To (getRoleList), Line and Train Set lists for the OCC forms.
+  static const String getOccDeptLocationLookups = 'OCCMaintainance/getFailureCreationDeptLocation';
+  /// System / Sub System options for the OCC role (subsystemsForOccs).
+  /// Station failure dropdowns: priority, department, location, reported by,
+  /// failure category type (all from one call).
+  static const String getStationFailureLookups = 'OCCMaintainance/getStationFailureCreationDeptLocation';
+  /// Depot failure create form: priority, department, location, reported by,
+  /// failure category type (all from one call).
+  static const String getDepotFailureLookups = 'OCCMaintainance/getDepotFailureCreationDeptLocation';
+  static const String getFailureStandDropDownData = 'FailureStandardized/GetFailureStandDropDownDataNew';
+  static const String createOccFailure = 'OCCMaintainance/insertFailureDetails';
+  /// Update OCC failure (FMC user) uses the same insert endpoint with an Action.
+  static const String updateOccFailure = createOccFailure;
+  /// FMC user's OCC failure inbox (same call the web inbox makes).
+  static const String getOccFailureInbox = 'OCCMaintainance/getFailureList';
   static const String getStationFailureCreationById = 'OCCMaintainance/getStationFailureCreationById';
+  static const String getAllFailuresTransactionData = 'mobileAppAPI/GetAllFailuresTransactionData';
+  static const String getStationFailureList = 'OCCMaintainance/getStationFailureList';
+  static const String getStationFailureListWithData = 'mobileAppAPI/GetStationFailureListWithData';
   static const String insertChangeDepartmentFailure = 'OCCMaintainance/insertChangeDepartmentFailure';
   static const String updateStationAcknowledgeStatus = 'OCCMaintainance/updateStationAcknowledgeStatus';
   static const String getStationName = 'Lookup/GetLookup_StationName';
+  /// Depot failure (DCC role): depot lookup, save selection, failure list.
+  static const String getDepotLookup = 'Lookup/GetLookup_Depot';
+  static const String insertUserDepotSelection = 'Common/Insert_Users_DepotSelection';
+  static const String getDepotFailureList = 'OCCMaintainance/getDepotFailureList';
+  static const String updateDepotAcknowledgeStatus = 'OCCMaintainance/updateDepotAcknowledgeStatus';
+  static const String getDepotFailureById = 'OCCMaintainance/getDepotFailureCreationById';
+  static const String createDepotFailure = 'OCCMaintainance/insertDepotFailureDetails';
   static const String getMasterData = 'mobileAppAPI/GetMasterData';
   static const String rstNotificationInbox = 'CorrectiveNotification/getRSTNotificationInboxJE';
   static const String getRSTFailureData = 'mobileAppAPI/GetRSTFailureData';
@@ -34,6 +60,29 @@ class AppUrls {
   static const String getMCDRequiredQuantity = 'JECorrectivesMaintenance/getMCDRequiredQuantity';
   static const String getMaterialBalancedQty = 'Common/GetMaterialBalancedQty';
   static const String updateNotificationRSTRCAMaterialJE = "JECorrectivesMaintenance/updateNotificationRSTRCAMaterialJE";
-   static const String updateRSTNotificationCompletion = 'JECorrectivesMaintenance/updateRSTNotificationCompletion';
-
+  static const String updateRSTNotificationCompletion = 'JECorrectivesMaintenance/updateRSTNotificationCompletion';
+  static const String insertUserStationDetails = 'AssetRegister/Insert_Users_Station_Details';
+  static const String getAllDataByFuncLocId = 'Common/GetAllDataByFuncLocId';
+  static const String occTOscMasterData = 'OccToScCommunication/GetOCCInstructionPageLoadData';
+  static const String createOccInstruction = 'OccToScCommunication/CreateOCCInstruction';
+  static const String getInstructionList = 'OccToScCommunication/GetInstructionList';
+  static const String getInstructionById = 'OccToScCommunication/GetInstructionById';
+  static const String acknowledgeSc = 'OccToScCommunication/AcknowledgeInstruction';
+  static const String sectionInchargeNotificationList = 'BreakdownMaintainance/NotificationListSI';
+  static const String updateAssignUserNotification = 'BreakdownMaintainance/updateAssignUserNotification';
+  static const String updateStatusNotificationReject = 'BreakdownMaintainance/updateStatusNotificationReject';
+  static const String updateStatusNotificationDelete = 'BreakdownMaintainance/updateStatusNotificationDelete';
+  static const String updateAssignUserNotificationCorrection = 'BreakdownMaintainance/updateAssignUserNotificationCorrection';
+  static const String getLookupCreateCorrNotification = 'Lookup/GetLookupCreateCorrNotification';
+  static const String updateCloseStatusNotification = 'BreakdownMaintainance/updateCloseStatusNotification';
+  /// Maintenance form endpoints
+  static const String getFunctionalLocationDetails = 'mobileAppAPI/GetFunctionalLocationDetails';
+  static const String editNotificationDetails =
+      'CorrectiveNotification/editNotificationDetails';
+  static const String createNotificationDetails = 'CorrectiveNotification/createNotificationDetails';
+  static const String getJEInspectionList = 'Inspection/getJEInspectionList';
+  static const String saveCommonInspectionCheckListData = 'Inspection/SaveCommonInspectionCheckListData';
+  static const String updateIsSavedCommonInspection = 'Inspection/UpdateIsSavedCommonInspection';
+  static const String getCommonInspection = 'Inspection/GetCommonInspection';
+  static const String skipInspectionById = 'Inspection/SkipInspectionById';
 }

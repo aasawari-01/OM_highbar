@@ -10,10 +10,10 @@ class FileUploadSection extends StatefulWidget {
   final Function(List<File>) onFilesChanged;
 
   const FileUploadSection({
-    Key? key,
+    super.key,
     required this.files,
     required this.onFilesChanged,
-  }) : super(key: key);
+  });
 
   @override
   State<FileUploadSection> createState() => _FileUploadSectionState();
@@ -32,7 +32,7 @@ class _FileUploadSectionState extends State<FileUploadSection> {
         widget.onFilesChanged([...widget.files, ...newFiles]);
       }
     } catch (e) {
-      print('Error picking files: $e');
+      debugPrint('Error picking files: $e');
     }
   }
 
@@ -113,7 +113,7 @@ class _FileUploadSectionState extends State<FileUploadSection> {
                     _getFileSize(file),
                     () => _removeFile(index),
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),
@@ -189,12 +189,6 @@ class DashedBorderPainter extends CustomPainter {
       ..strokeWidth = strokeWidth
       ..style = PaintingStyle.stroke;
 
-    final path = Path()
-      ..moveTo(0, 0)
-      ..lineTo(size.width, 0)
-      ..lineTo(size.width, size.height)
-      ..lineTo(0, size.height)
-      ..close();
 
     final dashPath = Path();
     final dashCount = (size.width / (dashWidth + dashSpace)).floor();

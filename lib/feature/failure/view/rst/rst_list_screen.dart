@@ -14,7 +14,7 @@ import '../../model/rst_list_response.dart';
 import '../../../../service/master_data_sync_service.dart';
 
 class RstListScreen extends StatefulWidget {
-  const RstListScreen({Key? key}) : super(key: key);
+  const RstListScreen({super.key});
 
   @override
   State<RstListScreen> createState() => _RstListScreenState();
@@ -160,7 +160,7 @@ class _RstListScreenState extends State<RstListScreen> {
           borderRadius: BorderRadius.circular(AppConstants.cardRadius),
           boxShadow: [
             BoxShadow(
-              color: AppColors.black.withOpacity(0.2),
+              color: AppColors.black.withValues(alpha: 0.2),
               blurRadius: 8,
               offset: const Offset(0, 2),
             ),

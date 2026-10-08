@@ -2,14 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 
+import '../../../constants/colors.dart';
+import '../../../utils/widgets/cust_popup.dart';
 import '../../tabs/view/home_screen.dart';
 
 import '../service/auth_service.dart';
 import '../model/login_response.dart';
 import '../../../service/auth_manager.dart';
-import '../../../service/session_controller.dart';
+import '../../../core/controller/session_controller.dart';
 import '../../../service/master_data_sync_service.dart';
-
+import '../../../core/controller/global_master_data_controller.dart';
 class LoginController extends GetxController {
   LoginController({AuthService? authService})
       : _authService = authService ?? AuthService();
@@ -39,22 +41,29 @@ class LoginController extends GetxController {
         }
         
         EasyLoading.dismiss();
-        // Navigate to home screen first
+        // Navigate to home screen immediately
         Get.offAll(() => const HomeScreen());
         
-        // Check if this is first-time login to show initial sync on home screen
-        final isFirstTimeLogin = await AuthManager().isFirstTimeLogin();
-        if (isFirstTimeLogin) {
-          // Sync master data on first-time login (will show loader on home screen)
-          await MasterDataSyncService().syncMasterData();
-          await AuthManager().setFirstTimeLoginComplete();
-        }
-
+        // Start master data sync in background after navigation
+        // Use Future.microtask to ensure it runs after the current frame
+        Future.microtask(() {
+          _startMasterDataSync();
+        });
       } else {
         EasyLoading.dismiss();
-        Get.snackbar(
-          'Login failed',
-          result.message ?? 'Invalid credentials',
+        Get.dialog(
+          CustPopup(
+            title: "Login Failed",
+            message: (result.message == null || result.message!.trim().isEmpty)
+                ? "Invalid credentials."
+                : result.message!.toLowerCase() == "password"||result.message!.toLowerCase() == "email"
+                ? "The ${result.message} you entered is incorrect. Please try again."
+                : result.message!,
+            icon: Icons.error_outline,
+            iconColor: AppColors.red,
+            confirmText: "OK",
+            onConfirm: () => Get.back(),
+          ),
         );
       }
     } catch (e) {
@@ -67,5 +76,32 @@ class LoginController extends GetxController {
       isLoading.value = false;
     }
   }
-}
 
+  Future<void> _startMasterDataSync() async {
+    try {
+      debugPrint("_startMasterDataSync: Starting master data sync");
+      final globalData = Get.find<GlobalMasterDataController>();
+      await globalData.initOnLogin();
+
+      debugPrint("_startMasterDataSync: Checking if MasterDataSyncService is registered");
+      if (Get.isRegistered<MasterDataSyncService>()) {
+        debugPrint("_startMasterDataSync: MasterDataSyncService is registered, starting sync");
+        final syncService = Get.find<MasterDataSyncService>();
+        // Sync master data from API first
+        debugPrint("_startMasterDataSync: Calling syncMasterDataFromAPI");
+        await syncService.syncMasterDataFromAPI();
+        // Station failures (list + details) are stored locally at login so the
+        // Station list works offline.
+        debugPrint("_startMasterDataSync: Calling syncStationFailures");
+        await syncService.syncStationFailures();
+        debugPrint("_startMasterDataSync: Calling syncPendingSubmissions");
+        await syncService.syncPendingSubmissions();
+        debugPrint("_startMasterDataSync: All syncs completed");
+      } else {
+        debugPrint("_startMasterDataSync: MasterDataSyncService is NOT registered");
+      }
+    } catch (e) {
+      debugPrint("_startMasterDataSync: Error during sync - $e");
+    }
+  }
+}

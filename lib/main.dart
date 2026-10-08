@@ -6,8 +6,9 @@ import 'feature/auth_login/view/login_view.dart';
 import 'feature/tabs/view/home_screen.dart';
 
 import 'service/auth_manager.dart';
-import 'service/session_controller.dart';
+import 'core/controller/session_controller.dart';
 import 'service/master_data_sync_service.dart';
+import 'core/controller/global_master_data_controller.dart';
 
 void configLoading() {
   EasyLoading.instance
@@ -19,7 +20,7 @@ void configLoading() {
     ..backgroundColor = Colors.white
     ..indicatorColor = AppColors.orangeColor
     ..textColor = AppColors.orangeColor
-    ..maskColor = Colors.black.withOpacity(0.5)
+    ..maskColor = Colors.black.withValues(alpha: 0.5)
     ..userInteractions = false
     ..dismissOnTap = false;
 }
@@ -35,9 +36,14 @@ void main() async {
   // Register MasterDataSyncService as singleton
   Get.put(MasterDataSyncService(), permanent: true);
   
+  // Register GlobalMasterDataController as singleton
+  Get.put(GlobalMasterDataController(), permanent: true);
+  
   if (isLoggedIn && isRememberMe) {
     Get.put(SessionController());
     await Get.find<SessionController>().loadSessionData();
+    // Load master data in background after login
+    Get.find<GlobalMasterDataController>().loadMasterData();
     initialRoute = const  HomeScreen();
   }
   

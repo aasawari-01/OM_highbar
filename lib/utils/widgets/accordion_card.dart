@@ -11,13 +11,13 @@ class AccordionCard extends StatelessWidget {
   final Widget? child;
 
   const AccordionCard({
-    Key? key,
+    super.key,
     required this.title,
      this.expanded,
     required this.isExpanded,
     required this.onTap,
     this.child,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +28,7 @@ class AccordionCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(10),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: Colors.black.withValues(alpha: 0.04),
             blurRadius: 6,
             offset: const Offset(0, 2),
           ),
@@ -49,7 +49,7 @@ class AccordionCard extends StatelessWidget {
                           margin: const EdgeInsets.only(left: 15, bottom: 15),
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           decoration: BoxDecoration(
-                            color: Colors.blue.shade50.withOpacity(0.5),
+                            color: Colors.blue.shade50.withValues(alpha: 0.5),
                             borderRadius: const BorderRadius.only(
                               bottomRight: Radius.circular(20),
                               bottomLeft: Radius.circular(20),
@@ -85,7 +85,7 @@ class AccordionCard extends StatelessWidget {
                         margin: const EdgeInsets.only(left: 15, bottom: 10),
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
-                          color: Colors.blue.shade50.withOpacity(0.5),
+                          color: Colors.blue.shade50.withValues(alpha: 0.5),
                           borderRadius: const BorderRadius.only(
                             bottomRight: Radius.circular(20),
                             bottomLeft: Radius.circular(20),

@@ -167,25 +167,5 @@ class _TopManagementCreateInspectionScreenState extends State<TopManagementCreat
     );
   }
 
-  Widget _buildProfileAction() {
-    return Stack(
-      alignment: Alignment.center,
-      children: [
-        const CircleAvatar(radius: 16, backgroundColor: AppColors.white1),
-        Positioned(
-          right: 0,
-          bottom: 2,
-          child: Container(
-            width: 10,
-            height: 10,
-            decoration: BoxDecoration(
-              color: AppColors.green,
-              shape: BoxShape.circle,
-              border: Border.all(color: AppColors.white1, width: 1.5),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
+
 }

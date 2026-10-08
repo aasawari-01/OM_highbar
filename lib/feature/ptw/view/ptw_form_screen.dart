@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:om_mobile/constants/colors.dart';
-import 'package:om_mobile/constants/app_data.dart';
 import 'package:flutter_stepindicator/flutter_stepindicator.dart';
 
 import '../../../constants/app_constants.dart';
-import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/accordion_card.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_date_time_picker.dart';
@@ -17,7 +15,7 @@ import '../../../utils/widgets/sync_icon_button.dart';
 
 
 class PTWFormScreen extends StatefulWidget {
-  const PTWFormScreen({Key? key}) : super(key: key);
+  const PTWFormScreen({super.key});
 
   @override
   State<PTWFormScreen> createState() => _PTWFormScreenState();
@@ -42,7 +40,6 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
   String? _selectedImpactOnRevenue;
 
   // Staff Details
-  String? _selectedUploadType; // Single/Bulk Upload
 
   // PTW Staff Date Details
   DateTime? _selectedFromDateTime;
@@ -82,6 +79,7 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
   final List<String> lineList = ["Line 1", "Line 2"];
   final List<String> depotList = ["Depot 1", "Depot 2"];
   final List<String> impactOnRevenueList = ["Yes", "No"];
+  final List<String> stationListValue = ["Station 1", "Station 2"];
   final List<Map<String, dynamic>> areaList = [
     {'id': 1, 'value': 'Mainline'},
     {'id': 2, 'value': 'Depot'},
@@ -200,7 +198,7 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
                 padding: const EdgeInsets.only(right: 16.0),
                 child: CustRadio<String>(
                   value: option,
-                  groupValue: _selectedRequestType ?? '',
+                  groupValue: _selectedRequestType,
                   label: option,
                   onChanged: (value) {
                     setState(() {
@@ -394,7 +392,7 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
     );
   }
 
-  Widget _buildStaffDetailsStep(_selectedLocationType) {
+  Widget _buildStaffDetailsStep(String? selectedLocationType) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(AppConstants.screenPadding),
       child: AccordionCard(
@@ -586,7 +584,7 @@ class _PTWFormScreenState extends State<PTWFormScreen> {
 
   void _submitForm() {
     // TODO: Implement submit logic
-    print('PTW Form submitted');
+    debugPrint('PTW Form submitted');
   }
 }
 
@@ -594,9 +592,9 @@ class AddStaffDetailsDialog extends StatefulWidget {
   final String? selectedLocationType;
   
   const AddStaffDetailsDialog({
-    Key? key,
+    super.key,
     this.selectedLocationType,
-  }) : super(key: key);
+  });
 
   @override
   State<AddStaffDetailsDialog> createState() => _AddStaffDetailsDialogState();
@@ -620,6 +618,7 @@ class _AddStaffDetailsDialogState extends State<AddStaffDetailsDialog> {
     'Entry Point 3',
     'Entry Point 4'
   ];
+  final List<String> stationListValue = ["Station 1", "Station 2"];
 
   @override
   void dispose() {
@@ -643,7 +642,7 @@ class _AddStaffDetailsDialogState extends State<AddStaffDetailsDialog> {
             margin: const EdgeInsets.only(left: 15, bottom: 10, right: 15),
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.blue.shade50.withOpacity(0.5),
+              color: Colors.blue.shade50.withValues(alpha: 0.5),
               borderRadius: const BorderRadius.only(
                 bottomRight: Radius.circular(20),
                 bottomLeft: Radius.circular(20),
@@ -652,7 +651,7 @@ class _AddStaffDetailsDialogState extends State<AddStaffDetailsDialog> {
             child: CustText(
               name: "Add Staff Details",
               size: 18,
-              color: AppColors.textBlueSecondary,
+              color: AppColors.darkBlue,
               fontWeightName: FontWeight.w500,
             ),
           ),
@@ -770,13 +769,13 @@ class _AddStaffDetailsDialogState extends State<AddStaffDetailsDialog> {
                     children: [
                       OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          side: const BorderSide(color: AppColors.textBlueSecondary),
+                          side: const BorderSide(color: AppColors.darkBlue),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(6),
                           ),
                         ),
                         onPressed: () => Navigator.pop(context),
-                        child: const Text('Cancel', style: TextStyle(color: AppColors.textBlueSecondary)),
+                        child: const Text('Cancel', style: TextStyle(color: AppColors.darkBlue)),
                       ),
                       const SizedBox(width: 16),
                       CustButton(

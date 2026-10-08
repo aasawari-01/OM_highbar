@@ -22,7 +22,7 @@ class CustDateTimePicker extends StatelessWidget {
   final String? Function(String?)? validator;
 
   const CustDateTimePicker({
-    Key? key,
+    super.key,
     required this.label,
     required this.hint,
     this.selectedDateTime,
@@ -33,7 +33,7 @@ class CustDateTimePicker extends StatelessWidget {
     this.lastDate,
     this.enabled = true,
     this.validator,
-  }) : super(key: key);
+  });
 
   ThemeData _pickerTheme(BuildContext context) {
     return Theme.of(context).copyWith(
@@ -70,34 +70,66 @@ class CustDateTimePicker extends StatelessWidget {
       }
     } else if (pickerType == PickerType.date) {
       // Date only
+      DateTime effectiveFirst = firstDate != null
+          ? DateTime(firstDate!.year, firstDate!.month, firstDate!.day)
+          : DateTime(2000);
+      DateTime effectiveLast = lastDate != null
+          ? DateTime(lastDate!.year, lastDate!.month, lastDate!.day)
+          : DateTime(2100);
+
+      if (effectiveFirst.isAfter(effectiveLast)) {
+        effectiveLast = effectiveFirst;
+      }
+
       DateTime initial = selectedDateTime ?? DateTime.now();
-      if (firstDate != null && initial.isBefore(firstDate!)) initial = firstDate!;
-      if (lastDate != null && initial.isAfter(lastDate!)) initial = lastDate!;
-      
+      DateTime initialDateOnly =
+          DateTime(initial.year, initial.month, initial.day);
+      if (initialDateOnly.isBefore(effectiveFirst)) {
+        initial = effectiveFirst;
+      } else if (initialDateOnly.isAfter(effectiveLast)) {
+        initial = effectiveLast;
+      }
+
       final picked = await showDatePicker(
         context: context,
         initialDate: initial,
-        firstDate: firstDate ?? DateTime(2000),
-        lastDate: lastDate ?? DateTime(2100),
+        firstDate: effectiveFirst,
+        lastDate: effectiveLast,
         builder: (ctx, child) => Theme(data: _pickerTheme(ctx), child: child!),
       );
       if (picked != null) onDateTimeSelected(picked);
     } else {
       // Date first → then Time
+      DateTime effectiveFirst = firstDate != null
+          ? DateTime(firstDate!.year, firstDate!.month, firstDate!.day)
+          : DateTime(2000);
+      DateTime effectiveLast = lastDate != null
+          ? DateTime(lastDate!.year, lastDate!.month, lastDate!.day)
+          : DateTime(2100);
+
+      if (effectiveFirst.isAfter(effectiveLast)) {
+        effectiveLast = effectiveFirst;
+      }
+
       DateTime initial = selectedDateTime ?? DateTime.now();
-      if (firstDate != null && initial.isBefore(firstDate!)) initial = firstDate!;
-      if (lastDate != null && initial.isAfter(lastDate!)) initial = lastDate!;
+      DateTime initialDateOnly =
+          DateTime(initial.year, initial.month, initial.day);
+      if (initialDateOnly.isBefore(effectiveFirst)) {
+        initial = effectiveFirst;
+      } else if (initialDateOnly.isAfter(effectiveLast)) {
+        initial = effectiveLast;
+      }
 
       final pickedDate = await showDatePicker(
         context: context,
         initialDate: initial,
-        firstDate: firstDate ?? DateTime(2000),
-        lastDate: lastDate ?? DateTime(2100),
+        firstDate: effectiveFirst,
+        lastDate: effectiveLast,
         builder: (ctx, child) => Theme(data: _pickerTheme(ctx), child: child!),
       );
       if (pickedDate == null) return;
 
-      // ignore: use_build_context_synchronously
+      if (!context.mounted) return;
       final pickedTime = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(selectedDateTime ?? DateTime.now()),

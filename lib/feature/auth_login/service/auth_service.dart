@@ -33,7 +33,7 @@ class AuthService {
     }
 
     if (response.statusCode == 200) {
-      debugPrint("login response===${jsonBody}");
+      debugPrint("login response===$jsonBody");
       return LoginResponse.fromJson(jsonBody);
     }
      debugPrint("error==${response.statusCode}");

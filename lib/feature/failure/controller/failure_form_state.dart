@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../core/models/label_value.dart';
-import '../../../service/session_controller.dart';
+import '../../../core/controller/session_controller.dart';
 import '../model/joint_inspection_history.dart';
 import '../model/failure_detail_response.dart';
 
@@ -21,16 +21,26 @@ mixin FailureFormState on GetxController {
 
   final isFaultLoading = false.obs;
   final isEquipmentLoading = false.obs;
+  final isFunctionalLocationLoading = false.obs;
+  final isUsersLoaded = false.obs;
+  final isFunctionalLocationsLoaded = false.obs;
+  final isUserListLoading = false.obs;
   final showMeasurementButton = false.obs;
   final errorMessage = "".obs;
   final encryptedId = "".obs;
   final notificationId = 0.obs;
   final jointInspectionFailureNo = "".obs;
   final notificationCode = "".obs;
+  final maintenanceLocationTypeId = 0.obs;
+  final isSubmitting = false.obs;
+  // Backs the read-only "Observation Detail" panel shown when the form is
+  // opened from an Inspection "Not Okay" flow (via QR / nav arguments).
+  final inspectionObservation = <String, dynamic>{}.obs;
 
   // Dropdown lists
   final notificationTypeList = <LabelValue>[].obs;
   final natureOfWorkList = <LabelValue>[].obs;
+  final failureCategoryTypeList = <LabelValue>[].obs;
   final departmentList = <LabelValue>[].obs;
   final userList = <LabelValue>[].obs;
   final functionalLocationList = <LabelValue>[].obs;
@@ -45,9 +55,38 @@ mixin FailureFormState on GetxController {
   final faultTypeList = <LabelValue>[].obs;
   final rootCauseList = <LabelValue>[].obs;
   final actionTakenList = <LabelValue>[].obs;
+  final causeList = <LabelValue>[].obs;
+  final actionList = <LabelValue>[].obs;
   final corrNotificationTypeList = <LabelValue>[].obs;
+
+  /// Station / Depot forms: Failure Category Type options (Safety, Security,
+  /// ...) from their lookup API.
+  final apiFailureCategoryList = <LabelValue>[].obs;
   final jointUserList = <LabelValue>[].obs;
   final masterJointInspectionDepartments = <LabelValue>[].obs;
+
+  // NEW: JE View dropdowns from asset DB
+  final corrFailureTypeList = <LabelValue>[].obs;
+  final userStatusJeList = <LabelValue>[].obs;
+  final materialMasterList = <LabelValue>[].obs;
+
+  // NEW: API-based dropdowns for Maintenance form (from JE Change Notification API)
+  final apiNatureOfWorkList = <LabelValue>[].obs;
+  final apiNotificationTypeList = <LabelValue>[].obs;
+
+  // NEW: RST View dropdowns from asset DB
+  final rstFaultMasterList = <LabelValue>[].obs;
+  final rstOldRootCauseList = <LabelValue>[].obs;
+  final rstStoreLocationList = <LabelValue>[].obs;
+
+  // FMECA fields for Section Incharge
+  final fmecaSystemList = <LabelValue>[].obs;
+  final fmecaSubsystemList = <LabelValue>[].obs;
+  final selectedFmecaSystem = RxnString();
+  final selectedFmecaSubsystem = RxnString();
+  final fmecaFrequency = RxnInt();
+  final fmecaSystemReadOnly = false.obs;
+  final fmecaSubsystemReadOnly = false.obs;
 
   // Form selections
   final selectedPriority = RxnString();
@@ -65,6 +104,19 @@ mixin FailureFormState on GetxController {
   final selectedNatureOfWork = RxnString();
   final selectedFailureCategoryType = RxnString();
   final selectedFailureReportedBy = RxnString();
+  final selectedCause = RxnString();
+  final selectedAction = RxnString();
+  final selectedRcaFailureCategory = RxnString();
+  final rcaFailureCategoryList = <LabelValue>[].obs;
+  final masterRcaFailureCategories = <Map<String, dynamic>>[].obs;
+  final masterRootCauses = <Map<String, dynamic>>[].obs;
+  final masterCauseOfFailures = <Map<String, dynamic>>[].obs;
+
+  // RCA popup selections
+  final selectedPopupCause = RxnString();
+  final selectedPopupAction = RxnString();
+  final popupRootCauseList = <LabelValue>[].obs;
+
   final selectedJointDept = RxnString();
   final selectedJointAssignTo = RxnString();
   final jiDepartment = RxnString();
@@ -92,10 +144,11 @@ mixin FailureFormState on GetxController {
   final isServiceAffected = false.obs;
   final isPassengerDeboarding = false.obs;
   final isPowerBlockRequired = false.obs;
+  final isOheRequired = false.obs;
   final isSicRequired = false.obs;
   final isPassengerAffected = false.obs;
   final isPtwRequired = false.obs;
-  final isRcaRequired = true.obs;
+  final isRcaRequired = false.obs; // Changed to false for Maintenance forms
   final isSparePartReplaced = false.obs;
   final isMaterialDismantle = false.obs;
   final isJointInspection = false.obs;
@@ -115,10 +168,15 @@ mixin FailureFormState on GetxController {
   final jiRemarkDisplayController = TextEditingController();
   final ptwNumberController = TextEditingController();
   final systemController = TextEditingController();
+  final subsystemController = TextEditingController();
+  final fmecaSystemController = TextEditingController();
+  final fmecaSubsystemController = TextEditingController();
+  final fmecaFrequencyController = TextEditingController();
   final trainIdController = TextEditingController();
   final tripDelayUplineController = TextEditingController();
   final tripDelayDownlineController = TextEditingController();
   final passengersAffectedCountController = TextEditingController();
+  final numberOfPassengerAffectedController = TextEditingController();
   final trappedDurationController = TextEditingController();
   final rescuedDurationController = TextEditingController();
   final objectPartTextController = TextEditingController();
@@ -130,6 +188,8 @@ mixin FailureFormState on GetxController {
   final failureRectificationDetailsController = TextEditingController();
   final popupRootCauseTextController = TextEditingController();
   final popupActionTakenTextController = TextEditingController();
+  final popupCauseTextController = TextEditingController();
+  final popupActionTextController = TextEditingController();
   final trainDelayMinController = TextEditingController();
   final trainDelayNosController = TextEditingController();
   final trainCancelNosController = TextEditingController();
@@ -143,6 +203,66 @@ mixin FailureFormState on GetxController {
   final newSerialNumberController = TextEditingController();
   final jointInspectionRemarkController = TextEditingController();
   final jiUserRemarkController = TextEditingController();
+
+  // Maintenance-specific fields for Section Incharge
+  final locationTypeIdController = TextEditingController();
+  final locationFailureController = TextEditingController();
+  final systemDowntimeController = TextEditingController();
+  final measurementPointIdsController = TextEditingController();
+  final assigneeUserNameController = TextEditingController();
+  final selectedSystemDowntime = Rxn<DateTime>();
+  final departmentId = RxnInt();
+
+  /// Departments picked on a create form (Station / Depot / OCC allow up to
+  /// three). The first one is mirrored into [selectedDepartment] /
+  /// [departmentId] so the rest of the form keeps working with one department.
+  final selectedDepartments = <String>[].obs;
+
+  static const int maxCreateDepartments = 3;
+
+  /// Department fields of a create request. One department (or none) gives
+  /// exactly the single-department fields; several give DepartmentIds as a
+  /// comma list and DepartmentId_1..3.
+  Map<String, dynamic> departmentCreateFields(String singleDeptId) {
+    final ids = <String>[];
+    for (final label in selectedDepartments) {
+      final id = departmentList
+          .firstWhereOrNull((e) => e.label == label)
+          ?.value;
+      if (id != null && id.isNotEmpty && id != '0' && !ids.contains(id)) {
+        ids.add(id);
+      }
+    }
+    if (ids.length <= 1) {
+      return {
+        'DepartmentIds': singleDeptId,
+        'DepartmentId_1': singleDeptId,
+        'DepartmentId_2': 0,
+        'DepartmentId_3': 0,
+      };
+    }
+    final capped = ids.take(maxCreateDepartments).toList();
+    return {
+      'DepartmentIds': capped.join(','),
+      'DepartmentId_1': capped[0],
+      'DepartmentId_2': capped.length > 1 ? int.tryParse(capped[1]) ?? 0 : 0,
+      'DepartmentId_3': capped.length > 2 ? int.tryParse(capped[2]) ?? 0 : 0,
+    };
+  }
+  final selectedSystem = RxnString();
+  final selectedSubsystem = RxnString();
+  final systemList = <LabelValue>[].obs;
+  final subsystemList = <LabelValue>[].obs;
+  final personResponsibleList = <LabelValue>[].obs;
+  final locationList = <LabelValue>[].obs;
+  final assignedUserId = RxnInt();
+  final assignedUserIdJI = RxnInt();
+  final deptIdJI = RxnInt();
+  final remarkJE = RxnInt();
+  final corrNotificationTypeId = RxnInt();
+  final systemName = RxnString();
+  final subSystemName = RxnString();
+  final frequencyValue = RxnInt();
 
   final failureRectificationFocusNode = FocusNode();
   final requiredQtyFocusNode = FocusNode();
@@ -169,11 +289,22 @@ mixin FailureFormState on GetxController {
   final notificationDescriptionHistoryList = <NotificationHistory>[].obs;
   final jointInspectionHistoryList = <JointInspectionHistory>[].obs;
 
+  // Inline "history at this Functional Location" (from getFunctionEqDetailsById
+  // response's functionalHistory / functionalHistoryPrev). Distinct from the
+  // standalone MaintenanceHistoryScreen, which is a separate asset-level browser.
+  final maintenanceHistoryList = <Map<String, dynamic>>[].obs;
+  final maintenanceHistoryListPrev = <Map<String, dynamic>>[].obs;
+  final selectedHistoryTab = 'current'.obs;
+
+  // Measurement points for maintenance form
+  final measurementPoints = <Map<String, dynamic>>[].obs;
+
   // Master data lists
   final masterLocations = <Map<String, dynamic>>[].obs;
   final masterFunctionalLocations = <Map<String, dynamic>>[].obs;
   final masterEquipments = <Map<String, dynamic>>[].obs;
   final masterDepartments = <Map<String, dynamic>>[].obs;
+  final masterUsers = <Map<String, dynamic>>[].obs;
 
   // Popup state
   final selectedPopupRootCause = RxnString();
@@ -186,7 +317,9 @@ mixin FailureFormState on GetxController {
   final selectedReasonForDelay = RxnString();
   final reasonForDelayId = 0.obs;
 
-  void dispose() {
+  @override
+  void onClose() {
+    super.onClose();
     failureDescriptionController.dispose();
     priorityDisplayController.dispose();
     departmentDisplayController.dispose();
@@ -198,10 +331,15 @@ mixin FailureFormState on GetxController {
     jiAssignToDisplayController.dispose();
     jiRemarkDisplayController.dispose();
     systemController.dispose();
+    subsystemController.dispose();
+    fmecaSystemController.dispose();
+    fmecaSubsystemController.dispose();
+    fmecaFrequencyController.dispose();
     trainIdController.dispose();
     tripDelayUplineController.dispose();
     tripDelayDownlineController.dispose();
     passengersAffectedCountController.dispose();
+    numberOfPassengerAffectedController.dispose();
     trappedDurationController.dispose();
     rescuedDurationController.dispose();
     ptwNumberController.dispose();
@@ -229,6 +367,11 @@ mixin FailureFormState on GetxController {
     jiUserRemarkController.dispose();
     failureRectificationFocusNode.dispose();
     requiredQtyFocusNode.dispose();
+    locationTypeIdController.dispose();
+    locationFailureController.dispose();
+    systemDowntimeController.dispose();
+    measurementPointIdsController.dispose();
+    assigneeUserNameController.dispose();
   }
 
   bool get isJE =>
@@ -237,7 +380,7 @@ mixin FailureFormState on GetxController {
           .value
           ?.roleDescr
           ?.contains("Junior Engineer") ??
-          false;
+      false;
 
   bool get isTechnician =>
       Get.find<SessionController>()
@@ -245,7 +388,7 @@ mixin FailureFormState on GetxController {
           .value
           ?.roleDescr
           ?.contains("Technician") ??
-          false;
+      false;
 
   bool get isStationController =>
       Get.find<SessionController>()
@@ -253,10 +396,19 @@ mixin FailureFormState on GetxController {
           .value
           ?.roleDescr
           ?.contains("Station Controller") ??
-          false;
+      false;
+
+  bool get isSectionIncharge =>
+      Get.find<SessionController>()
+          .selectedRole
+          .value
+          ?.roleDescr
+          ?.contains("Section Incharge") ??
+      false;
 
   bool get isStation => failureCategory.value.toLowerCase() == 'station';
-  bool get isMaintenance => failureCategory.value.toLowerCase() == 'maintenance';
+  bool get isMaintenance =>
+      failureCategory.value.toLowerCase() == 'maintenance';
   bool get isOCC => failureCategory.value.toLowerCase() == 'occ';
   bool get isDepot => failureCategory.value.toLowerCase() == 'depot';
 
@@ -267,9 +419,14 @@ mixin FailureFormState on GetxController {
   bool get isJointInspectionPending {
     if (_isPendingJointInspectionStatus(mainStatusName.value)) return true;
     return jointInspectionHistoryList.any(
-          (item) => _isPendingJointInspectionStatus(item.statusName),
+      (item) => _isPendingJointInspectionStatus(item.statusName),
     );
   }
 
   bool get isCloseUserStatusBlocked => isJE && isJointInspectionPending;
+
+  bool get isJointInspectionPendingStatus =>
+      _isPendingJointInspectionStatus(mainStatusName.value);
+
+  bool get isFormDisabled => isJointInspectionPendingStatus;
 }

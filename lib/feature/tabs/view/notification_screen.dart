@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 
 import '../../../constants/colors.dart';
 import '../../../constants/app_constants.dart';
-import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
 
 
 class NotificationScreen extends StatelessWidget {
-  const NotificationScreen({Key? key}) : super(key: key);
+  const NotificationScreen({super.key});
 
   @override
   Widget build(BuildContext context) {

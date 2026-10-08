@@ -19,13 +19,13 @@ class EquipmentModel {
 
   factory EquipmentModel.fromJson(Map<String, dynamic> json) {
     return EquipmentModel(
-      equipId: json['equipId'] as int?,
-      equipNo: json['equipNo']?.toString() ?? '',
-      equipDesc: json['equipDesc']?.toString() ?? '',
-      equipmentName: json['equipmentName']?.toString() ?? '',
-      functionalLocation: json['functionalLocation']?.toString() ?? '',
-      location: json['location']?.toString() ?? '',
-      planningPlant: json['planningPlant']?.toString() ?? '',
+      equipId: (json['equipId'] ?? json['EquipId']) as int?,
+      equipNo: (json['equipNo'] ?? json['EquipNo'])?.toString() ?? '',
+      equipDesc: (json['equipDesc'] ?? json['EquipDesc'])?.toString() ?? '',
+      equipmentName: (json['equipmentName'] ?? json['EquipmentName'] ?? json['EquipDesc'] ?? json['equipDesc'])?.toString() ?? '',
+      functionalLocation: (json['functionalLocation'] ?? json['FunctionalLocation'])?.toString() ?? '',
+      location: (json['location'] ?? json['Location'])?.toString() ?? '',
+      planningPlant: (json['planningPlant'] ?? json['PlanningPlant'])?.toString() ?? '',
     );
   }
 
