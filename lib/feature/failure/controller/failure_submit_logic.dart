@@ -16,6 +16,9 @@ import 'failure_form_state.dart';
 import 'failure_material_logic.dart';
 import 'failure_rca_logic.dart';
 import '../service/failure_service.dart';
+import '../service/si_offline_service.dart';
+import '../service/je_offline_service.dart';
+import '../../../service/network_service/network_errors.dart';
 import '../view/failure_list_screen.dart';
 
 mixin FailureSubmitLogic
@@ -714,8 +717,27 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
       debugPrint("Maintenance Form Submission Request: $requestBody");
 
-      final response =
-      await _failureService.submitMaintenanceNotificationForm(requestBody);
+      Map<String, dynamic> response;
+      try {
+        response =
+        await _failureService.submitMaintenanceNotificationForm(requestBody);
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: save the failure locally (shown in the list with an
+        // orange dot) and send it when internet returns.
+        await _saveMaintenanceOffline(requestBody, int.tryParse(deptId) ?? 0);
+        EasyLoading.dismiss();
+        isSubmitting.value = false;
+        refreshFailureListAfterSubmission(false);
+        Get.offAll(() => const FailureListScreen(failureType: 'Maintenance'));
+        showResultPopup(
+          title: "Saved Offline",
+          message: "Failure saved locally. Will sync when internet is available.",
+          icon: Icons.cloud_off_outlined,
+          iconColor: AppColors.orangeColor,
+        );
+        return;
+      }
 
       EasyLoading.dismiss();
       isSubmitting.value = false;
@@ -743,6 +765,43 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       debugPrint("Create Maintenance Failure Error: $e");
       Get.snackbar(AppStrings.error, "An unexpected error occurred: $e");
     }
+  }
+
+  /// Queues a maintenance failure created without internet and adds it to the
+  /// list (orange dot, negative id = -queueId) until it is sent.
+  Future<void> _saveMaintenanceOffline(
+      Map<String, dynamic> requestBody, int deptId) async {
+    final db = LocalDatabaseService();
+    final queueId = await SiOfflineService().queueCreate(requestBody, labels: {
+      'funcLocation': selectedFunctionalLocation.value ?? '',
+      'equipmentName': selectedEquipmentNumber.value ?? '',
+      'locationName': selectedLocation.value ?? '',
+      'priorityType': selectedPriority.value ?? '',
+      'personResponsible': selectedPersonResponsible.value ?? '',
+      'notificationType': selectedNotificationType.value ?? '',
+    });
+    final code = (deptId > 0 ? await db.getDeptCodeById(deptId) : null) ?? 'SIG';
+    final failureNo = await _generateOfflineFailureNumber(code);
+    await db.insertFailureList([
+      {
+        'id': -queueId,
+        'failureNo': failureNo,
+        'failureDescription': requestBody['failureDescription'] ?? '',
+        'functionalLocation': selectedFunctionalLocation.value ?? '',
+        'statusName': 'Pending Sync',
+        'failureOccuranceDateTime': requestBody['actualFailureOccuranceOn'] ?? '',
+        'actualFailureOccuranceDatetime': requestBody['actualFailureOccuranceOn'] ?? '',
+        'subLocation': requestBody['locationFailure'] ?? '',
+        'system': requestBody['system'] ?? '',
+        'locationName': selectedLocation.value ?? '',
+        'priority': selectedPriority.value ?? '',
+        'departmentName': selectedDepartment.value ?? '',
+        'creationType': 'Manual',
+        'syncStatus': 'offline',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+        'failureType': 'Maintenance',
+      }
+    ], 'Maintenance');
   }
 
   Future<void> updateMaintenanceFailure() async {
@@ -853,8 +912,21 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
           ? ''
           : DateFormat('dd/MM/yyyy HH:mm').format(selectedSystemDowntime.value!);
 
+      // A failure from the local copy carries only the numeric id here; the
+      // update call needs the encrypted one. Without a connection the numeric
+      // id stays and the queued update resolves it when it is sent.
+      var notificationCode = encryptedId.value;
+      if (RegExp(r'^\d+$').hasMatch(notificationCode)) {
+        try {
+          notificationCode = await SiOfflineService()
+              .encryptedIdFor(notificationId: resolveNotificationId());
+        } catch (e) {
+          if (!isNetworkError(e)) rethrow;
+        }
+      }
+
       final payload = <String, dynamic>{
-        'NotificationCode': encryptedId.value,
+        'NotificationCode': notificationCode,
         'NotificationId': resolveNotificationId(),
         'Description': failureDescriptionController.text.trim(),
         'NatureOfWorkId': natureId,
@@ -897,7 +969,20 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       };
 
       debugPrint('Maintenance update payload: $payload');
-      final response = await _failureService.updateMaintenanceFailure(payload);
+      Map<String, dynamic> response;
+      var savedOffline = false;
+      try {
+        response = await _failureService.updateMaintenanceFailure(payload);
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: keep the change locally, it is sent when internet returns.
+        await SiOfflineService().queueUpdate(payload);
+        savedOffline = true;
+        response = {
+          'responseMessage':
+          'Saved offline. It will be sent when internet is available.'
+        };
+      }
       EasyLoading.dismiss();
       isSubmitting.value = false;
 
@@ -905,8 +990,10 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       // Leave the form first: Get.back() after a snackbar would only pop the
       // snackbar and leave the user on this page.
       Get.back(result: true);
-      Get.snackbar('Success', response['responseMessage']?.toString() ?? 'Data Edit Successfully',
-          backgroundColor: AppColors.green, colorText: AppColors.white1);
+      Get.snackbar(savedOffline ? 'Saved Offline' : 'Success',
+          response['responseMessage']?.toString() ?? 'Data Edit Successfully',
+          backgroundColor: savedOffline ? AppColors.orangeColor : AppColors.green,
+          colorText: AppColors.white1);
     } catch (e) {
       EasyLoading.dismiss();
       isSubmitting.value = false;
@@ -1568,7 +1655,40 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         encoder.convert(payload),
         wrapWidth: 1024,
       );
-      await _failureService.updateJEFailure(payload, files: files);
+      try {
+        await _failureService
+            .updateJEFailure(payload, files: files)
+            .timeout(const Duration(seconds: 90));
+      } catch (e) {
+        if (!isNetworkError(e) || !isJE || resolveNotificationId() <= 0) rethrow;
+        // No connection: keep the form and its images, send them when internet
+        // returns (the failure shows "Pending: Update" in the list).
+        await JeOfflineService().queueUpdate(
+          notificationId: resolveNotificationId(),
+          payload: payload,
+          filePaths: {
+            if (beforeFiles.isNotEmpty &&
+                beforeFiles.first['path'] != null &&
+                beforeFiles.first['isNetwork'] != true)
+              'beforeImage': beforeFiles.first['path'].toString(),
+            if (afterFiles.isNotEmpty &&
+                afterFiles.first['path'] != null &&
+                afterFiles.first['isNetwork'] != true)
+              'afterImage': afterFiles.first['path'].toString(),
+            if (rcaFiles.isNotEmpty &&
+                rcaFiles.first['path'] != null &&
+                rcaFiles.first['isNetwork'] != true)
+              'rcaImage': rcaFiles.first['path'].toString(),
+          },
+        );
+        EasyLoading.dismiss();
+        refreshFailureListAfterSubmission(isStation);
+        Get.back(result: true);
+        Get.snackbar('Saved Offline',
+            'Failure saved locally. Will sync when internet is available.',
+            backgroundColor: AppColors.orangeColor, colorText: AppColors.white1);
+        return;
+      }
       EasyLoading.dismiss();
       // Reload the JE inbox list(s) so the closed/updated failure shows.
       refreshFailureListAfterSubmission(isStation);

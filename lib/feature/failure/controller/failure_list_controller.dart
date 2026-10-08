@@ -11,6 +11,7 @@ import '../../../core/controller/session_controller.dart';
 import '../../../service/local_database_service.dart';
 import '../model/failure_list_response.dart';
 import '../service/failure_service.dart';
+import '../service/si_ids.dart';
 import '../../../service/master_data_sync_service.dart';
 
 enum JEFailureListTab { inbox, jointInspection }
@@ -224,55 +225,9 @@ class FailureListController extends GetxController {
       } else if (_useOccFailureListApi) {
         await _fetchOccRoleFailures();
       } else if (_isJE) {
-        // JE users fetch from API with offline fallback (same pattern as Station Controller)
-        debugPrint("fetchFailures: JE user - fetching from API with offline fallback");
-        
-        // Use composite key for JE: 'JE_inbox' or 'JE_jointInspection'
-        final jeFailureType = 'JE_${selectedJETab.value.name}';
-        debugPrint("fetchFailures: JE failureType key: $jeFailureType");
-        
-        // Try to fetch from API
-        bool apiSuccess = false;
-        try {
-          await _fetchFromApi();
-          if (failures.isNotEmpty) {
-            // Save to local DB on API success using JE-specific key
-            await _dbService.clearFailureList(jeFailureType);
-            await _dbService.insertFailureList(failures.map((e) => e.toJson()).toList(), jeFailureType);
-            debugPrint("fetchFailures: Saved ${failures.length} JE failures to local DB with key: $jeFailureType");
-            apiSuccess = true;
-          }
-        } catch (e) {
-          debugPrint("fetchFailures: JE API failed, falling back to local DB: $e");
-          isOfflineMode.value = true;
-          errorMessage.value = ""; // Clear error when falling back to local DB
-        }
-        
-        // If API failed or returned empty, load from local DB
-        if (!apiSuccess || failures.isEmpty) {
-          debugPrint("fetchFailures: JE - loading failures from local DB with key: $jeFailureType");
-          final localFailures = await _dbService.getFailureList(jeFailureType);
-          debugPrint("fetchFailures: Found ${localFailures.length} failures in local DB");
-          
-          if (localFailures.isNotEmpty) {
-            final failureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
-            final filteredItems = failureItems.where((item) => _matchesFailureType(item)).toList();
-            
-            _sortJeFailures(filteredItems);
-
-            failures.assignAll(filteredItems);
-            errorMessage.value = ""; // Clear error message when local data loads successfully
-            debugPrint("fetchFailures: Loaded ${filteredItems.length} failures from local DB for JE");
-          } else {
-            debugPrint("fetchFailures: No local data found for JE with key: $jeFailureType");
-            isOfflineMode.value = true;
-            if (!apiSuccess) {
-              errorMessage.value = "No data available. Please sync with internet connection.";
-            } else {
-              errorMessage.value = "No failures found.";
-            }
-          }
-        }
+        // Junior Engineer: lists come from the local copy (synced from
+        // GetAllFailuresTransactionData), so they also work offline.
+        await _fetchJeFailures();
       } else if (_useStationFailureListApi) {
         await _fetchStationControllerFailures(forceAll: forceRefresh);
       } else if (failureType.toLowerCase() == 'station') {
@@ -323,59 +278,9 @@ class FailureListController extends GetxController {
           }
         }
       } else if (_isSectionIncharge) {
-        // Section Incharge users fetch from API with offline fallback
-        debugPrint("fetchFailures: Section Incharge - fetching from API with offline fallback");
-        
-        final cacheKey = 'SectionIncharge_list';
-        debugPrint("fetchFailures: Section Incharge failureType key: $cacheKey");
-        
-        // Try to fetch from API
-        bool apiSuccess = false;
-        try {
-          await _fetchFromApi();
-          if (failures.isNotEmpty) {
-            // Save to local DB on API success
-            await _dbService.clearFailureList(cacheKey);
-            await _dbService.insertFailureList(failures.map((e) => e.toJson()).toList(), cacheKey);
-            debugPrint("fetchFailures: Saved ${failures.length} Section Incharge failures to local DB");
-            apiSuccess = true;
-          }
-        } catch (e) {
-          debugPrint("fetchFailures: Section Incharge API failed, falling back to local DB: $e");
-          isOfflineMode.value = true;
-          errorMessage.value = "";
-        }
-        
-        // If API failed or returned empty, load from local DB
-        if (!apiSuccess || failures.isEmpty) {
-          debugPrint("fetchFailures: Section Incharge - loading failures from local DB");
-          final localFailures = await _dbService.getFailureList(cacheKey);
-          debugPrint("fetchFailures: Found ${localFailures.length} failures in local DB");
-          
-          if (localFailures.isNotEmpty) {
-            final failureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
-            final filteredItems = failureItems.where((item) => _matchesFailureType(item)).toList();
-            
-            // Sort by notificationId in descending order (newest first) - matching React code
-            filteredItems.sort((a, b) {
-              final aId = a.id ?? 0;
-              final bId = b.id ?? 0;
-              return bId.compareTo(aId); // Descending order
-            });
-            
-            failures.assignAll(filteredItems);
-            errorMessage.value = "";
-            debugPrint("fetchFailures: Loaded ${filteredItems.length} failures from local DB for Section Incharge (sorted by notificationId)");
-          } else {
-            debugPrint("fetchFailures: No local data found for Section Incharge");
-            isOfflineMode.value = true;
-            if (!apiSuccess) {
-              errorMessage.value = "No data available. Please sync with internet connection.";
-            } else {
-              errorMessage.value = "No failures found.";
-            }
-          }
-        }
+        // Section Incharge: lists come from the local copy (synced from
+        // GetAllFailuresTransactionData), so they also work offline.
+        await _fetchSectionInchargeFailures();
       } else {
         // For other types (Maintenance, etc.) for non-JE users
         debugPrint("fetchFailures: Fetching $failureType failures from API");
@@ -388,6 +293,233 @@ class FailureListController extends GetxController {
     } finally {
       isLoading.value = false;
       debugPrint("fetchFailures: Complete, total failures: ${failures.length}");
+    }
+  }
+
+  int? _toInt(dynamic v) => v is int ? v : int.tryParse('${v ?? ''}');
+
+  /// Section Incharge list: syncs the changes (also done at login), then shows
+  /// the local copy of siFailureList for the selected department, plus failures
+  /// created offline that are still waiting to be sent (orange dot).
+  Future<void> _fetchSectionInchargeFailures() async {
+    final synced = await Get.find<MasterDataSyncService>().syncFailureTransactions();
+    if (!synced) {
+      debugPrint('_fetchSectionInchargeFailures: server not reached, using local copy');
+      isOfflineMode.value = true;
+    }
+
+    final deptId = _sessionController.selectedDepartment.value?.deptId ?? 0;
+    final staffId = selectedStaffId.value;
+
+    final deptNames = <int, String?>{};
+    final deptCodes = <int, String?>{};
+    final locNames = <int, String?>{};
+    final flNames = <int, String?>{};
+
+    final items = <FailureItem>[];
+    for (final row in await _dbService.getSiFailureCache()) {
+      try {
+        final record = row['record'] as Map<String, dynamic>;
+        final si = Map<String, dynamic>.from(record['siFailure'] as Map);
+        final notificationId = _toInt(si['notificationId']);
+        if (notificationId == null) continue;
+
+        final itemDept = _toInt(si['deptId']) ?? 0;
+        if (deptId > 0 && itemDept > 0 && itemDept != deptId) continue;
+        final assigned = _toInt(si['assignedUserId']) ?? 0;
+        if (staffId != null && staffId > 0 && assigned != staffId) continue;
+
+        final locId = _toInt(si['locationTypeId']) ?? 0;
+        final flId = _toInt(si['functionLocationId']) ?? 0;
+        if (itemDept > 0 && !deptNames.containsKey(itemDept)) {
+          deptNames[itemDept] = await _dbService.getDeptNameById(itemDept);
+          deptCodes[itemDept] = await _dbService.getDeptCodeById(itemDept);
+        }
+        if (locId > 0 && !locNames.containsKey(locId)) {
+          locNames[locId] = await _dbService.getLocationNameById(locId);
+        }
+        if (flId > 0 && !flNames.containsKey(flId)) {
+          final fl = await _dbService.getFailureFunctionalLocationRow(flId);
+          final code = fl?['FuncLocation']?.toString() ?? '';
+          final desc = fl?['FuncDescription']?.toString() ?? '';
+          flNames[flId] = code.isEmpty ? null : (desc.isEmpty ? code : '$code - $desc');
+        }
+
+        final occurred = si['actualFailureOccuranceOn']?.toString();
+        final pendingAction = row['pendingAction']?.toString();
+        items.add(FailureItem(
+          id: notificationId,
+          // The numeric notification id is what the assign / close / ... calls
+          // send as jobCardNo and what the details call looks the failure up by.
+          failureNo: encryptedIdFromSiFailure(si, notificationId) ??
+              notificationId.toString(),
+          notificationCode: si['notificationCode']?.toString(),
+          jobCardId: encryptedIdFromSiFailure(si, notificationId) ??
+              notificationId.toString(),
+          failureDescription: si['description']?.toString(),
+          functionLocationId: flId > 0 ? flId : null,
+          functionalLocation: flNames[flId],
+          statusName: si['mainStatusName']?.toString(),
+          statusId: _toInt(si['statusId']),
+          failureOccuranceDateTime: occurred,
+          actualFailureOccuranceDatetime: occurred,
+          assignedUserId: assigned > 0 ? assigned : null,
+          assignedUseeName: si['assignedUseeName']?.toString(),
+          occRequestStatus: si['occRequestStatus']?.toString(),
+          otherRequestFrom: si['otherRequestFrom']?.toString(),
+          locationName: locNames[locId],
+          creationType: 'Manual',
+          priority: si['priorityType']?.toString(),
+          departmentName: deptNames[itemDept],
+          subLocation: si['locationFailure']?.toString(),
+          system: si['system']?.toString(),
+          subSystems: si['subSystem']?.toString(),
+          isTrainSetFailure: si['isTrainSetFailure'] as bool?,
+          occRequestStatusId: _toInt(si['occRequestStatusId']),
+          freq: _toInt(si['frequency']),
+          frequency: si['frequency']?.toString(),
+          createdDate: si['createdOn']?.toString(),
+          deptCode: deptCodes[itemDept],
+          deptId: itemDept > 0 ? itemDept : null,
+          syncStatus: pendingAction == null ? 'synced' : 'offline',
+          pendingAction: pendingAction,
+        ));
+      } catch (e) {
+        debugPrint('_fetchSectionInchargeFailures: skipped bad row: $e');
+      }
+    }
+    items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+
+    // Staff the Section Incharge can assign to: the Junior Engineers of his
+    // departments, from the local user table.
+    try {
+      final deptIds = <int>{
+        for (final d in _sessionController.departments)
+          if (d.deptId != null) d.deptId!,
+        if (deptId > 0) deptId,
+      };
+      final staff = await _dbService.getJuniorEngineersForDepartments(deptIds,
+          businessArea: await AuthManager().getBusinessArea());
+      staffList.assignAll(staff.map((r) => StaffItem(
+        userId: _toInt(r['UserId']),
+        userName: r['UserName']?.toString(),
+        deptID: _toInt(r['DeptId']),
+        deptName: r['DeptName']?.toString(),
+      )));
+    } catch (e) {
+      debugPrint('_fetchSectionInchargeFailures: staff list error: $e');
+    }
+
+    // Created offline and not sent yet: kept in FailureList until synced.
+    final pending = <FailureItem>[];
+    for (final r in await _dbService.getFailureList(failureType)) {
+      if (r['syncStatus'] == 'offline') {
+        try {
+          pending.add(FailureItem.fromJson(r));
+        } catch (_) {}
+      }
+    }
+    // Newest first (offline entries have negative ids: -(submissionId)).
+    pending.sort((a, b) => (a.id ?? 0).compareTo(b.id ?? 0));
+
+    failures.assignAll([...pending, ...items]);
+    if (failures.isEmpty) {
+      errorMessage.value = isOfflineMode.value
+          ? 'No data available. Please sync with internet connection.'
+          : 'No failures found.';
+    }
+  }
+
+  /// Junior Engineer lists (Inbox / Joint Inspection): syncs the changes (also
+  /// done at login), then shows the local copy of jeInboxFailureList.
+  Future<void> _fetchJeFailures() async {
+    final synced = await Get.find<MasterDataSyncService>().syncFailureTransactions();
+    if (!synced) {
+      debugPrint('_fetchJeFailures: server not reached, using local copy');
+      isOfflineMode.value = true;
+    }
+
+    final userId = int.tryParse(await AuthManager().getUserId() ?? '') ?? 0;
+    final deptId = _sessionController.selectedDepartment.value?.deptId ?? 0;
+    final jiTab = selectedJETab.value == JEFailureListTab.jointInspection;
+
+    final items = <FailureItem>[];
+    for (final row in await _dbService.getJeFailureCache()) {
+      try {
+        final record = row['record'] as Map<String, dynamic>;
+        final je = Map<String, dynamic>.from(record['jeFailure'] as Map);
+        final notificationId = _toInt(je['notificationId']);
+        if (notificationId == null) continue;
+
+        final assigned = _toInt(je['assignedUserId']) ?? 0;
+        final assignedJi = _toInt(je['assignedUserId_JI']) ?? 0;
+        if (jiTab) {
+          if (assignedJi != userId) continue;
+        } else if (assigned != 0 && assigned != userId) {
+          continue;
+        }
+        final itemDept = _toInt(je['mainDeptId']) ?? 0;
+        if (deptId > 0 && itemDept > 0 && itemDept != deptId) continue;
+
+        // Status and dates are not always filled in jeFailure: the history has them.
+        final history = record['correctiveNotificationActionUserHistory'];
+        final latest = history is List ? FailureService.latestHistory(history) : null;
+        String? created;
+        if (history is List) {
+          for (final h in history) {
+            if (h is Map && h['statusId']?.toString() == '1') {
+              created = h['actionOn']?.toString();
+            }
+          }
+        }
+        String text(dynamic v) => v?.toString().trim() ?? '';
+        final status = text(je['statusName']).isNotEmpty
+            ? text(je['statusName'])
+            : text(latest?['statusName']);
+        final occurred = text(je['failureOccuranceDateTime']).isNotEmpty
+            ? text(je['failureOccuranceDateTime'])
+            : (created ?? '');
+        final token = encryptedIdFromSiFailure(je, notificationId);
+        final pendingAction = row['pendingAction']?.toString();
+        items.add(FailureItem(
+          id: notificationId,
+          // The encrypted id (jobCardNo) opens the details online; the local
+          // copy is found by the numeric id / code.
+          failureNo: token ?? notificationId.toString(),
+          notificationCode: je['notificationCode']?.toString(),
+          jobCardId: token ?? notificationId.toString(),
+          failureDescription: je['failureDescription']?.toString(),
+          functionLocationId: _toInt(je['functionLocationId']),
+          equipmentId: _toInt(je['equipmentId']),
+          functionalLocation: je['functionalLocation']?.toString(),
+          equipmentDescription: je['equipmentDescription']?.toString(),
+          statusName: status,
+          statusId: _toInt(latest?['statusId']),
+          failureOccuranceDateTime: occurred,
+          assignedUserId: assigned > 0 ? assigned : null,
+          occRequestStatus: je['occRequestStatus']?.toString(),
+          otherRequestFrom: je['otherRequestFrom']?.toString(),
+          locationName: je['locationName']?.toString(),
+          remarks: je['remarks']?.toString(),
+          creationType: je['creationType']?.toString(),
+          system: je['systems']?.toString(),
+          subSystems: je['subSystems']?.toString(),
+          freq: _toInt(je['freq']),
+          syncStatus: pendingAction == null ? 'synced' : 'offline',
+          pendingAction: pendingAction,
+        ));
+      } catch (e) {
+        debugPrint('_fetchJeFailures: skipped bad row: $e');
+      }
+    }
+
+    final shown = items.where((item) => _matchesFailureType(item)).toList();
+    _sortJeFailures(shown);
+    failures.assignAll(shown);
+    if (failures.isEmpty) {
+      errorMessage.value = isOfflineMode.value
+          ? 'No data available. Please sync with internet connection.'
+          : 'No failures found.';
     }
   }
 
@@ -495,7 +627,7 @@ class FailureListController extends GetxController {
     // Download / merge the station failures into the local copy (also done at
     // login); the list below always shows the local copy.
     final synced = await Get.find<MasterDataSyncService>()
-        .syncStationFailures(forceAll: forceAll);
+        .syncFailureTransactions(forceAll: forceAll);
     if (!synced) {
       debugPrint('_fetchStationControllerFailures: server not reached, using local copy');
       isOfflineMode.value = true;
@@ -710,36 +842,18 @@ class FailureListController extends GetxController {
         return;
       }
       
-      // Use appropriate API endpoint based on user role
-      String apiUrl;
-      Map<String, dynamic> body;
-      
-      if (_isSectionIncharge) {
-        // Section Incharge uses NotificationListSI endpoint
-        apiUrl = AppUrls.sectionInchargeNotificationList;
-        
-        // Include staff filter if selected
-        final assignedUserId = selectedStaffId.value;
-        body = {
-          "userId": userId,
-          "deptID": deptId,
-          "fromDate": null,
-          "toDate": null,
-          "assignedUserId": assignedUserId,
-        };
-        debugPrint("_fetchFromApi: Calling Section Incharge API: $apiUrl with assignedUserId: $assignedUserId");
-      } else {
-        // JE users use their respective endpoints
-        apiUrl = selectedJETab.value == JEFailureListTab.jointInspection
-            ? AppUrls.jeJointInboxList
-            : AppUrls.jeInboxList;
-        body = {
-          "assignedUserId": userId,
-          "deptId": deptId,
-        };
-        debugPrint("_fetchFromApi: Calling JE API: $apiUrl for tab: ${selectedJETab.value}");
-      }
-      
+      // JE users use their respective endpoints. (The Section Incharge list no
+      // longer uses NotificationListSI: it comes from the local copy synced from
+      // GetAllFailuresTransactionData, see _fetchSectionInchargeFailures.)
+      final String apiUrl = selectedJETab.value == JEFailureListTab.jointInspection
+          ? AppUrls.jeJointInboxList
+          : AppUrls.jeInboxList;
+      final Map<String, dynamic> body = {
+        "assignedUserId": userId,
+        "deptId": deptId,
+      };
+      debugPrint("_fetchFromApi: Calling JE API: $apiUrl for tab: ${selectedJETab.value}");
+
       final response = await _apiClient.post(
         apiUrl,
         body: body,
@@ -753,31 +867,11 @@ class FailureListController extends GetxController {
             final allItems = result.responseOutput;
             final filteredItems = allItems.where((item) => _matchesFailureType(item)).toList();
             
-            // Sort by notificationId in descending order (newest first) - matching React code
-            if (_isSectionIncharge) {
-              filteredItems.sort((a, b) {
-                final aId = a.id ?? 0;
-                final bId = b.id ?? 0;
-                return bId.compareTo(aId); // Descending order
-              });
-            }
-            else {
-              _sortJeFailures(filteredItems);
-            }
-            
+            _sortJeFailures(filteredItems);
+
             failures.assignAll(filteredItems);
-            debugPrint("_fetchFromApi: Loaded ${filteredItems.length} failures from API (sorted by ${_isSectionIncharge ? 'notificationId' : 'creationType'})");
-            
-            // Extract staff list for Section Incharge from userDetails
-            if (_isSectionIncharge && jsonBody['responseOutput'] != null) {
-              final userDetails = jsonBody['responseOutput']['userDetails'] as List<dynamic>?;
-              if (userDetails != null && userDetails.isNotEmpty) {
-                final staffItems = userDetails.map((e) => StaffItem.fromJson(e as Map<String, dynamic>)).toList();
-                staffList.assignAll(staffItems);
-                debugPrint("_fetchFromApi: Loaded ${staffItems.length} staff members for Section Incharge");
-              }
-            }
-            
+            debugPrint("_fetchFromApi: Loaded ${filteredItems.length} failures from API (sorted by creationType)");
+
             // Data will be saved to local DB in fetchFailures method after API success
             // This enables offline fallback for JE users
           } else {

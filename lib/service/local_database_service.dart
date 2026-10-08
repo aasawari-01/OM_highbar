@@ -353,7 +353,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 19,
+      version: 21,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -972,6 +972,20 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 21) {
+      // Junior Engineer failure cache
+      await _createFailureTables(db);
+    }
+    if (oldVersion < 20) {
+      // Section Incharge failure cache + send attempts of queued actions
+      await _createFailureTables(db);
+      try {
+        await db.execute(
+            'ALTER TABLE PendingFailureSubmissions ADD COLUMN attempts INTEGER DEFAULT 0');
+      } catch (e) {
+        debugPrint("_onUpgrade: attempts column: $e");
+      }
+    }
   }
 
   Future<void> _ensureDepartmentsSchema(Database db) async {
@@ -1087,6 +1101,26 @@ class LocalDatabaseService {
 
   Future<void> _createFailureTables(Database db) async {
     await db.execute('''
+      CREATE TABLE IF NOT EXISTS SiFailureCache (
+        notificationId INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        pendingAction TEXT,
+        pendingJson TEXT,
+        lastSyncedAt TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS JeFailureCache (
+        notificationId INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        pendingAction TEXT,
+        pendingJson TEXT,
+        lastSyncedAt TEXT
+      )
+    ''');
+    await db.execute('''
       CREATE TABLE IF NOT EXISTS StationFailureCache (
         id INTEGER PRIMARY KEY,
         notificationCode TEXT,
@@ -1156,7 +1190,8 @@ class LocalDatabaseService {
         failureType TEXT,
         createdAt TEXT NOT NULL,
         synced INTEGER DEFAULT 0,
-        syncError TEXT
+        syncError TEXT,
+        attempts INTEGER DEFAULT 0
       )
     ''');
 
@@ -1397,7 +1432,8 @@ class LocalDatabaseService {
         failureType TEXT,
         createdAt TEXT NOT NULL,
         synced INTEGER DEFAULT 0,
-        syncError TEXT
+        syncError TEXT,
+        attempts INTEGER DEFAULT 0
       )
     ''');
 
@@ -2996,6 +3032,34 @@ class LocalDatabaseService {
     );
   }
 
+  /// A queued submission failed for a reason that is not "no internet".
+  /// Returns the number of failed attempts so far.
+  Future<int> recordSubmissionFailure(int id, String error) async {
+    final db = await database;
+    final rows = await db.query('PendingFailureSubmissions',
+        columns: ['attempts'], where: 'id = ?', whereArgs: [id], limit: 1);
+    final attempts =
+        (rows.isEmpty ? 0 : int.tryParse('${rows.first['attempts']}') ?? 0) + 1;
+    await db.update('PendingFailureSubmissions',
+        {'attempts': attempts, 'syncError': error},
+        where: 'id = ?', whereArgs: [id]);
+    return attempts;
+  }
+
+  /// The saved payload of one queued submission, or null when it is gone.
+  Future<Map<String, dynamic>?> getPendingSubmissionPayload(int id) async {
+    final db = await database;
+    final rows = await db.query('PendingFailureSubmissions',
+        columns: ['payload'], where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(
+          jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> deletePendingSubmission(int id) async {
     final db = await database;
     await db.delete('PendingFailureSubmissions', where: 'id = ?', whereArgs: [id]);
@@ -4454,5 +4518,329 @@ class LocalDatabaseService {
   Future<void> clearStationFailureCache() async {
     final db = await database;
     await db.delete('StationFailureCache');
+  }
+
+  // ===========================================================================
+  // Section Incharge failure cache (GetAllFailuresTransactionData, siFailureList)
+  // A row keeps the whole record {siFailure, siNewRca, ..., history}. While an
+  // action done offline waits to be sent, pendingAction names it and the sync
+  // must not overwrite the row.
+  // ===========================================================================
+
+  Future<void> replaceSiFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('SiFailureCache', where: 'pendingAction IS NULL');
+      await _insertSiRecords(txn, records);
+    });
+  }
+
+  Future<void> upsertSiFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertSiRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertSiRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final pending = <int>{
+      for (final r in await txn.query('SiFailureCache',
+          columns: ['notificationId'], where: 'pendingAction IS NOT NULL'))
+        int.parse('${r['notificationId']}'),
+    };
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['siFailure'];
+      final id = f is Map ? int.tryParse('${f['notificationId']}') : null;
+      if (id == null || pending.contains(id)) continue;
+      batch.insert(
+        'SiFailureCache',
+        {
+          'notificationId': id,
+          'notificationCode': f['notificationCode']?.toString(),
+          'payload': jsonEncode(r),
+          'lastSyncedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Rows as {record, pendingAction, pendingJson}, newest notification first.
+  Future<List<Map<String, dynamic>>> getSiFailureCache() async {
+    final db = await database;
+    final rows = await db.query('SiFailureCache', orderBy: 'notificationId DESC');
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        out.add({
+          'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
+          'pendingAction': r['pendingAction'],
+          'pendingJson': r['pendingJson'],
+        });
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  /// One cached failure by notification id or notification code.
+  Future<Map<String, dynamic>?> findSiFailure({int? notificationId, String? code}) async {
+    final db = await database;
+    List<Map<String, Object?>> rows = const [];
+    if (notificationId != null && notificationId > 0) {
+      rows = await db.query('SiFailureCache',
+          where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    }
+    if (rows.isEmpty && (code ?? '').trim().isNotEmpty) {
+      rows = await db.query('SiFailureCache',
+          where: 'notificationCode = ?', whereArgs: [code!.trim()], limit: 1);
+    }
+    if (rows.isEmpty) return null;
+    try {
+      return {
+        'record': Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map),
+        'pendingAction': rows.first['pendingAction'],
+        'pendingJson': rows.first['pendingJson'],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Marks a cached failure as having an action waiting to be sent and applies
+  /// [patch] to its siFailure fields, so list and details show the change.
+  Future<void> setSiFailurePending(int notificationId, String action,
+      {Map<String, dynamic>? patch}) async {
+    final db = await database;
+    final rows = await db.query('SiFailureCache',
+        where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    if (rows.isEmpty) return;
+    final record = Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    final si = Map<String, dynamic>.from(record['siFailure'] as Map);
+    patch?.forEach((k, v) => si[k] = v);
+    record['siFailure'] = si;
+    await db.update(
+      'SiFailureCache',
+      {
+        'payload': jsonEncode(record),
+        'pendingAction': action,
+        'pendingJson': jsonEncode(patch ?? const {}),
+      },
+      where: 'notificationId = ?',
+      whereArgs: [notificationId],
+    );
+  }
+
+  /// The encrypted id the details API returned for this failure (CreateVM
+  /// "Id"); assign / close / update send it instead of the numeric id.
+  Future<void> setSiEncryptedId(int notificationId, String token) async {
+    final db = await database;
+    final rows = await db.query('SiFailureCache',
+        where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    if (rows.isEmpty) return;
+    final record = Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    if (record['encryptedId'] == token) return;
+    record['encryptedId'] = token;
+    await db.update('SiFailureCache', {'payload': jsonEncode(record)},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  Future<void> clearSiFailurePending(int notificationId) async {
+    final db = await database;
+    await db.update('SiFailureCache', {'pendingAction': null, 'pendingJson': null},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  // ===========================================================================
+  // Junior Engineer failure cache (GetAllFailuresTransactionData,
+  // jeInboxFailureList). A row keeps the whole record {jeFailure, newRca,
+  // oldRca, measurementPoint, joinInspectionHistory, ...}. Same rules as the
+  // Section Incharge cache: a row with an action waiting to be sent is not
+  // overwritten by the sync.
+  // ===========================================================================
+
+  Future<void> replaceJeFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('JeFailureCache', where: 'pendingAction IS NULL');
+      await _insertJeRecords(txn, records);
+    });
+  }
+
+  Future<void> upsertJeFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertJeRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertJeRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final pending = <int>{
+      for (final r in await txn.query('JeFailureCache',
+          columns: ['notificationId'], where: 'pendingAction IS NOT NULL'))
+        int.parse('${r['notificationId']}'),
+    };
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['jeFailure'];
+      final id = f is Map ? int.tryParse('${f['notificationId']}') : null;
+      if (id == null || pending.contains(id)) continue;
+      batch.insert(
+        'JeFailureCache',
+        {
+          'notificationId': id,
+          'notificationCode': f['notificationCode']?.toString(),
+          'payload': jsonEncode(r),
+          'lastSyncedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Map<String, dynamic>? _jeRow(Map<String, Object?> r) {
+    try {
+      return {
+        'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
+        'pendingAction': r['pendingAction'],
+        'pendingJson': r['pendingJson'],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Rows as {record, pendingAction, pendingJson}, newest notification first.
+  Future<List<Map<String, dynamic>>> getJeFailureCache() async {
+    final db = await database;
+    final rows = await db.query('JeFailureCache', orderBy: 'notificationId DESC');
+    return [for (final r in rows) if (_jeRow(r) != null) _jeRow(r)!];
+  }
+
+  /// One cached failure by notification id, notification code or the
+  /// encrypted id (jobCardNo).
+  Future<Map<String, dynamic>?> findJeFailure(
+      {int? notificationId, String? code, String? token}) async {
+    final db = await database;
+    List<Map<String, Object?>> rows = const [];
+    if (notificationId != null && notificationId > 0) {
+      rows = await db.query('JeFailureCache',
+          where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    }
+    if (rows.isEmpty && (code ?? '').trim().isNotEmpty) {
+      rows = await db.query('JeFailureCache',
+          where: 'notificationCode = ?', whereArgs: [code!.trim()], limit: 1);
+    }
+    if (rows.isEmpty && (token ?? '').trim().isNotEmpty) {
+      rows = await db.query('JeFailureCache',
+          where: 'payload LIKE ?',
+          whereArgs: ['%"jobCardNo":"${token!.trim()}"%'],
+          limit: 1);
+    }
+    return rows.isEmpty ? null : _jeRow(rows.first);
+  }
+
+  /// Marks a cached failure as having an action waiting to be sent and applies
+  /// [patch] to its jeFailure fields.
+  Future<void> setJeFailurePending(int notificationId, String action,
+      {Map<String, dynamic>? patch}) async {
+    final db = await database;
+    final rows = await db.query('JeFailureCache',
+        where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    if (rows.isEmpty) return;
+    final record = Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    final je = Map<String, dynamic>.from(record['jeFailure'] as Map);
+    patch?.forEach((k, v) => je[k] = v);
+    record['jeFailure'] = je;
+    await db.update(
+      'JeFailureCache',
+      {
+        'payload': jsonEncode(record),
+        'pendingAction': action,
+        'pendingJson': jsonEncode(patch ?? const {}),
+      },
+      where: 'notificationId = ?',
+      whereArgs: [notificationId],
+    );
+  }
+
+  Future<void> clearJeFailurePending(int notificationId) async {
+    final db = await database;
+    await db.update('JeFailureCache', {'pendingAction': null, 'pendingJson': null},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  Future<void> clearJeFailureCache() async {
+    final db = await database;
+    await db.delete('JeFailureCache');
+  }
+
+  Future<void> clearSiFailureCache() async {
+    final db = await database;
+    await db.delete('SiFailureCache');
+  }
+
+  Future<String?> getDeptNameById(int deptId) async {
+    try {
+      final db = await deptDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DeptName FROM deptMaster WHERE DeptId = ? LIMIT 1', [deptId]);
+      return rows.isEmpty ? null : rows.first['DeptName']?.toString();
+    } catch (e) {
+      debugPrint('getDeptNameById error: $e');
+      return null;
+    }
+  }
+
+  Future<String?> getLocationNameById(int locationTypeId) async {
+    try {
+      final db = await locationDatabase;
+      final rows = await db.rawQuery(
+          'SELECT LocationName FROM locationMaster WHERE LocationTypeId = ? LIMIT 1',
+          [locationTypeId]);
+      return rows.isEmpty ? null : rows.first['LocationName']?.toString();
+    } catch (e) {
+      debugPrint('getLocationNameById error: $e');
+      return null;
+    }
+  }
+
+  /// Junior Engineers of several departments (role id 4) in the user's business
+  /// area, from UserMaster.db: the staff a Section Incharge can assign to.
+  /// Rows: {UserId, UserName, DeptId, DeptName}.
+  Future<List<Map<String, dynamic>>> getJuniorEngineersForDepartments(
+      Iterable<int> deptIds, {int? businessArea}) async {
+    final ids = deptIds.where((e) => e > 0).toSet().toList();
+    if (ids.isEmpty) return [];
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final args = <Object?>[4, ...ids];
+      var ba = '';
+      if (businessArea != null) {
+        ba = ' AND BusinessArea = ?';
+        args.add(businessArea);
+      }
+      final rows = await db.rawQuery(
+          'SELECT DISTINCT UserId, UserName, DeptId, DeptName FROM "$t" '
+          'WHERE RoleId = ? AND DeptId IN (${List.filled(ids.length, '?').join(',')})$ba '
+          'ORDER BY UserName',
+          args);
+      final seen = <String>{};
+      return rows
+          .where((r) => seen.add('${r['UserId']}-${r['DeptId']}'))
+          .map((r) => Map<String, dynamic>.from(r))
+          .toList();
+    } catch (e) {
+      debugPrint('getJuniorEngineersForDepartments error: $e');
+      return [];
+    }
   }
 }

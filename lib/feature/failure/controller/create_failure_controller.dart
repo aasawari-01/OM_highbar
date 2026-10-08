@@ -15,6 +15,7 @@ import '../../../core/models/measurement_point.dart';
 import '../../../core/models/root_cause.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
+import '../../../service/network_service/network_errors.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../../../utils/widgets/success_popup.dart';
@@ -1174,7 +1175,7 @@ class CreateFailureController extends GetxController
     }
   }
 
-  Future<void> loadFailureDetails(String failureNo) async {
+  Future<void> loadFailureDetails(String failureNo, {FailureItem? item}) async {
     encryptedId.value = failureNo;
     notificationId.value = 0;
     jointInspectionHistoryList.clear();
@@ -1195,7 +1196,10 @@ class CreateFailureController extends GetxController
       // This prevents UI blocking with 84,609 functional locations
 
       // JE change notification API call for online flow
-      final result = await _failureService.getFailureDetails(failureNo);
+      final result = await _failureService.getFailureDetails(failureNo, ids: [
+        if ((item?.id ?? 0) > 0) item!.id.toString(),
+        item?.notificationCode ?? '',
+      ]);
 
       if (result.responseCode == 200 && result.responseOutput != null) {
         final output = result.responseOutput!;
@@ -4783,13 +4787,24 @@ class CreateFailureController extends GetxController
     siApiMode = true;
     await _initFuture;
     await _loadLocalPriorityDeptLocation();
-    final out = await _failureService.getLookupCreateCorrNotificationRaw();
     // The form lists locationList but resolves ids through locationTypeList.
     final locations = locationTypeList.toList();
     locationList.assignAll(locations);
     // "Notification Type" on this form is the corrective notification type
-    // (Failure, Snag, ...): getCorrNotificationTypeList.
-    final corrTypes = _apiOptions(out['getCorrNotificationTypeList']);
+    // (Failure, Snag, ...): getCorrNotificationTypeList. Without a connection
+    // the bundled notificationType.db provides the same list.
+    List<LabelValue> corrTypes;
+    try {
+      final out = await _failureService.getLookupCreateCorrNotificationRaw();
+      corrTypes = _apiOptions(out['getCorrNotificationTypeList']);
+    } catch (e) {
+      debugPrint('_loadSiLookups: notification types from local data: $e');
+      corrTypes = (await LocalDatabaseService().getNotificationTypes())
+          .where((t) => t.id != null && (t.notificationType ?? '').trim().isNotEmpty)
+          .map((t) => LabelValue(
+          label: t.notificationType!.trim(), value: t.id.toString()))
+          .toList();
+    }
     corrNotificationTypeList.assignAll(corrTypes);
     notificationTypeList
         .assignAll([LabelValue(label: 'Select', value: ''), ...corrTypes]);
@@ -6002,12 +6017,40 @@ class CreateFailureController extends GetxController
         debugPrint('SI details: lookups failed: $e');
       }
 
-      final result = await _failureService.getMaintenanceFailureDetails([
-        failureNo,
-        item?.id?.toString() ?? '',
-        item?.notificationCode ?? '',
-        code ?? '',
-      ]);
+      // Created offline: there is no server record yet, show what the list
+      // row has.
+      Map<String, dynamic> offlineLabels = const {};
+      FailureDetailResponse? offlineResult;
+      if (item != null && item.syncStatus == 'offline' && (item.id ?? 0) <= 0) {
+        final saved = await _failureService.offlineCreatedDetails(
+            -(item.id ?? 0),
+            failureNo: item.notificationCode ?? item.failureNo);
+        if (saved == null) {
+          await _populateMaintenanceFromListItem(item);
+          return;
+        }
+        offlineResult = saved.response;
+        offlineLabels = saved.labels;
+      }
+      final FailureDetailResponse result;
+      if (offlineResult != null) {
+        result = offlineResult;
+      } else {
+        try {
+          result = await _failureService.getMaintenanceFailureDetails([
+            failureNo,
+            item?.id?.toString() ?? '',
+            item?.notificationCode ?? '',
+            code ?? '',
+          ]);
+        } catch (e) {
+          if (item != null && isNetworkError(e)) {
+            await _populateMaintenanceFromListItem(item);
+            return;
+          }
+          rethrow;
+        }
+      }
       final output = result.responseOutput;
       final model = output?.getCreateVMModel;
 
@@ -6023,6 +6066,15 @@ class CreateFailureController extends GetxController
 
       notificationId.value = model.notificationId ?? 0;
       notificationCode.value = model.notificationCode ?? '';
+      // The encrypted id the server returned is what the update (and assign /
+      // close) calls expect; keep it with the local copy for offline use.
+      if ((model.id ?? '').isNotEmpty) {
+        encryptedId.value = model.id!;
+        if ((model.notificationId ?? 0) > 0) {
+          await LocalDatabaseService()
+              .setSiEncryptedId(model.notificationId!, model.id!);
+        }
+      }
       maintenanceStatusId.value = model.statusId ?? 0;
       maintenanceLocationTypeId.value =
           model.locationTypeId ?? 0;
@@ -6064,6 +6116,20 @@ class CreateFailureController extends GetxController
       // Notification Type = the corrective notification type (Failure, Snag...)
       selectedNotificationType.value =
           _labelFromValueList(corrNotificationTypeList, model.corrNotificationTypeId);
+      // Created offline: the lists may not hold the saved choices, show the
+      // names that were on the form.
+      final savedPerson = offlineLabels['personResponsible']?.toString() ?? '';
+      if (selectedPersonResponsible.value == null && savedPerson.isNotEmpty) {
+        ensureDropdownOption(
+            userList, savedPerson, model.assignedUserId?.toString() ?? '');
+        selectedPersonResponsible.value = savedPerson;
+      }
+      final savedType = offlineLabels['notificationType']?.toString() ?? '';
+      if (selectedNotificationType.value == null && savedType.isNotEmpty) {
+        ensureDropdownOption(corrNotificationTypeList, savedType,
+            model.corrNotificationTypeId?.toString() ?? '');
+        selectedNotificationType.value = savedType;
+      }
       // Nature of Work / Failure Type (department 3) are looked up in the same
       // lists their dropdowns show.
       selectedNatureOfWork.value = _labelFromValueList(

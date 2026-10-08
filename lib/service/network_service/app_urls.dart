@@ -68,7 +68,6 @@ class AppUrls {
   static const String getInstructionList = 'OccToScCommunication/GetInstructionList';
   static const String getInstructionById = 'OccToScCommunication/GetInstructionById';
   static const String acknowledgeSc = 'OccToScCommunication/AcknowledgeInstruction';
-  static const String sectionInchargeNotificationList = 'BreakdownMaintainance/NotificationListSI';
   static const String updateAssignUserNotification = 'BreakdownMaintainance/updateAssignUserNotification';
   static const String updateStatusNotificationReject = 'BreakdownMaintainance/updateStatusNotificationReject';
   static const String updateStatusNotificationDelete = 'BreakdownMaintainance/updateStatusNotificationDelete';

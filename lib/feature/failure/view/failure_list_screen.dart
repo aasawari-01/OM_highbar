@@ -20,6 +20,7 @@ import '../../../service/master_data_sync_service.dart';
 import '../../../utils/widgets/cust_loader.dart';
 import '../../filter/view/filter.dart';
 import '../service/failure_service.dart';
+import '../service/si_offline_service.dart';
 import 'shared/depot_selection_popup.dart';
 
 class FailureListScreen extends StatefulWidget {
@@ -37,6 +38,13 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   bool _isSearching = false;
   final session = Get.find<SessionController>();
   final FailureService _failureService = FailureService();
+  final SiOfflineService _siOffline = SiOfflineService();
+
+  static const String _offlineSavedMessage =
+      'Saved offline. It will be sent when internet is available.';
+
+  String _siMsg(SiOutcome outcome, String done) =>
+      outcome == SiOutcome.queued ? _offlineSavedMessage : done;
 
   bool get _showJETabs {
     final role = Get.find<SessionController>().selectedRole.value?.roleDescr ?? '';
@@ -342,6 +350,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         _statusChip(failure.statusName ?? ''),
+                        if (failure.pendingAction != null)
+                          _statusChip(
+                              'Pending: ${SiOfflineService.label(failure.pendingAction)}'),
                         if ((_isDccDepot || _isStationController) &&
                             (failure.occRequestStatusName ?? '').trim().isNotEmpty)
                           _statusChip(failure.occRequestStatusName!.trim()),
@@ -949,6 +960,14 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
   // Section Incharge specific action buttons
   Widget _buildSectionInchargeActions(FailureItem failure) {
+    // An action done offline is waiting to be sent: no new action meanwhile.
+    if (failure.pendingAction != null) {
+      return CustText(
+        name: 'Waiting to be sent: ${SiOfflineService.label(failure.pendingAction)}',
+        size: 12,
+        color: AppColors.orangeColor,
+      );
+    }
     final statusId = failure.statusId ?? 0;
     final occRequestStatus = failure.occRequestStatus ?? '';
 
@@ -1081,15 +1100,22 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     }
 
     try {
-      final success = await _failureService.closeNotification(
-        jobCardNo: jobCardNo,
-        assignedUserId: failure.assignedUserId ?? 0,
+      final outcome = await _siOffline.run(
+        action: 'close',
+        notificationId: failure.id ?? 0,
+        args: {'assignedUserId': failure.assignedUserId ?? 0},
+        online: () async => _failureService.closeNotification(
+          jobCardNo: await _siOffline.encryptedIdFor(
+              notificationId: failure.id ?? 0, code: failure.notificationCode),
+          assignedUserId: failure.assignedUserId ?? 0,
+        ),
       );
+      final success = outcome != SiOutcome.rejected;
 
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Failure closed successfully"))
+              SnackBar(content: Text(_siMsg(outcome, "Failure closed successfully")))
           );
           controller.fetchFailures();
         } else {
@@ -1234,16 +1260,31 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     }
 
     try {
-      final success = await _failureService.assignUserNotification(
-        notificationId: failure.failureNo!,
-        assignedUserId: failure.assignedUserId ?? 0,
-        description: actionText.toLowerCase(), // "assign" or "reassign"
+      final outcome = await _siOffline.run(
+        action: actionText.toLowerCase(), // "assign" or "reassign"
+        notificationId: notificationId,
+        args: {
+          'assignedUserId': failure.assignedUserId ?? 0,
+          'description': actionText.toLowerCase(),
+        },
+        patch: {
+          'assignedUserId': failure.assignedUserId,
+          'assignedUseeName': failure.assignedUseeName,
+        },
+        online: () async => _failureService.assignUserNotification(
+          // The server wants the encrypted id (jobCardNo), not the numeric one.
+          notificationId: await _siOffline.encryptedIdFor(
+              notificationId: notificationId, code: failure.notificationCode),
+          assignedUserId: failure.assignedUserId ?? 0,
+          description: actionText.toLowerCase(),
+        ),
       );
+      final success = outcome != SiOutcome.rejected;
 
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text("$actionText successful"))
+              SnackBar(content: Text(_siMsg(outcome, "$actionText successful")))
           );
           controller.fetchFailures();
         } else {
@@ -1383,16 +1424,23 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     }
 
     try {
-      final success = await _failureService.sendForCorrection(
+      final outcome = await _siOffline.run(
+        action: 'correction',
         notificationId: notificationId,
-        assignedUserId: selectedUserId,
-        description: description,
+        args: {'assignedUserId': selectedUserId, 'description': description},
+        patch: {'assignedUserId': selectedUserId},
+        online: () => _failureService.sendForCorrection(
+          notificationId: notificationId,
+          assignedUserId: selectedUserId,
+          description: description,
+        ),
       );
+      final success = outcome != SiOutcome.rejected;
 
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Send for correction successful"))
+            SnackBar(content: Text(_siMsg(outcome, "Send for correction successful")))
           );
           controller.fetchFailures();
         } else {
@@ -1487,15 +1535,21 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     }
 
     try {
-      final success = await _failureService.rejectNotification(
+      final outcome = await _siOffline.run(
+        action: 'reject',
         notificationId: notificationId,
-        description: description,
+        args: {'description': description},
+        online: () => _failureService.rejectNotification(
+          notificationId: notificationId,
+          description: description,
+        ),
       );
+      final success = outcome != SiOutcome.rejected;
 
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Reject successful"))
+            SnackBar(content: Text(_siMsg(outcome, "Reject successful")))
           );
           controller.fetchFailures();
         } else {
@@ -1590,15 +1644,21 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     }
 
     try {
-      final success = await _failureService.deleteNotification(
+      final outcome = await _siOffline.run(
+        action: 'delete',
         notificationId: notificationId,
-        description: description,
+        args: {'description': description},
+        online: () => _failureService.deleteNotification(
+          notificationId: notificationId,
+          description: description,
+        ),
       );
+      final success = outcome != SiOutcome.rejected;
 
       if (mounted) {
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Delete successful"))
+            SnackBar(content: Text(_siMsg(outcome, "Delete successful")))
           );
           controller.fetchFailures();
         } else {

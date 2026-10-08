@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
+import 'package:intl/intl.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
 import '../../../core/models/label_value.dart';
@@ -7,9 +8,11 @@ import '../../../core/models/functional_location_details.dart';
 import '../model/rst_failure_full_response.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/network_service/api_client.dart';
+import '../../../service/network_service/network_errors.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../../../service/local_database_service.dart';
 import '../model/failure_detail_response.dart';
+import 'si_ids.dart';
 import '../model/joint_inspection_history.dart';
 import '../model/asset_qr_response.dart';
 
@@ -63,8 +66,145 @@ class FailureService {
 
   // ── JE Failure ────────────────────────────────────────────────────────────
 
-  /// Loads full failure details for the JE change-notification screen.
-  Future<FailureDetailResponse> getFailureDetails(String failureNo) async {
+  /// Loads full failure details for the JE change-notification screen. A
+  /// Junior Engineer failure with an action waiting to be sent shows its local
+  /// copy; otherwise the server is asked first and the local copy (synced from
+  /// GetAllFailuresTransactionData) is used when the server cannot be reached
+  /// or has no model for it. [ids] are other ids of the same failure (numeric
+  /// id, notification code) used to find the local copy.
+  Future<FailureDetailResponse> getFailureDetails(String failureNo,
+      {List<String> ids = const []}) async {
+    final local = await _jeLocalDetails([failureNo, ...ids]);
+    if (local != null && local.pending) return local.response;
+    if (local == null) return _getFailureDetailsFromServer(failureNo);
+    try {
+      final r = await _getFailureDetailsFromServer(failureNo)
+          .timeout(const Duration(seconds: 20));
+      if (r.responseOutput?.getCreateVMModel != null) return r;
+    } catch (e) {
+      debugPrint('JE details: server not used ($e), using the local copy');
+    }
+    return local.response;
+  }
+
+  static DateTime? _historyDate(dynamic v) {
+    final t = v?.toString().trim() ?? '';
+    if (t.isEmpty) return null;
+    for (final f in const ['dd-MM-yyyy HH:mm:ss', 'dd/MM/yyyy HH:mm', 'dd-MM-yyyy HH:mm']) {
+      try {
+        return DateFormat(f).parse(t);
+      } catch (_) {}
+    }
+    return DateTime.tryParse(t);
+  }
+
+  /// The latest action in a failure's history, which is its current status.
+  static Map<String, dynamic>? latestHistory(List<dynamic> history) {
+    Map<String, dynamic>? best;
+    DateTime? bestDate;
+    for (final h in history) {
+      if (h is! Map) continue;
+      final d = _historyDate(h['updatedOn']) ?? _historyDate(h['actionOn']);
+      if (best == null || (d != null && (bestDate == null || d.isAfter(bestDate)))) {
+        best = Map<String, dynamic>.from(h);
+        bestDate = d;
+      }
+    }
+    return best;
+  }
+
+  /// The Junior Engineer failure from the local copy as a details response.
+  Future<({FailureDetailResponse response, bool pending})?> _jeLocalDetails(
+      List<String> ids) async {
+    int? notificationId;
+    String? code;
+    String? token;
+    for (final raw in ids) {
+      final t = raw.trim();
+      if (t.isEmpty) continue;
+      final n = int.tryParse(t);
+      if (n != null && n > 0) {
+        notificationId ??= n;
+      } else if (t.contains('/')) {
+        code ??= t;
+      } else {
+        token ??= t;
+      }
+    }
+    final row = await LocalDatabaseService()
+        .findJeFailure(notificationId: notificationId, code: code, token: token);
+    if (row == null) return null;
+    final rec = row['record'] as Map<String, dynamic>;
+    final je = Map<String, dynamic>.from(rec['jeFailure'] as Map);
+    List<dynamic> list(String key) => rec[key] is List ? rec[key] as List : const [];
+
+    final history = list('correctiveNotificationActionUserHistory');
+    final latest = latestHistory(history);
+    final nid = int.tryParse('${je['notificationId']}') ?? 0;
+
+    // jeFailure -> the details model (CreateVMModel) field names.
+    final model = <String, dynamic>{
+      'notificationId': nid,
+      'notificationCode': je['notificationCode'],
+      'description': je['failureDescription'] ?? je['description'],
+      'functionLocationId': je['functionLocationId'],
+      'equipmentId': je['equipmentId'],
+      'funcLocation': je['functionalLocation'],
+      'equipmentName': je['equipmentDescription'],
+      'assignedUserId': je['assignedUserId'],
+      'locationName': je['locationName'],
+      'locationTypeId': je['locationTypeId'],
+      'deptId': je['deptId'] ?? je['mainDeptId'],
+      'priorityId': je['priorityId'],
+      'priorityType': je['priorityType'],
+      'actualFailureOccuranceOn': je['failureOccuranceDateTime'],
+      'systems': je['systems'],
+      'subSystems': je['subSystems'],
+      'frequency': je['freq'],
+      'statusId': latest?['statusId'] ?? je['statusId'] ?? 0,
+      'mainStatusName': (je['statusName']?.toString().isNotEmpty ?? false)
+          ? je['statusName']
+          : latest?['statusName'],
+    };
+    final token2 = encryptedIdFromSiFailure(je, nid);
+    if (token2 != null) model['Id'] = token2;
+
+    // RCA rows in the shape the form reads from FailureRectificationJson.
+    final rca = [
+      for (final r in list('newRca'))
+        if (r is Map)
+          {
+            ...Map<String, dynamic>.from(r),
+            'system': je['systems'],
+            'subsystem': je['subSystems'],
+          }
+    ];
+
+    final response = FailureDetailResponse.fromJson({
+      'responseCode': 200,
+      'responseMessage': 'Success',
+      'responseOutput': {
+        'getCreateVMModel': model,
+        'getNotificationActionUserHistory': history,
+        'getNotificationHistory': const [],
+        'getMaterialReqDetails': const [],
+        'measurementPoint': list('measurementPoint'),
+        'getJoinInspectionHistory': list('joinInspectionHistory'),
+      },
+    });
+    return (
+    response: FailureDetailResponse(
+      responseCode: response.responseCode,
+      responseMessage: response.responseMessage,
+      responseOutput: response.responseOutput,
+      failureRectificationJson: rca.isEmpty ? null : jsonEncode(rca),
+    ),
+    pending: row['pendingAction'] != null,
+    );
+  }
+
+  Future<FailureDetailResponse> _getFailureDetailsFromServer(
+      String failureNo) async {
     final userId = await _userId();
     final body = {'AssignedUserId': userId, 'Id': failureNo};
 
@@ -1144,12 +1284,19 @@ class FailureService {
     return body['responseOutput'] as Map<String, dynamic>;
   }
 
-  /// Station Controller list (mobileAppAPI/GetAllFailuresTransactionData).
-  /// Without [lastSyncDate] it asks for everything (syncType ALL); with it,
-  /// only what changed since that date (syncType Incremental).
-  /// Records are {failure, documents, history, assignments}.
-  Future<({List<Map<String, dynamic>> records, String? downloadedAt})>
-  getStationFailureList({String? lastSyncDate}) async {
+  /// mobileAppAPI/GetAllFailuresTransactionData: every failure list of the
+  /// logged-in user in one call (GET with a JSON body). Without
+  /// [lastSyncDate] it asks for everything (syncType ALL); with it, only what
+  /// changed since that date (syncType Incremental).
+  /// stationRecords: {failure, documents, history, assignments}
+  /// siRecords:      {siFailure, siNewRca, siOldRca, siMeasurementPoint,
+  ///                  siMaterialReq, correctiveNotificationActionUserHistory, ...}
+  Future<({
+  List<Map<String, dynamic>> stationRecords,
+  List<Map<String, dynamic>> siRecords,
+  List<Map<String, dynamic>> jeRecords,
+  String? downloadedAt
+  })> getFailureTransactions({String? lastSyncDate}) async {
     final userId = await _userId();
     final headers = await _authHeaders();
     final response = await _apiClient.getWithBody(
@@ -1164,27 +1311,39 @@ class FailureService {
     // 204 / an empty body: the server had nothing to send (no changes).
     if (response.statusCode == 204 ||
         (response.statusCode == 200 && response.body.trim().isEmpty)) {
-      return (records: <Map<String, dynamic>>[], downloadedAt: null);
+      return (
+      stationRecords: <Map<String, dynamic>>[],
+      siRecords: <Map<String, dynamic>>[],
+      jeRecords: <Map<String, dynamic>>[],
+      downloadedAt: null
+      );
     }
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
     }
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (json['success'] != true) {
-      throw Exception(json['message'] ?? 'Failed to load station failures');
+      throw Exception(json['message'] ?? 'Failed to load failures');
     }
     final data = json['data'];
-    final list = data is Map ? data['stationFailures'] : null;
-    final records = <Map<String, dynamic>>[];
-    if (list is List) {
-      for (final e in list) {
-        if (e is Map && e['failure'] is Map) {
-          records.add(Map<String, dynamic>.from(e));
+
+    List<Map<String, dynamic>> records(String listKey, String itemKey) {
+      final list = data is Map ? data[listKey] : null;
+      final out = <Map<String, dynamic>>[];
+      if (list is List) {
+        for (final e in list) {
+          if (e is Map && e[itemKey] is Map) {
+            out.add(Map<String, dynamic>.from(e));
+          }
         }
       }
+      return out;
     }
+
     return (
-    records: records,
+    stationRecords: records('stationFailures', 'failure'),
+    siRecords: records('siFailureList', 'siFailure'),
+    jeRecords: records('jeInboxFailureList', 'jeFailure'),
     downloadedAt: data is Map ? data['downloadedAt']?.toString() : null,
     );
   }
@@ -1791,14 +1950,17 @@ class FailureService {
     required String description,
   }) async {
     final userId = await _userId();
-    final userName = await _userName();
+    // The web sends the person's display name as CreatedByName.
+    final fullName = (await AuthManager().getFullName())?.trim() ?? '';
+    final userName = fullName.isNotEmpty ? fullName : await _userName();
 
+    // Same body as the web page (BreakdownMaintainance/updateAssignUserNotification).
     final body = {
-      'jobCardNo': notificationId.toString(),
+      'JobCardNo': notificationId.toString(),
       'AssignedUserId': assignedUserId,
       'CreatedBy': userId,
-      'CreatedByName': userName,
       'Description': description,
+      'CreatedByName': userName,
     };
 
     debugPrint("assignUserNotification: Request body: $body");
@@ -2016,28 +2178,138 @@ class FailureService {
   }
 
 
+  /// Section Incharge failure details. They come from the local copy synced
+  /// from GetAllFailuresTransactionData (siFailureList has the full details),
+  /// so no details call is made for a failure that is in it. Only a failure
+  /// that is not in the local copy is looked up on the server.
   Future<FailureDetailResponse> getMaintenanceFailureDetails(
-      List<String> ids) async {
+      List<String> ids, {bool allowLocal = true}) async {
+    final local = allowLocal ? await _siLocalDetails(ids) : null;
+    if (local != null) return local.response;
+
     final userId = await _userId();
     FailureDetailResponse? last;
-    for (final id in ids.where((e) => e.trim().isNotEmpty).toSet()) {
-      for (final uid in {userId, 0}) {
-        final body = {'AssignedUserId': uid, 'Id': id};
-        debugPrint('SI details try: $body');
-        final response =
-        await _apiClient.post(AppUrls.jeChangeNotification, body: body);
-        if (response.statusCode != 200) continue;
-        final parsed = FailureDetailResponse.fromJson(
-            jsonDecode(response.body) as Map<String, dynamic>);
-        last = parsed;
-        if (parsed.responseOutput?.getCreateVMModel != null) {
-          debugPrint('SI details: model found with $body');
-          return parsed;
+    try {
+      for (final id in ids.where((e) => e.trim().isNotEmpty).toSet()) {
+        for (final uid in {userId, 0}) {
+          final body = {'AssignedUserId': uid, 'Id': id};
+          debugPrint('SI details try: $body');
+          final response =
+          await _apiClient.post(AppUrls.jeChangeNotification, body: body);
+          if (response.statusCode != 200) continue;
+          final parsed = FailureDetailResponse.fromJson(
+              jsonDecode(response.body) as Map<String, dynamic>);
+          last = parsed;
+          if (parsed.responseOutput?.getCreateVMModel != null) {
+            debugPrint('SI details: model found with $body');
+            return parsed;
+          }
         }
       }
+    } catch (e) {
+      if (local != null && isNetworkError(e)) {
+        debugPrint('SI details: server not reached, using the local copy');
+        return local.response;
+      }
+      rethrow;
     }
+    if (local != null) return local.response;
     if (last != null) return last;
     throw Exception('No response for failure details');
+  }
+
+  /// A maintenance failure created offline and not sent yet, as a details
+  /// response built from its saved form (queue id = -list row id).
+  Future<({FailureDetailResponse response, Map<String, dynamic> labels})?>
+      offlineCreatedDetails(int queueId, {String? failureNo}) async {
+    final p = await LocalDatabaseService().getPendingSubmissionPayload(queueId);
+    final form = p?['formData'];
+    if (form is! Map) return null;
+    final labels = p?['labels'] is Map
+        ? Map<String, dynamic>.from(p!['labels'] as Map)
+        : <String, dynamic>{};
+    final si = Map<String, dynamic>.from(form);
+    // Names the model reads that the form body does not carry.
+    si['description'] = si['failureDescription'];
+    si['corr_NotificationTypeId'] = si['corrNotificationTypeId'];
+    si['funcLocation'] = labels['funcLocation'];
+    si['equipmentName'] = labels['equipmentName'];
+    si['locationName'] = labels['locationName'];
+    si['priorityType'] = labels['priorityType'];
+    si['notificationCode'] = failureNo;
+    si['mainStatusName'] = 'Pending Sync';
+    si['statusId'] = 0;
+    // Not read here and typed differently in the model.
+    for (final k in ['assignedUserId_JI', 'deptId_JI', 'remarkJE']) {
+      si.remove(k);
+    }
+    try {
+      final response = FailureDetailResponse.fromJson({
+        'responseCode': 200,
+        'responseMessage': 'Success',
+        'responseOutput': {
+          'getCreateVMModel': si,
+          'getNotificationActionUserHistory': const [],
+          'getNotificationHistory': const [],
+          'getMaterialReqDetails': const [],
+          'measurementPoint': const [],
+        },
+      });
+      return (response: response, labels: labels);
+    } catch (e) {
+      debugPrint('offlineCreatedDetails: could not read the saved form: $e');
+      return null;
+    }
+  }
+
+  /// The failure from the local copy as a details response (siFailure has the
+  /// same fields as the details model).
+  Future<({FailureDetailResponse response, bool pending})?> _siLocalDetails(
+      List<String> ids) async {
+    int? notificationId;
+    String? code;
+    for (final raw in ids) {
+      final t = raw.trim();
+      if (t.isEmpty) continue;
+      final n = int.tryParse(t);
+      if (n != null && n > 0) {
+        notificationId ??= n;
+      } else if (t.contains('/')) {
+        code ??= t;
+      }
+    }
+    final row = await LocalDatabaseService()
+        .findSiFailure(notificationId: notificationId, code: code);
+    if (row == null) return null;
+    final rec = row['record'] as Map<String, dynamic>;
+    final si = Map<String, dynamic>.from(rec['siFailure'] as Map);
+    // The encrypted id (details model "Id"): from the sync's siFailure, or
+    // the one kept with the local copy.
+    final token = encryptedIdFromSiFailure(
+            si, int.tryParse('${si['notificationId']}') ?? 0) ??
+        rec['encryptedId']?.toString();
+    if ((token ?? '').isNotEmpty) si['Id'] = token;
+
+    List<dynamic> list(String key) => rec[key] is List ? rec[key] as List : const [];
+    final materials = list('siMaterialReq').where((m) {
+      return m is Map &&
+          ((int.tryParse('${m['materialid']}') ?? 0) > 0 ||
+              (num.tryParse('${m['quantity']}') ?? 0) > 0);
+    }).toList();
+
+    final response = FailureDetailResponse.fromJson({
+      'responseCode': 200,
+      'responseMessage': 'Success',
+      'responseOutput': {
+        'getCreateVMModel': si,
+        'getNotificationActionUserHistory':
+        list('correctiveNotificationActionUserHistory'),
+        'getNotificationHistory': const [],
+        'getMaterialReqDetails': materials,
+        'measurementPoint': list('siMeasurementPoint'),
+      },
+    });
+    return (response: response, pending: row['pendingAction'] != null);
   }
 
 
