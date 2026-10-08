@@ -113,6 +113,10 @@ class FailureItem {
   final String? deptCode;
   final int? deptId;
 
+  /// Section Incharge: an action done offline (assign, close, ...) that has
+  /// not been sent to the server yet.
+  final String? pendingAction;
+
   FailureItem({
     this.id,
     this.failureNo,
@@ -180,6 +184,7 @@ class FailureItem {
     this.actualFailureOccuranceDatetime,
     this.deptCode,
     this.deptId,
+    this.pendingAction,
   });
 
   factory FailureItem.fromJson(Map<String, dynamic> json) {

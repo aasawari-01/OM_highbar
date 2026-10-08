@@ -361,7 +361,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         // Use API flow regardless of whether FailureItem is available
         if (widget.failureNo != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            controller.loadFailureDetails(widget.failureNo!);
+            controller.loadFailureDetails(widget.failureNo!,
+                item: widget.failureItem);
           });
         } else if (widget.failureItem != null) {
           // Fallback to offline flow only if failureNo is not available
