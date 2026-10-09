@@ -395,6 +395,53 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ),
                 ],
               ),
+              if (failure.syncStatus == 'failed' && _isStationController) ...[
+                const SizedBox(height: 12),
+                const Divider(color: AppColors.dividerColor3, height: 1),
+                const SizedBox(height: 8),
+                Text(
+                  (failure.remarks ?? '').trim().isEmpty
+                      ? 'The server did not accept this failure.'
+                      : 'Not sent: ${failure.remarks}',
+                  style: const TextStyle(fontSize: 12, color: AppColors.red),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    ActionChip(
+                      label: const Text('Retry', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      onPressed: () => controller.retryOfflineFailure(failure),
+                      backgroundColor: AppColors.white1,
+                      labelStyle: const TextStyle(color: AppColors.orangeColor),
+                      side: const BorderSide(color: AppColors.orangeColor),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    ActionChip(
+                      label: const Text('Discard', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      onPressed: () => Get.dialog(
+                        CustPopup(
+                          title: 'Discard Failure',
+                          message: 'This failure was saved offline and could not be sent. Discard it?',
+                          icon: TablerIcons.alert_circle,
+                          iconColor: AppColors.red,
+                          confirmText: 'Discard',
+                          cancelText: 'Cancel',
+                          onCancel: () => Get.back(),
+                          onConfirm: () {
+                            Get.back();
+                            controller.discardOfflineFailure(failure);
+                          },
+                        ),
+                      ),
+                      backgroundColor: AppColors.white1,
+                      labelStyle: const TextStyle(color: AppColors.red),
+                      side: const BorderSide(color: AppColors.red),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                  ],
+                ),
+              ],
               if ((failure.statusName ?? '').trim().toLowerCase() == 'work complete' && _isStationController) ...[
                 const SizedBox(height: 12),
                 const Divider(color: AppColors.dividerColor3, height: 1),
@@ -671,6 +718,8 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
       case 'offline':
       case 'pending':
         return AppColors.orangeColor;
+      case 'failed':
+        return AppColors.red;
       default:
         // Default to green (online) if syncStatus is null
         return AppColors.green;
@@ -960,6 +1009,58 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
   // Section Incharge specific action buttons
   Widget _buildSectionInchargeActions(FailureItem failure) {
+    // The server refused what was saved offline: show why, Retry / Discard.
+    if (failure.syncStatus == 'failed') {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            (failure.remarks ?? '').trim().isEmpty
+                ? 'The server did not accept this.'
+                : 'Not sent: ${failure.remarks}',
+            style: const TextStyle(fontSize: 12, color: AppColors.red),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            children: [
+              ActionChip(
+                label: const Text('Retry', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                onPressed: () => controller.retrySiFailure(failure),
+                backgroundColor: AppColors.white1,
+                labelStyle: const TextStyle(color: AppColors.orangeColor),
+                side: const BorderSide(color: AppColors.orangeColor),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              ActionChip(
+                label: const Text('Discard', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                onPressed: () => Get.dialog(
+                  CustPopup(
+                    title: 'Discard',
+                    message: (failure.id ?? 0) < 0
+                        ? 'This failure was saved offline and could not be sent. Discard it?'
+                        : 'This change was saved offline and could not be sent. Discard it and show the failure as it is on the server?',
+                    icon: TablerIcons.alert_circle,
+                    iconColor: AppColors.red,
+                    confirmText: 'Discard',
+                    cancelText: 'Cancel',
+                    onCancel: () => Get.back(),
+                    onConfirm: () {
+                      Get.back();
+                      controller.discardSiFailure(failure);
+                    },
+                  ),
+                ),
+                backgroundColor: AppColors.white1,
+                labelStyle: const TextStyle(color: AppColors.red),
+                side: const BorderSide(color: AppColors.red),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ],
+          ),
+        ],
+      );
+    }
     // An action done offline is waiting to be sent: no new action meanwhile.
     if (failure.pendingAction != null) {
       return CustText(

@@ -12,6 +12,7 @@ import '../../../service/local_database_service.dart';
 import '../model/failure_list_response.dart';
 import '../service/failure_service.dart';
 import '../service/si_ids.dart';
+import '../service/station_overlay.dart';
 import '../../../service/master_data_sync_service.dart';
 
 enum JEFailureListTab { inbox, jointInspection }
@@ -347,6 +348,7 @@ class FailureListController extends GetxController {
 
         final occurred = si['actualFailureOccuranceOn']?.toString();
         final pendingAction = row['pendingAction']?.toString();
+        final pendingError = row['pendingError']?.toString() ?? '';
         items.add(FailureItem(
           id: notificationId,
           // The numeric notification id is what the assign / close / ... calls
@@ -381,7 +383,10 @@ class FailureListController extends GetxController {
           createdDate: si['createdOn']?.toString(),
           deptCode: deptCodes[itemDept],
           deptId: itemDept > 0 ? itemDept : null,
-          syncStatus: pendingAction == null ? 'synced' : 'offline',
+          syncStatus: pendingAction == null
+              ? 'synced'
+              : (pendingError.isEmpty ? 'offline' : 'failed'),
+          remarks: pendingError.isEmpty ? null : pendingError,
           pendingAction: pendingAction,
         ));
       } catch (e) {
@@ -413,7 +418,8 @@ class FailureListController extends GetxController {
     // Created offline and not sent yet: kept in FailureList until synced.
     final pending = <FailureItem>[];
     for (final r in await _dbService.getFailureList(failureType)) {
-      if (r['syncStatus'] == 'offline') {
+      // 'failed' = the server refused it: stays visible with Retry / Discard.
+      if (r['syncStatus'] == 'offline' || r['syncStatus'] == 'failed') {
         try {
           pending.add(FailureItem.fromJson(r));
         } catch (_) {}
@@ -561,7 +567,9 @@ class FailureListController extends GetxController {
   /// GetAllFailuresTransactionData station row -> the shape FailureItem reads
   /// for station list items. That API sends no encrypted failure id, so the
   /// numeric id stands in for it (the details screen then uses the row).
-  Map<String, dynamic> _stationRowFromTransaction(Map<String, dynamic> record) {
+  Map<String, dynamic> _stationRowFromTransaction(Map<String, dynamic> record,
+      {Map<String, String> categoryNames = const {},
+      Map<String, dynamic>? overlay}) {
     final f = Map<String, dynamic>.from(record['failure'] as Map);
     String? date(dynamic v) {
       final d = DateTime.tryParse(v?.toString() ?? '');
@@ -571,7 +579,13 @@ class FailureListController extends GetxController {
     int? asInt(dynamic v) =>
         v is bool ? (v ? 1 : 0) : (v is num ? v.toInt() : int.tryParse('${v ?? ''}'));
 
-    return {
+    // The server sends yes/no flags as true/false or as "Yes"/"No" text, and
+    // some counts only as true/false: a flag is never a count.
+    bool? flag(dynamic v, dynamic text) =>
+        v is bool ? v : (text == 'Yes' ? true : (text == 'No' ? false : null));
+    int? count(dynamic v) => v is bool ? null : asInt(v);
+
+    final row = {
       'id': asInt(f['id']),
       'syncStatus': 'synced',
       'failureId': f['notificationCode']?.toString(),
@@ -596,17 +610,15 @@ class FailureListController extends GetxController {
       'carriedOutRemarks': f['carriedOutRemarks'],
       'trainId': f['trainId']?.toString(),
       'system': f['system'],
-      'isTripAffected': f['isTripAffected'] is bool ? f['isTripAffected'] : null,
+      'isTripAffected': flag(f['isTripAffected'], f['tripAffected']),
       'tripDelayUpline': asInt(f['tripDelayUpline']),
       'tripDelayDownline': asInt(f['tripDelayDownline']),
-      'tripCancel': asInt(f['tripCancel']),
+      'tripCancel': count(f['tripCancel']),
       'isTrainReplace': f['isTrainReplace'] is bool ? f['isTrainReplace'] : null,
       'trainReplace': asInt(f['trainReplace']),
       'isTrainDeboarded': f['isTrainDeboarded'] is bool ? f['isTrainDeboarded'] : null,
-      'trainDeboarded': asInt(f['trainDeboarded']),
-      'isPassengerAffected': f['passengerAffected'] == 'Yes'
-          ? true
-          : (f['passengerAffected'] == 'No' ? false : null),
+      'trainDeboarded': count(f['trainDeboarded']),
+      'isPassengerAffected': flag(f['isPassengerAffected'], f['passengerAffected']),
       'numberOfPassengerAffected': asInt(f['numberOfPassengerAffected']),
       'trappedDuration': asInt(f['trappedDuration']),
       'rescusedDuration': asInt(f['rescusedDuration']),
@@ -616,6 +628,20 @@ class FailureListController extends GetxController {
       'locationId': asInt(f['locationId']),
       'funcationLocationId': asInt(f['functionalLocationId']),
     };
+
+    // Category: the server sends the id; the name is in the local master data.
+    if ('${row['failureCategoryTypeText'] ?? ''}'.trim().isEmpty) {
+      final name = categoryNames['${f['failureCategoryTypeId'] ?? ''}'];
+      if (name != null) row['failureCategoryTypeText'] = name;
+    }
+    // What the user typed when creating it fills what the server did not send.
+    overlay?.forEach((k, v) {
+      final cur = row[k];
+      if (v != null && (cur == null || (cur is String && cur.trim().isEmpty))) {
+        row[k] = v;
+      }
+    });
+    return row;
   }
 
   /// Station Controller list (mobileAppAPI/GetAllFailuresTransactionData).
@@ -633,10 +659,20 @@ class FailureListController extends GetxController {
       isOfflineMode.value = true;
     }
 
+    final overlays = await StationOverlay.loadAll();
+    final categoryNames = <String, String>{};
+    try {
+      for (final c in await _dbService.getFailureCategoryTypeOptions()) {
+        categoryNames['${c['ID']}'] = '${c['FailureCategoryType']}'.trim();
+      }
+    } catch (_) {}
+
     final items = <FailureItem>[];
     for (final r in await _dbService.getStationFailureCache()) {
       try {
-        items.add(FailureItem.fromJson(_stationRowFromTransaction(r)));
+        final code = (r['failure'] as Map)['notificationCode']?.toString() ?? '';
+        items.add(FailureItem.fromJson(_stationRowFromTransaction(r,
+            categoryNames: categoryNames, overlay: overlays[code])));
       } catch (e) {
         debugPrint('_fetchStationControllerFailures: skipped bad row: $e');
       }
@@ -646,7 +682,8 @@ class FailureListController extends GetxController {
     // Created offline and not sent yet: kept in FailureList until synced.
     final pending = <FailureItem>[];
     for (final r in await _dbService.getFailureList(failureType)) {
-      if (r['syncStatus'] == 'offline') {
+      // 'failed' = the server refused it: stays visible with Retry / Discard.
+      if (r['syncStatus'] == 'offline' || r['syncStatus'] == 'failed') {
         try {
           pending.add(FailureItem.fromJson(r));
         } catch (_) {}
@@ -669,6 +706,67 @@ class FailureListController extends GetxController {
           ? 'No data available. Please sync with internet connection.'
           : 'No failures found.';
     }
+  }
+
+  // Queue id of an offline Station entry: -(submissionId * 10 + index), older
+  // entries use the plain submission id.
+  int _submissionIdOf(FailureItem f) {
+    final id = f.id ?? 0;
+    return id < 0 ? (-id) ~/ 10 : id;
+  }
+
+  /// Retry of a Station failure the server refused.
+  Future<void> retryOfflineFailure(FailureItem f) async {
+    final sid = _submissionIdOf(f);
+    if (sid <= 0) return;
+    await _dbService.resetSubmissionAttempts(sid);
+    await _dbService.markStationOfflineEntries(sid, failed: false);
+    await fetchFailures();
+    await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
+  }
+
+  /// Removes an offline Station failure (and what is waiting to be sent).
+  Future<void> discardOfflineFailure(FailureItem f) async {
+    final sid = _submissionIdOf(f);
+    if (sid <= 0) return;
+    await _dbService.deletePendingSubmission(sid);
+    await _dbService.deleteStationOfflineEntries(sid);
+    await fetchFailures();
+  }
+
+  /// Retry of a Section Incharge failure or action the server refused: an
+  /// offline-created failure has a negative id (-queue id); an action waits
+  /// for the failure with that notification id.
+  Future<void> retrySiFailure(FailureItem f) async {
+    final id = f.id ?? 0;
+    final ids = id < 0 ? [-id] : await _dbService.getSiSubmissionIds(id);
+    for (final sid in ids) {
+      await _dbService.resetSubmissionAttempts(sid);
+    }
+    if (id < 0) {
+      await _dbService.markSiCreateEntry(-id, failed: false);
+    } else if (id > 0) {
+      await _dbService.setSiPendingError(id, null);
+    }
+    await fetchFailures();
+    await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
+  }
+
+  /// Drops a failure (or the waiting action) the server refused. For an action
+  /// the failure is reloaded from the server, so its local change goes away.
+  Future<void> discardSiFailure(FailureItem f) async {
+    final id = f.id ?? 0;
+    if (id < 0) {
+      await _dbService.deletePendingSubmission(-id);
+      await _dbService.deleteSiCreateEntry(-id);
+    } else if (id > 0) {
+      for (final sid in await _dbService.getSiSubmissionIds(id)) {
+        await _dbService.deletePendingSubmission(sid);
+      }
+      await _dbService.clearSiFailurePending(id);
+      await Get.find<MasterDataSyncService>().syncFailureTransactions(forceAll: true);
+    }
+    await fetchFailures();
   }
 
   /// OCC role list (OCCMaintainance/getFailureList, action FailureList):

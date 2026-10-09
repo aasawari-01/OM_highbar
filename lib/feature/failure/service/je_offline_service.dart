@@ -7,7 +7,9 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
+import '../../../core/controller/session_controller.dart';
 import '../../../service/master_data_sync_service.dart';
 import 'failure_service.dart';
 import 'si_ids.dart';
@@ -36,6 +38,19 @@ class JeOfflineService {
     final je = record?['jeFailure'] is Map ? record!['jeFailure'] as Map : const {};
     final fromSync = encryptedIdFromSiFailure(je, notificationId);
     if (fromSync != null) return fromSync;
+    final kept = record?['encryptedId']?.toString() ?? '';
+    if (kept.isNotEmpty) return kept;
+
+    // Not in the synced data: the inbox lists carry it as the failure number.
+    final deptId = Get.isRegistered<SessionController>()
+        ? Get.find<SessionController>().selectedDepartment.value?.deptId ?? 0
+        : 0;
+    final found = await _service.findJeEncryptedId(
+        notificationId: notificationId, code: code, deptId: deptId);
+    if ((found ?? '').isNotEmpty) {
+      await _db.setJeEncryptedId(notificationId, found!);
+      return found;
+    }
 
     // Failures downloaded before the server sent jobCardNo have no id yet and
     // an incremental sync would not bring them again: download all once.
@@ -82,6 +97,7 @@ class JeOfflineService {
     await _db.insertPendingSubmission({
       'action': 'update',
       'notificationId': notificationId,
+      'queuedBy': await AuthManager().getUserId(),
       'payload': payload,
       'files': kept,
     }, queueType);
