@@ -8,12 +8,14 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import '../constants/colors.dart';
 import '../feature/failure/service/failure_service.dart';
+import '../feature/failure/controller/failure_list_controller.dart';
 import '../core/controller/global_master_data_controller.dart';
 import '../core/controller/session_controller.dart';
 import 'local_database_service.dart';
 import 'network_service/network_errors.dart';
 import '../feature/failure/service/si_offline_service.dart';
 import '../feature/failure/service/je_offline_service.dart';
+import '../feature/failure/service/station_overlay.dart';
 import '../service/auth_manager.dart';
 import 'network_service/app_urls.dart';
 
@@ -22,6 +24,12 @@ class MasterDataSyncService extends GetxController {
   Timer? _syncTimer;
   StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   bool _wasOffline = false;
+
+  // Station failures that the server refused are tried again with a growing
+  // pause (15s, 30s, ... 10 min) and at most [_autoRetryLimit] times by the
+  // timer. Internet coming back and the sync button try them all again.
+  static const int _autoRetryLimit = 6;
+  final Map<int, DateTime> _retryAfter = {};
   
   // Reusable service instances to optimize memory and avoid repeated allocations
   final LocalDatabaseService _dbService = LocalDatabaseService();
@@ -36,6 +44,13 @@ class MasterDataSyncService extends GetxController {
     super.onInit();
     _startConnectivityMonitoring();
     _startPeriodicSync();
+    // Started without internet: the first "connected" event must trigger a sync.
+    Connectivity().checkConnectivity().then((results) {
+      final connected = results.contains(ConnectivityResult.wifi) ||
+          results.contains(ConnectivityResult.mobile) ||
+          results.contains(ConnectivityResult.ethernet);
+      if (!connected) _wasOffline = true;
+    }).catchError((_) {});
   }
 
   @override
@@ -54,6 +69,13 @@ class MasterDataSyncService extends GetxController {
       if (isConnected && _wasOffline) {
         debugPrint("MasterDataSyncService: Internet restored, triggering sync");
         _wasOffline = false;
+        // Send what was saved offline right away (after the connection settles).
+        await Future.delayed(const Duration(seconds: 2));
+        try {
+          await syncPendingSubmissions(force: true);
+        } catch (e) {
+          debugPrint('MasterDataSyncService: pending sync after reconnect: $e');
+        }
         // Sync station failures when internet comes back online
         await syncFailureList('Station');
         // Sync last selected station details
@@ -70,7 +92,13 @@ class MasterDataSyncService extends GetxController {
     _syncTimer = Timer.periodic(const Duration(seconds: 15), (_) async {
       if (!_syncInProgress) {
         try {
-          final pending = await _dbService.getPendingSubmissions();
+          final now = DateTime.now();
+          final pending = (await _dbService.getPendingSubmissions()).where((p) {
+            if (p['failureType'] == JeOfflineService.queueType) return true;
+            final attempts = int.tryParse('${p['attempts']}') ?? 0;
+            final wait = _retryAfter[p['id'] as int];
+            return attempts < _autoRetryLimit && (wait == null || !wait.isAfter(now));
+          }).toList();
           if (pending.isNotEmpty) {
             debugPrint("Periodic sync: Found ${pending.length} pending submissions.");
             await syncPendingSubmissions();
@@ -180,7 +208,7 @@ class MasterDataSyncService extends GetxController {
   Future<void> syncMasterAndPending() async {
     await syncMasterDataFromAPI();
     await syncFailureTransactions();
-    await syncPendingSubmissions();
+    await syncPendingSubmissions(force: true);
   }
 
   /// Syncs master data from API using lastSyncDate to get only changed data
@@ -500,19 +528,137 @@ class MasterDataSyncService extends GetxController {
   }
 
   /// Syncs pending failure submissions when internet becomes available
-  Future<void> syncPendingSubmissions() async {
+  Future<void> syncPendingSubmissions({bool force = false}) async {
     final pendingSubmissions = await _dbService.getPendingSubmissions();
     if (pendingSubmissions.isEmpty) return;
+    if (force) _retryAfter.clear();
 
     await _executeSyncTask('Syncing pending submissions...', () async {
       int syncedCount = 0;
       var resync = false; // a queued action was dropped: reload the server state
       final siOffline = SiOfflineService(failureService: _failureService);
       final jeOffline = JeOfflineService(failureService: _failureService);
+      final syncedNumbers = <String>[]; // real failure numbers of Station failures
+      var stationSynced = 0;
+      var stationFailed = 0;
+      var siSynced = 0; // Section Incharge: sent and failed
+      var siFailed = 0;
+      final siCreatedNumbers = <String>[];
+      final siActionCounts = <String, int>{};
 
       for (var submission in pendingSubmissions) {
+        if (submission['failureType'] == 'Station') {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['CreatedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) {
+            debugPrint('syncPendingSubmissions: station failure $sid belongs to user $owner, skipped');
+            continue;
+          }
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+          try {
+            final no = await _failureService
+                .createStationFailure(payload)
+                .timeout(const Duration(seconds: 60));
+            await StationOverlay.save(no, await StationOverlay.build(payload));
+            await _dbService.deletePendingSubmission(sid);
+            // The real failure comes back with the next list sync.
+            await _dbService.deleteStationOfflineEntries(sid);
+            _retryAfter.remove(sid);
+            syncedCount++;
+            stationSynced++;
+            if ((no ?? '').trim().isNotEmpty) syncedNumbers.add(no!.trim());
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break; // still offline: the rest waits
+            }
+            // The server answered with an error: keep the failure, show why.
+            final reason = e.toString().replaceFirst('Exception: ', '');
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            await _dbService.markStationOfflineEntries(sid, failed: true, error: reason);
+            _retryAfter[sid] =
+                DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            stationFailed++;
+            debugPrint('syncPendingSubmissions: station failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
+        // Section Incharge: create / update / assign / close ... saved offline.
+        if (submission['failureType'] == SiOfflineService.queueType) {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final action = payload['action']?.toString() ?? '';
+          final nid = int.tryParse('${payload['notificationId']}') ?? 0;
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) {
+            debugPrint('syncPendingSubmissions: SI item $sid belongs to user $owner, skipped');
+            continue;
+          }
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+
+          // The server refused it: keep it, show why, try again later.
+          Future<void> failIt(String reason) async {
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            if (action == 'create') {
+              await _dbService.markSiCreateEntry(sid, failed: true, error: reason);
+            } else if (nid > 0) {
+              await _dbService.setSiPendingError(nid, reason);
+            }
+            _retryAfter[sid] = DateTime.now()
+                .add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            siFailed++;
+            debugPrint('syncPendingSubmissions: SI $action $sid failed ($n): $reason');
+          }
+
+          try {
+            final ok = await siOffline.replay(payload).timeout(const Duration(seconds: 90));
+            if (ok) {
+              await _dbService.deletePendingSubmission(sid);
+              if (action == 'create') {
+                // The real failure comes back with the next list sync.
+                await _dbService.deleteSiCreateEntry(sid);
+                final no = siOffline.lastCreatedNumber?.trim() ?? '';
+                if (no.isNotEmpty) siCreatedNumbers.add(no);
+              } else if (nid > 0) {
+                await _dbService.clearSiFailurePending(nid);
+              }
+              final label = SiOfflineService.label(action);
+              siActionCounts[label] = (siActionCounts[label] ?? 0) + 1;
+              _retryAfter.remove(sid);
+              syncedCount++;
+              siSynced++;
+              resync = true;
+            } else {
+              await failIt('The server did not accept it');
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break; // still offline: the rest waits
+            }
+            await failIt(e.toString().replaceFirst('Exception: ', ''));
+          }
+          continue;
+        }
+
         final isJe = submission['failureType'] == JeOfflineService.queueType;
-        if (isJe || submission['failureType'] == SiOfflineService.queueType) {
+        if (isJe) {
           // Section Incharge actions (assign, close, update, create, ...)
           final sid = submission['id'] as int;
           final payload = Map<String, dynamic>.from(submission['payload'] as Map);
@@ -574,76 +720,64 @@ class MasterDataSyncService extends GetxController {
           continue;
         }
 
-        try {
-          final payload = submission['payload'] as Map<String, dynamic>;
-          final failureType = submission['failureType'] as String?;
-          
-          if (failureType == 'Station') {
-            // Get the API response with the actual failure number
-            final apiFailureNo = await _failureService.createStationFailure(payload);
-            debugPrint("syncPendingSubmissions: API returned failureNo: $apiFailureNo");
-            
-            await _dbService.updateSubmissionSynced(submission['id'] as int, true);
-            
-            // Update the offline entry in FailureList table with the API response
-            try {
-              final db = await _dbService.database;
-              
-              // Offline entries of this submission: one per department, ids
-              // -(sid*10+index); entries saved before that use the plain id.
-              final sid = submission['id'] as int;
-              final updated = await db.update(
-                'FailureList',
-                {
-                  'statusName': 'Open',
-                  'syncStatus': 'synced',
-                  'lastSyncedAt': DateTime.now().toIso8601String(),
-                },
-                where:
-                'syncStatus = ? AND (id = ? OR (id <= ? AND id > ?))',
-                whereArgs: ['offline', sid, -(sid * 10), -(sid * 10 + 10)],
-              );
-              debugPrint("syncPendingSubmissions: Marked $updated offline entries synced (API failureNo: $apiFailureNo)");
-            } catch (e) {
-              debugPrint("Error updating offline entry: $e");
-            }
-            
-            await _dbService.deletePendingSubmission(submission['id'] as int);
-            syncedCount++;
-          }
-        } catch (e) {
-          debugPrint("Error syncing submission ${submission['id']}: $e");
-          await _dbService.updateSubmissionSynced(
-            submission['id'] as int, 
-            false, 
-            error: e.toString()
-          );
-        }
       }
 
       syncStatus.value = syncedCount > 0 
           ? 'Synced $syncedCount submissions' 
           : 'Sync complete';
           
-      if (syncedCount > 0) {
+      if (stationSynced > 0 || stationFailed > 0) {
+        final lines = <String>[
+          if (stationSynced > 0)
+            '$stationSynced offline failure${stationSynced == 1 ? '' : 's'} synced'
+                '${syncedNumbers.isEmpty ? '' : ': ${syncedNumbers.join(', ')}'}',
+          if (stationFailed > 0)
+            '$stationFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          stationFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: stationFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
+      if (siSynced > 0 || siFailed > 0) {
+        final lines = <String>[
+          if (siCreatedNumbers.isNotEmpty)
+            'Created: ${siCreatedNumbers.join(', ')}',
+          if (siActionCounts.entries.any((e) => e.key != 'Create'))
+            'Sent: ${siActionCounts.entries.where((e) => e.key != 'Create').map((e) => e.value > 1 ? '${e.key} x${e.value}' : e.key).join(', ')}',
+          if (siFailed > 0)
+            '$siFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          siFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: siFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
+      if (syncedCount > stationSynced + siSynced) {
         Get.snackbar(
           'Sync Complete',
-          'Successfully synced $syncedCount pending submissions',
+          'Successfully synced ${syncedCount - stationSynced - siSynced} pending submissions',
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
       }
-      if (syncedCount > 0 || resync) {
+      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0) {
         debugPrint("syncPendingSubmissions: Reloading lists after offline submissions");
         // Bring the server's state of what was just sent (a dropped action gets a
         // full reload so its local change disappears).
         await syncFailureTransactions(forceAll: resync);
+        // A list screen that is open shows the new state right away. (The lists
+        // are registered by type and tag, so both are needed to find them.)
         for (final tag in const ['Station', 'Maintenance', 'JE']) {
           try {
-            if (Get.isRegistered(tag: tag)) {
-              // Incremental sync brings in the failures just created; their
-              // offline copies are marked synced and drop out of the list.
-              await Get.find(tag: tag).fetchFailures();
+            if (Get.isRegistered<FailureListController>(tag: tag)) {
+              await Get.find<FailureListController>(tag: tag).fetchFailures();
             }
           } catch (e) {
             debugPrint("Could not refresh $tag list: $e");

@@ -87,6 +87,36 @@ class FailureService {
     return local.response;
   }
 
+  /// The encrypted id (jobCardNo) of a Junior Engineer failure, read from the
+  /// inbox lists, which carry it as the failure number. Used when the synced
+  /// data has none. Returns null when the failure is not in them; a network
+  /// error is passed on.
+  Future<String?> findJeEncryptedId(
+      {required int notificationId, String? code, required int deptId}) async {
+    final userId = await _userId();
+    for (final url in [AppUrls.jeInboxList, AppUrls.jeJointInboxList]) {
+      final response = await _apiClient
+          .post(url, body: {'assignedUserId': userId, 'deptId': deptId})
+          .timeout(const Duration(seconds: 20));
+      if (response.statusCode != 200) continue;
+      final body = jsonDecode(response.body);
+      final list = body is Map ? body['responseOutput'] : null;
+      if (list is! List) continue;
+      for (final m in list) {
+        if (m is! Map) continue;
+        final same = (code != null && m['notificationCode']?.toString() == code) ||
+            '${m['notificationId']}' == '$notificationId' ||
+            '${m['id']}' == '$notificationId';
+        if (!same) continue;
+        for (final k in const ['failureNo', 'jobCardId', 'jobCardNo']) {
+          final v = m[k]?.toString().trim() ?? '';
+          if (v.isNotEmpty && v != '$notificationId') return v;
+        }
+      }
+    }
+    return null;
+  }
+
   static DateTime? _historyDate(dynamic v) {
     final t = v?.toString().trim() ?? '';
     if (t.isEmpty) return null;
@@ -166,8 +196,8 @@ class FailureService {
           ? je['statusName']
           : latest?['statusName'],
     };
-    final token2 = encryptedIdFromSiFailure(je, nid);
-    if (token2 != null) model['Id'] = token2;
+    final token2 = encryptedIdFromSiFailure(je, nid) ?? rec['encryptedId']?.toString();
+    if ((token2 ?? '').isNotEmpty) model['Id'] = token2;
 
     // RCA rows in the shape the form reads from FailureRectificationJson.
     final rca = [
@@ -2218,6 +2248,44 @@ class FailureService {
     throw Exception('No response for failure details');
   }
 
+  /// The create-form body (what is sent to the server) in the names and types
+  /// the details model reads. The body carries some ids as text (for example
+  /// locationTypeId) and the model reads them as numbers, so each value is
+  /// converted; one wrong type would make the whole model unreadable.
+  static Map<String, dynamic> normalizeMaintenanceForm(Map<String, dynamic> f) {
+    final m = Map<String, dynamic>.from(f);
+    m['description'] = f['failureDescription'];
+    m['corr_NotificationTypeId'] = f['corrNotificationTypeId'];
+    final remark = f['remarkJE'];
+    if (remark is String && remark.trim().isNotEmpty) m['remark_JE'] = remark;
+    for (final k in const [
+      'natureOfWorkId', 'notificationTypeId', 'functionLocationId', 'equipmentId',
+      'assignedUserId', 'deptId', 'priorityId', 'locationTypeId',
+      'corr_NotificationTypeId', 'trainDelayInMin', 'trainDelayInNo',
+      'noOfTranCancel', 'noOfTranWithdrawal', 'noOfTrainReplace',
+      'noofTrainDeboarded', 'noOfPassengerAffected', 'frequency',
+    ]) {
+      if (m.containsKey(k)) {
+        final v = m[k];
+        m[k] = v is int ? v : (v is num ? v.toInt() : int.tryParse('${v ?? ''}'));
+      }
+    }
+    for (final k in const [
+      'isServiceAffected', 'isOHEReq', 'isJointInspectionReq', 'isSICReq',
+      'isPassengerDeboarding', 'isPassengerAffected',
+    ]) {
+      if (m.containsKey(k)) {
+        final v = m[k];
+        m[k] = v is bool ? v : ('$v'.toLowerCase() == 'true');
+      }
+    }
+    // The ones the model does not read at all are left out.
+    for (final k in const ['assignedUserId_JI', 'deptId_JI', 'remarkJE', 'labels']) {
+      m.remove(k);
+    }
+    return m;
+  }
+
   /// A maintenance failure created offline and not sent yet, as a details
   /// response built from its saved form (queue id = -list row id).
   Future<({FailureDetailResponse response, Map<String, dynamic> labels})?>
@@ -2228,10 +2296,8 @@ class FailureService {
     final labels = p?['labels'] is Map
         ? Map<String, dynamic>.from(p!['labels'] as Map)
         : <String, dynamic>{};
-    final si = Map<String, dynamic>.from(form);
+    final si = normalizeMaintenanceForm(Map<String, dynamic>.from(form));
     // Names the model reads that the form body does not carry.
-    si['description'] = si['failureDescription'];
-    si['corr_NotificationTypeId'] = si['corrNotificationTypeId'];
     si['funcLocation'] = labels['funcLocation'];
     si['equipmentName'] = labels['equipmentName'];
     si['locationName'] = labels['locationName'];
@@ -2239,10 +2305,6 @@ class FailureService {
     si['notificationCode'] = failureNo;
     si['mainStatusName'] = 'Pending Sync';
     si['statusId'] = 0;
-    // Not read here and typed differently in the model.
-    for (final k in ['assignedUserId_JI', 'deptId_JI', 'remarkJE']) {
-      si.remove(k);
-    }
     try {
       final response = FailureDetailResponse.fromJson({
         'responseCode': 200,

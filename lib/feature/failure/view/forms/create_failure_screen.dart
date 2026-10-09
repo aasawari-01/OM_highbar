@@ -5740,14 +5740,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     },
                   )),
                   gap,
-                  _occDropdown(
-                    label: "Failure Reported by *",
-                    options: controller.userList,
-                    selected: controller.selectedFailureReportedBy,
-                    onChanged: (v) =>
-                    controller.selectedFailureReportedBy.value = v,
-                    requiredName: "Failure Reported by",
-                  ),
+                  // The logged-in user, read-only.
+                  Obx(() => CustomTextField(
+                      label: "Failure Reported by",
+                      controller: TextEditingController(
+                          text: controller.selectedFailureReportedBy.value ?? ''),
+                      enabled: false)),
                   gap,
                   Obx(() => CustDateTimePicker(
                     label: "Actual Failure Completed Date & Time",

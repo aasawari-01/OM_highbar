@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 
+import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/network_errors.dart';
@@ -24,6 +25,9 @@ class SiOfflineService {
 
   /// failureType of the queued rows.
   static const String queueType = 'SI';
+
+  /// The failure number the server gave to the last queued create that was sent.
+  String? lastCreatedNumber;
 
   /// How long an action waits for the server before it is saved offline.
   static const Duration onlineTimeout = Duration(seconds: 30);
@@ -116,8 +120,12 @@ class SiOfflineService {
     required Map<String, dynamic> args,
     Map<String, dynamic>? patch,
   }) async {
-    final id = await _db.insertPendingSubmission(
-        {'action': action, 'notificationId': notificationId, ...args}, queueType);
+    final id = await _db.insertPendingSubmission({
+      'action': action,
+      'notificationId': notificationId,
+      'queuedBy': await AuthManager().getUserId(),
+      ...args
+    }, queueType);
     if (notificationId > 0) {
       await _db.setSiFailurePending(notificationId, action, patch: patch);
     }
@@ -145,12 +153,13 @@ class SiOfflineService {
   /// A new maintenance failure saved offline. Returns the queue id (the list
   /// entry uses -id).
   Future<int> queueCreate(Map<String, dynamic> formData,
-      {Map<String, dynamic> labels = const {}}) {
+      {Map<String, dynamic> labels = const {}}) async {
     // [labels] are the names shown on the form (not sent to the server); the
     // details screen uses them to show the failure while it is offline.
     return _db.insertPendingSubmission({
       'action': 'create',
       'notificationId': 0,
+      'queuedBy': await AuthManager().getUserId(),
       'formData': formData,
       'labels': labels,
     }, queueType);
@@ -192,8 +201,9 @@ class SiOfflineService {
         await _service.updateMaintenanceFailure(payload);
         return true;
       case 'create':
-        await _service.submitMaintenanceNotificationForm(
+        final r = await _service.submitMaintenanceNotificationForm(
             Map<String, dynamic>.from(p['formData'] as Map));
+        lastCreatedNumber = r['responseOutput']?.toString();
         return true;
       default:
         return false;

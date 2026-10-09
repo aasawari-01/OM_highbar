@@ -260,6 +260,7 @@ class LocalDatabaseService {
 
   Future<Database> get rootCauseDatabase async {
     if (_rootCauseDatabase != null) return _rootCauseDatabase!;
+    await _recopyAssetOnce('root_cause_data.db', 'rca_assets_v3_rootcause');
     _rootCauseDatabase = await _openAssetDatabase('root_cause_data.db', _copyRootCauseDatabaseFromAssets);
     return _rootCauseDatabase!;
   }
@@ -272,6 +273,7 @@ class LocalDatabaseService {
 
   Future<Database> get causeOfFailureDatabase async {
     if (_causeOfFailureDatabase != null) return _causeOfFailureDatabase!;
+    await _recopyAssetOnce('cause_of_failure_data.db', 'rca_assets_v3_cause');
     _causeOfFailureDatabase = await _openAssetDatabase('cause_of_failure_data.db', _copyCauseOfFailureDatabaseFromAssets);
     return _causeOfFailureDatabase!;
   }
@@ -283,6 +285,7 @@ class LocalDatabaseService {
       return _rcaFailureCategoryDatabase!;
     }
     debugPrint("rcaFailureCategoryDatabase: Opening new database from assets");
+    await _recopyAssetOnce('rca_failurecategory_data.db', 'rca_assets_v3_category');
     _rcaFailureCategoryDatabase = await _openAssetDatabase('rca_failurecategory_data.db', _copyRcaFailureCategoryDatabaseFromAssets);
     debugPrint("rcaFailureCategoryDatabase: Database opened successfully");
     return _rcaFailureCategoryDatabase!;
@@ -353,7 +356,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 21,
+      version: 22,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -972,6 +975,14 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 22) {
+      // Why a queued Section Incharge action could not be sent
+      try {
+        await db.execute('ALTER TABLE SiFailureCache ADD COLUMN pendingError TEXT');
+      } catch (e) {
+        debugPrint("_onUpgrade: pendingError column: $e");
+      }
+    }
     if (oldVersion < 21) {
       // Junior Engineer failure cache
       await _createFailureTables(db);
@@ -1107,7 +1118,8 @@ class LocalDatabaseService {
         payload TEXT NOT NULL,
         pendingAction TEXT,
         pendingJson TEXT,
-        lastSyncedAt TEXT
+        lastSyncedAt TEXT,
+        pendingError TEXT
       )
     ''');
     await db.execute('''
@@ -1926,6 +1938,78 @@ class LocalDatabaseService {
       return allResults;
     } catch (e) {
       debugPrint("getRootCauses error: $e");
+      return [];
+    }
+  }
+
+  // ===========================================================================
+  // RCA dropdowns of the Junior Engineer form, all from the bundled databases:
+  //   failure category  <- system + sub system   (rca_failurecategory.db)
+  //   cause             <- failure category      (causeOfFailure.db)
+  //   root cause        <- cause                 (rootCause.db)
+  // Rows are {id, label}.
+  // ===========================================================================
+
+  Future<List<Map<String, dynamic>>> _rcaRows(Database db, String idCol,
+      String labelCol, List<String> where, List<Object?> args) async {
+    final t = await _firstUserTable(db);
+    if (t == null) return [];
+    final rows = await db.rawQuery(
+        'SELECT DISTINCT $idCol AS id, $labelCol AS label FROM "$t" '
+        'WHERE ${where.join(' AND ')} ORDER BY $labelCol',
+        args);
+    return [
+      for (final r in rows)
+        if ('${r['id'] ?? ''}'.isNotEmpty && '${r['label'] ?? ''}'.trim().isNotEmpty)
+          {'id': '${r['id']}', 'label': '${r['label']}'.trim()}
+    ];
+  }
+
+  /// Failure categories of a system (and sub system, when there is one).
+  Future<List<Map<String, dynamic>>> getRcaCategoryOptions(
+      {required String system, String subSystem = ''}) async {
+    try {
+      final sys = system.trim().toLowerCase();
+      if (sys.isEmpty) return [];
+      final where = <String>[
+        'IFNULL(IsActive,1) = 1',
+        'lower(trim(Systems)) = ?',
+      ];
+      final args = <Object?>[sys];
+      final sub = subSystem.trim().toLowerCase();
+      if (sub.isNotEmpty) {
+        where.add('lower(trim(SubSystem)) = ?');
+        args.add(sub);
+      }
+      return await _rcaRows(await rcaFailureCategoryDatabase,
+          'FailureCategoryId', 'FailureCategory', where, args);
+    } catch (e) {
+      debugPrint('getRcaCategoryOptions error: $e');
+      return [];
+    }
+  }
+
+  /// Causes of a failure category.
+  Future<List<Map<String, dynamic>>> getRcaCauseOptions(int failureCategoryId) async {
+    try {
+      if (failureCategoryId <= 0) return [];
+      return await _rcaRows(await causeOfFailureDatabase, 'CauseOfFailureId',
+          'Cause', ['IFNULL(IsActive,1) = 1', 'FailureCategoryId = ?'],
+          [failureCategoryId]);
+    } catch (e) {
+      debugPrint('getRcaCauseOptions error: $e');
+      return [];
+    }
+  }
+
+  /// Root causes of a cause.
+  Future<List<Map<String, dynamic>>> getRcaRootCauseOptions(int causeOfFailureId) async {
+    try {
+      if (causeOfFailureId <= 0) return [];
+      return await _rcaRows(await rootCauseDatabase, 'RootCauseId', 'RootCause',
+          ['IFNULL(IsActive,1) = 1', 'CauseOfFailureId = ?'], [causeOfFailureId]);
+    } catch (e) {
+      debugPrint('getRcaRootCauseOptions error: $e');
       return [];
     }
   }
@@ -3060,6 +3144,44 @@ class LocalDatabaseService {
     }
   }
 
+  /// A queued submission is tried again from the start (user pressed Retry).
+  Future<void> resetSubmissionAttempts(int id) async {
+    final db = await database;
+    await db.update('PendingFailureSubmissions', {'attempts': 0, 'syncError': null},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  // The offline Station entries of one queued submission in FailureList have
+  // ids -(sid*10 + index) (older ones: the plain sid).
+  static const String _stationEntryWhere =
+      'failureType = ? AND (id = ? OR (id <= ? AND id > ?))';
+  List<Object?> _stationEntryArgs(int sid) =>
+      ['Station', sid, -(sid * 10), -(sid * 10 + 10)];
+
+  /// Shows the offline Station entries of a submission as failed (with the
+  /// reason) or as waiting again.
+  Future<void> markStationOfflineEntries(int sid,
+      {required bool failed, String? error}) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'statusName': failed ? 'Sync Failed' : 'Pending Sync',
+        'syncStatus': failed ? 'failed' : 'offline',
+        'remarks': failed ? (error ?? '') : '',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: _stationEntryWhere,
+      whereArgs: _stationEntryArgs(sid),
+    );
+  }
+
+  Future<void> deleteStationOfflineEntries(int sid) async {
+    final db = await database;
+    await db.delete('FailureList',
+        where: _stationEntryWhere, whereArgs: _stationEntryArgs(sid));
+  }
+
   Future<void> deletePendingSubmission(int id) async {
     final db = await database;
     await db.delete('PendingFailureSubmissions', where: 'id = ?', whereArgs: [id]);
@@ -3874,6 +3996,19 @@ class LocalDatabaseService {
     }
   }
 
+  Future<int?> getLocationIdByCode(String code) async {
+    try {
+      final db = await locationDatabase;
+      final rows = await db.rawQuery(
+          'SELECT LocationTypeId FROM locationMaster WHERE LocationTypeCode = ? LIMIT 1',
+          [code.trim()]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['LocationTypeId']}');
+    } catch (e) {
+      debugPrint('getLocationIdByCode error: $e');
+      return null;
+    }
+  }
+
   String _inList(Iterable<Object> values, List<Object?> args) {
     final list = values.toList();
     args.addAll(list);
@@ -4446,6 +4581,16 @@ class LocalDatabaseService {
     return rows.isEmpty ? null : rows.first['value']?.toString();
   }
 
+  /// App settings whose key starts with [prefix], as {key: value}.
+  Future<Map<String, String>> getAppSettingsByPrefix(String prefix) async {
+    final db = await database;
+    final rows = await db.rawQuery(
+        'SELECT key, value FROM AppSettings WHERE key LIKE ?', ['$prefix%']);
+    return {
+      for (final r in rows) r['key'].toString(): r['value']?.toString() ?? ''
+    };
+  }
+
   Future<void> setAppSetting(String key, String value) async {
     final db = await database;
     await db.rawInsert(
@@ -4580,6 +4725,7 @@ class LocalDatabaseService {
           'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
           'pendingAction': r['pendingAction'],
           'pendingJson': r['pendingJson'],
+          'pendingError': r['pendingError'],
         });
       } catch (_) {}
     }
@@ -4604,6 +4750,7 @@ class LocalDatabaseService {
         'record': Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map),
         'pendingAction': rows.first['pendingAction'],
         'pendingJson': rows.first['pendingJson'],
+        'pendingError': rows.first['pendingError'],
       };
     } catch (_) {
       return null;
@@ -4628,6 +4775,7 @@ class LocalDatabaseService {
         'payload': jsonEncode(record),
         'pendingAction': action,
         'pendingJson': jsonEncode(patch ?? const {}),
+        'pendingError': null,
       },
       where: 'notificationId = ?',
       whereArgs: [notificationId],
@@ -4650,8 +4798,55 @@ class LocalDatabaseService {
 
   Future<void> clearSiFailurePending(int notificationId) async {
     final db = await database;
-    await db.update('SiFailureCache', {'pendingAction': null, 'pendingJson': null},
+    await db.update(
+        'SiFailureCache', {'pendingAction': null, 'pendingJson': null, 'pendingError': null},
         where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  /// The reason a queued action could not be sent (null = none).
+  Future<void> setSiPendingError(int notificationId, String? error) async {
+    final db = await database;
+    await db.update('SiFailureCache', {'pendingError': error},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  /// Queue ids of the Section Incharge actions waiting for a failure.
+  Future<List<int>> getSiSubmissionIds(int notificationId) async {
+    final db = await database;
+    final rows = await db.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0', whereArgs: ['SI']);
+    final out = <int>[];
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        if (int.tryParse('${p['notificationId']}') == notificationId) {
+          out.add(r['id'] as int);
+        }
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  /// The offline entry of a queued Section Incharge create (id = -queue id).
+  Future<void> markSiCreateEntry(int sid, {required bool failed, String? error}) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'statusName': failed ? 'Sync Failed' : 'Pending Sync',
+        'syncStatus': failed ? 'failed' : 'offline',
+        'remarks': failed ? (error ?? '') : '',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: 'failureType = ? AND id = ?',
+      whereArgs: ['Maintenance', -sid],
+    );
+  }
+
+  Future<void> deleteSiCreateEntry(int sid) async {
+    final db = await database;
+    await db.delete('FailureList',
+        where: 'failureType = ? AND id = ?', whereArgs: ['Maintenance', -sid]);
   }
 
   // ===========================================================================
@@ -4768,6 +4963,19 @@ class LocalDatabaseService {
       where: 'notificationId = ?',
       whereArgs: [notificationId],
     );
+  }
+
+  /// The encrypted id (jobCardNo) found for a failure, kept with its local copy.
+  Future<void> setJeEncryptedId(int notificationId, String token) async {
+    final db = await database;
+    final rows = await db.query('JeFailureCache',
+        where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    if (rows.isEmpty) return;
+    final record = Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    if (record['encryptedId'] == token) return;
+    record['encryptedId'] = token;
+    await db.update('JeFailureCache', {'payload': jsonEncode(record)},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
   }
 
   Future<void> clearJeFailurePending(int notificationId) async {

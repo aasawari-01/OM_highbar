@@ -18,13 +18,14 @@ import 'failure_rca_logic.dart';
 import '../service/failure_service.dart';
 import '../service/si_offline_service.dart';
 import '../service/je_offline_service.dart';
+import '../service/station_overlay.dart';
 import '../../../service/network_service/network_errors.dart';
 import '../view/failure_list_screen.dart';
 
 mixin FailureSubmitLogic
 on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
   FailureService get _failureService => FailureService();
-  void refreshFailureListAfterSubmission(bool isStation);
+  void refreshFailureListAfterSubmission(bool isStation, {String? expectNo});
   String lookupValue(dynamic list, String? label, {String fallback = "0"});
   int lookupLocationId(dynamic list, String? label);
   void showPendingJointInspectionPopup();
@@ -209,6 +210,8 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
     }
 
     try {
+      if (isSubmitting.value) return; // double tap
+      isSubmitting.value = true;
       EasyLoading.show(status: 'Saving...');
       final createdBy =
           int.tryParse(await AuthManager().getUserId() ?? "0") ?? 0;
@@ -331,8 +334,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         debugPrint(
             "createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
         debugPrint("createStationFailure: Request payload: $body");
-        final failureNo = await _failureService.createStationFailure(body);
+        final failureNo = await _failureService
+            .createStationFailure(body)
+            .timeout(const Duration(seconds: 45));
         debugPrint("createStationFailure: API success, failureNo: $failureNo");
+
+        // Keep what was typed: the server's list does not return all of it.
+        await StationOverlay.save(failureNo, await StationOverlay.build(body));
 
         // Save successfully created failure to local database for display
         try {
@@ -374,16 +382,32 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
           debugPrint("Error saving successful failure to local DB: $dbError");
         }
 
-        refreshFailureListAfterSubmission(isStation);
+        refreshFailureListAfterSubmission(isStation, expectNo: failureNo);
 
         // Wait for refresh to complete before dismissing
         await Future.delayed(const Duration(milliseconds: 500));
 
         EasyLoading.dismiss();
+        isSubmitting.value = false;
         Get.back();
         showFailureCreatedPopup(type: 'Station', failureNo: failureNo);
       } catch (apiError) {
-        debugPrint("API submission failed, saving locally: $apiError");
+        debugPrint("API submission failed: $apiError");
+        if (!isNetworkError(apiError)) {
+          // The server refused the failure (validation, permission, ...):
+          // stay on the form so it can be corrected; nothing is queued.
+          EasyLoading.dismiss();
+          isSubmitting.value = false;
+          Get.snackbar(
+            AppStrings.error,
+            apiError.toString().replaceFirst('Exception: ', ''),
+            backgroundColor: AppColors.red.withValues(alpha: 0.9),
+            colorText: AppColors.white1,
+            duration: const Duration(seconds: 5),
+          );
+          return;
+        }
+        debugPrint("No connection, saving locally");
         // Save to local database for later sync
         try {
           final dbService = LocalDatabaseService();
@@ -422,6 +446,10 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
           final flWorkCenter =
           (flRow?['WorkCenter'] ?? '').toString().trim().toUpperCase();
           final labels = deptLabels.isEmpty ? <String>[''] : deptLabels;
+          // Everything typed on the form, so the details view of this failure
+          // is complete while it waits to be sent.
+          final typed = await StationOverlay.build(body);
+          final me = (await AuthManager().getFullName())?.trim() ?? '';
           for (var i = 0; i < labels.length && i < 3; i++) {
             final label = labels[i];
             final deptId = int.tryParse(lookupValue(departmentList, label)) ?? 0;
@@ -453,6 +481,9 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
               'syncStatus': 'offline',
               'lastSyncedAt': DateTime.now().toIso8601String(),
               'failureType': 'Station',
+              'failureReportedby':
+                  me.isNotEmpty ? me : (selectedFailureReportedBy.value ?? ''),
+              ...typed,
             };
             await dbService.insertFailureList([failureItem], 'Station');
             debugPrint(
@@ -465,16 +496,18 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         }
 
         EasyLoading.dismiss();
+        isSubmitting.value = false;
         Get.back();
         showResultPopup(
           title: "Saved Offline",
-          message: "Failure saved locally. Will sync when internet is available.",
+          message: "Failure saved on this device. It is sent automatically when the internet is back, and you will be told when it is done.",
           icon: Icons.cloud_off_outlined,
           iconColor: AppColors.orangeColor,
         );
       }
     } catch (e) {
       EasyLoading.dismiss();
+      isSubmitting.value = false;
       debugPrint("Create Station Failure Error: $e");
       Get.snackbar(AppStrings.error, "An unexpected error occurred");
     }
@@ -719,8 +752,9 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
       Map<String, dynamic> response;
       try {
-        response =
-        await _failureService.submitMaintenanceNotificationForm(requestBody);
+        response = await _failureService
+            .submitMaintenanceNotificationForm(requestBody)
+            .timeout(const Duration(seconds: 45));
       } catch (e) {
         if (!isNetworkError(e)) rethrow;
         // No connection: save the failure locally (shown in the list with an
@@ -763,7 +797,10 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       EasyLoading.dismiss();
       isSubmitting.value = false;
       debugPrint("Create Maintenance Failure Error: $e");
-      Get.snackbar(AppStrings.error, "An unexpected error occurred: $e");
+      Get.snackbar(AppStrings.error, e.toString().replaceFirst('Exception: ', ''),
+          backgroundColor: AppColors.red.withValues(alpha: 0.9),
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 5));
     }
   }
 
@@ -779,6 +816,8 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       'priorityType': selectedPriority.value ?? '',
       'personResponsible': selectedPersonResponsible.value ?? '',
       'notificationType': selectedNotificationType.value ?? '',
+      'natureOfWork': selectedNatureOfWork.value ?? '',
+      'failureType': selectedFailureCategoryType.value ?? '',
     });
     final code = (deptId > 0 ? await db.getDeptCodeById(deptId) : null) ?? 'SIG';
     final failureNo = await _generateOfflineFailureNumber(code);
@@ -972,7 +1011,9 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       Map<String, dynamic> response;
       var savedOffline = false;
       try {
-        response = await _failureService.updateMaintenanceFailure(payload);
+        response = await _failureService
+            .updateMaintenanceFailure(payload)
+            .timeout(const Duration(seconds: 45));
       } catch (e) {
         if (!isNetworkError(e)) rethrow;
         // No connection: keep the change locally, it is sent when internet returns.
@@ -998,7 +1039,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       EasyLoading.dismiss();
       isSubmitting.value = false;
       debugPrint('Update Maintenance Failure Error: $e');
-      Get.snackbar(AppStrings.error, e.toString(),
+      Get.snackbar(AppStrings.error, e.toString().replaceFirst('Exception: ', ''),
           backgroundColor: AppColors.red.withValues(alpha: 0.9),
           colorText: AppColors.white1);
     }
@@ -1199,8 +1240,34 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         userStatusValue = "29"; // Escalated
       }
 
+      // A failure opened from the local copy may carry only the numeric id; the
+      // server needs the encrypted one (it answers BADDATA for a number).
+      var jeFailureId = encryptedId.value;
+      if (isJE &&
+          RegExp(r'^\d+$').hasMatch(jeFailureId) &&
+          resolveNotificationId() > 0) {
+        try {
+          jeFailureId = await JeOfflineService().encryptedIdFor(
+              notificationId: resolveNotificationId(),
+              code: notificationCode.value);
+        } catch (e) {
+          if (!isNetworkError(e)) {
+            EasyLoading.dismiss();
+            Get.snackbar(
+              AppStrings.error,
+              e.toString().replaceFirst('Exception: ', ''),
+              backgroundColor: AppColors.red.withValues(alpha: 0.9),
+              colorText: AppColors.white1,
+              duration: const Duration(seconds: 5),
+            );
+            return;
+          }
+          // No connection: the queued update finds the id when it is sent.
+        }
+      }
+
       final changeNotifictionJE = {
-        "Id": encryptedId.value.isEmpty ? "0" : encryptedId.value,
+        "Id": jeFailureId.isEmpty ? "0" : jeFailureId,
         "Description": failureDescriptionController.text.trim().isNotEmpty
             ? failureDescriptionController.text.trim()
             : null,

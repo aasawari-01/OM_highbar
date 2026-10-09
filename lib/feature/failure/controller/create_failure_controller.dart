@@ -259,7 +259,7 @@ class CreateFailureController extends GetxController
 
   /// Refreshes the appropriate failure list controller based on user role and failure type
   @override
-  void refreshFailureListAfterSubmission(bool isStation) {
+  void refreshFailureListAfterSubmission(bool isStation, {String? expectNo}) {
     final session = Get.find<SessionController>();
     final role = session.selectedRole.value?.roleDescr ?? '';
     final isJE = role.contains('Junior Engineer');
@@ -288,8 +288,20 @@ class CreateFailureController extends GetxController
                 .syncFailureList('Station', forceFullSync: true);
             // Refresh the UI controller to show the updated list
             if (Get.isRegistered<FailureListController>(tag: 'Station')) {
-              await Get.find<FailureListController>(tag: 'Station')
-                  .fetchFailures();
+              final list = Get.find<FailureListController>(tag: 'Station');
+              await list.fetchFailures();
+              // The server may need a moment before the failure just created is
+              // part of the changes: look once more before giving up.
+              final wanted = (expectNo ?? '')
+                  .split(',')
+                  .map((e) => e.trim())
+                  .where((e) => e.isNotEmpty);
+              bool listed() => wanted.every((n) => list.failures.any(
+                  (f) => f.notificationCode == n || f.failureNo == n));
+              if (wanted.isNotEmpty && !listed()) {
+                await Future.delayed(const Duration(seconds: 3));
+                await list.fetchFailures();
+              }
             }
             debugPrint(
                 "refreshFailureListAfterSubmission: Successfully synced station failure list from API");
@@ -1998,7 +2010,9 @@ class CreateFailureController extends GetxController
     // GetAllFailuresTransactionData rows carry only the numeric id; the
     // creation-by-id API needs the encrypted one, so use the row itself.
     if (item != null &&
-        (item.syncStatus == 'offline' || RegExp(r'^\d+$').hasMatch(id))) {
+        (item.syncStatus == 'offline' ||
+            item.syncStatus == 'failed' ||
+            RegExp(r'^\d+$').hasMatch(id))) {
       await loadStationFailureDetailsFromData(item);
       final numericId = int.tryParse(id);
       if (numericId != null && item.syncStatus != 'offline') {
@@ -3961,11 +3975,10 @@ class CreateFailureController extends GetxController
           ? dropdownFailureCategoryId
           : (objectCodeId != "0" ? objectCodeId : null);
 
-      if (_rcaApiMode && _rcaContext() != null) {
-        _rcaPopupCategoryId = failureCategoryId;
+      if (_rcaApiMode) {
         await Future.wait([
-          _loadRcaCausesFromApi(failureCategoryId),
-          _loadRcaActionsFromApi(failureCategoryId),
+          _loadRcaCausesLocal(failureCategoryId),
+          _loadJeActionList(),
         ]);
         rootCauseList.clear();
         return;
@@ -4015,8 +4028,12 @@ class CreateFailureController extends GetxController
       }
 
       // Actions
-      actionTakenList.assignAll(globalMasterData.actionList);
-      actionList.assignAll(globalMasterData.actionList);
+      if (isJE) {
+        await _loadJeActionList();
+      } else {
+        actionTakenList.assignAll(globalMasterData.actionList);
+        actionList.assignAll(globalMasterData.actionList);
+      }
       debugPrint(
           'fetchRootCauseAndAction: ${actionList.length} actions loaded');
     } catch (e) {
@@ -4025,172 +4042,100 @@ class CreateFailureController extends GetxController
   }
 
   // ===========================================================================
-  // JE RCA dropdowns from the API: failure category -> cause -> root cause, and
-  // action taken (GetFailureStandDropDownDataNew). The local lists stay as the
-  // fallback when the API can't be asked (no functional location / system yet).
+  // JE RCA dropdowns, all from the bundled databases (no API): failure
+  // category <- system + sub system, cause <- failure category, root cause <-
+  // cause, action taken <- everything (see _loadJeActionList).
   // ===========================================================================
 
-  bool get _rcaApiMode => siApiMode && isJE;
+  bool get _rcaApiMode => isJE;
 
-  /// What the RCA calls are asked about: the failure's system, sub system,
-  /// location, functional location and department.
-  ({
-  String system,
-  String subSystem,
-  int locationTypeId,
-  int funcLocId,
-  String departmentIds
-  })? _rcaContext() {
-    final funcLocId =
-    _apiIdFor(functionalLocationList, selectedFunctionalLocation.value);
-    final system = systemController.text.trim();
-    if (funcLocId <= 0 || system.isEmpty) return null;
-    final loc = _apiIdFor(locationTypeList, selectedLocation.value);
-    final dept = departmentId.value ?? 0;
-    return (
-    system: system,
-    subSystem: subsystemController.text.trim(),
-    locationTypeId: loc > 0 ? loc : maintenanceLocationTypeId.value,
-    funcLocId: funcLocId,
-    departmentIds: dept > 0 ? dept.toString() : '',
-    );
-  }
-
-  String? _rcaCategoryKey;
-
-  /// Category the Add-RCA popup is working on (for the root-cause call).
-  String? _rcaPopupCategoryId;
-
-  /// Fills the RCA Failure Category dropdown. Returns false if the API could
-  /// not be used, so the caller falls back to the local filter.
-  Future<bool> _loadRcaCategoriesFromApi() async {
-    final ctx = _rcaContext();
-    if (ctx == null) return false;
-    final key = '${ctx.system}|${ctx.subSystem}|${ctx.funcLocId}';
-    if (key == _rcaCategoryKey && rcaFailureCategoryList.length > 1) return true;
-    try {
-      final rows = await _failureService.getRcaFailureCategories(
-        system: ctx.system,
-        subSystem: ctx.subSystem,
-        locationTypeId: ctx.locationTypeId,
-        funcLocId: ctx.funcLocId,
-        departmentIds: ctx.departmentIds,
-      );
-      final options = <LabelValue>[];
-      for (final r in rows) {
-        final name = r['failureCategory']?.toString().trim() ?? '';
-        final id = r['failureCategoryId']?.toString() ?? '';
-        if (name.isNotEmpty && id.isNotEmpty) {
-          options.add(LabelValue(label: name, value: id));
-        }
-      }
-      rcaFailureCategoryList
-          .assignAll([LabelValue(label: 'Select', value: ''), ...options]);
-      _rcaCategoryKey = key;
-      return true;
-    } catch (e) {
-      debugPrint('_loadRcaCategoriesFromApi error: $e');
-      return false;
-    }
+  /// Fills the RCA Failure Category dropdown with the categories of the
+  /// failure's system and sub system.
+  Future<void> _loadRcaCategoriesLocal() async {
+    final system = (systemController.text.trim().isNotEmpty
+            ? systemController.text
+            : selectedFmecaSystem.value ?? '')
+        .trim();
+    final sub = (subsystemController.text.trim().isNotEmpty
+            ? subsystemController.text
+            : selectedFmecaSubsystem.value ?? '')
+        .trim();
+    final rows = await LocalDatabaseService()
+        .getRcaCategoryOptions(system: system, subSystem: sub);
+    rcaFailureCategoryList.assignAll([
+      LabelValue(label: 'Select', value: ''),
+      for (final r in rows)
+        LabelValue(label: r['label'] as String, value: r['id'] as String),
+    ]);
+    debugPrint('_loadRcaCategoriesLocal: system="$system" sub="$sub" '
+        'categories=${rows.length}');
   }
 
   @override
   Future<void> filterRcaFailureCategoriesBySystem() async {
-    if (_rcaApiMode && await _loadRcaCategoriesFromApi()) return;
+    if (_rcaApiMode) {
+      await _loadRcaCategoriesLocal();
+      return;
+    }
     await super.filterRcaFailureCategoriesBySystem();
   }
 
-  Future<void> _loadRcaCausesFromApi(String? failureCategoryId) async {
-    final id = int.tryParse(failureCategoryId ?? '') ?? 0;
-    final ctx = _rcaContext();
-    if (id <= 0 || ctx == null) {
-      causeList.clear();
-      return;
-    }
-    try {
-      final rows = await _failureService.getRcaCauses(
-        system: ctx.system,
-        subSystem: ctx.subSystem,
-        locationTypeId: ctx.locationTypeId,
-        funcLocId: ctx.funcLocId,
-        departmentIds: ctx.departmentIds,
-        failureCategoryId: id,
-      );
-      causeList.assignAll(rows
-          .map((r) => LabelValue(
-        label: r['cause']?.toString().trim() ?? '',
-        value: r['causeOfFailureId']?.toString() ?? '',
-      ))
-          .where((c) => (c.label ?? '').isNotEmpty && (c.value ?? '').isNotEmpty));
-    } catch (e) {
-      debugPrint('_loadRcaCausesFromApi error: $e');
-    }
+  Future<void> _loadRcaCausesLocal(String? failureCategoryId) async {
+    final rows = await LocalDatabaseService()
+        .getRcaCauseOptions(int.tryParse(failureCategoryId ?? '') ?? 0);
+    causeList.assignAll([
+      for (final r in rows)
+        LabelValue(label: r['label'] as String, value: r['id'] as String),
+    ]);
   }
 
-  Future<void> _loadRcaActionsFromApi(String? failureCategoryId) async {
-    final id = int.tryParse(failureCategoryId ?? '') ?? 0;
-    final ctx = _rcaContext();
-    if (id <= 0 || ctx == null) return;
-    try {
-      final rows = await _failureService.getRcaActionTakens(
-        system: ctx.system,
-        subSystem: ctx.subSystem,
-        locationTypeId: ctx.locationTypeId,
-        funcLocId: ctx.funcLocId,
-        departmentIds: ctx.departmentIds,
-        failureCategoryId: id,
-      );
-      final actions = rows
-          .map((r) => LabelValue(
-        label: r['actionTakenText']?.toString().trim() ?? '',
-        value: r['actionTakenId']?.toString() ?? '',
-      ))
-          .where((a) => (a.label ?? '').isNotEmpty && (a.value ?? '').isNotEmpty)
-          .toList();
-      actionTakenList.assignAll(actions);
-      actionList.assignAll(actions);
-    } catch (e) {
-      debugPrint('_loadRcaActionsFromApi error: $e');
+  List<LabelValue>? _jeActionOptions;
+
+  /// Junior Engineer "Action" dropdown: every action of the bundled
+  /// actiontaken.db (System Group - Action Code - Action Description). It does
+  /// not depend on the failure category, system or location, so it also works
+  /// offline.
+  Future<void> _loadJeActionList() async {
+    var options = _jeActionOptions;
+    if (options == null) {
+      final rows = await LocalDatabaseService().getActionTakens();
+      options = [
+        for (final a in rows)
+          if (a.id != null)
+            LabelValue(
+              label: [
+                (a.systemGroup ?? '').trim(),
+                (a.actionCode ?? '').trim(),
+                (a.actionDescr ?? a.actionTaken).trim(),
+              ].where((e) => e.isNotEmpty).join(' - '),
+              value: a.id.toString(),
+            )
+      ]..sort((a, b) => (a.label ?? '').compareTo(b.label ?? ''));
+      if (options.isNotEmpty) _jeActionOptions = options;
     }
+    actionTakenList.assignAll(options);
+    actionList.assignAll(options);
   }
 
-  Future<void> _loadPopupRootCausesFromApi(String? causeLabel) async {
+  Future<void> _loadPopupRootCausesLocal(String? causeLabel) async {
     popupRootCauseList.clear();
     selectedPopupRootCause.value = null;
     if (causeLabel == null || causeLabel.isEmpty) return;
     final causeId = int.tryParse(
-        causeList.firstWhereOrNull((e) => e.label == causeLabel)?.value ??
-            '') ??
+            causeList.firstWhereOrNull((e) => e.label == causeLabel)?.value ??
+                '') ??
         0;
-    final categoryId =
-        int.tryParse(_rcaPopupCategoryId ?? _resolveRcaCategoryId() ?? '') ?? 0;
-    final ctx = _rcaContext();
-    if (causeId <= 0 || categoryId <= 0 || ctx == null) return;
-    try {
-      final rows = await _failureService.getRcaRootCauses(
-        system: ctx.system,
-        subSystem: ctx.subSystem,
-        locationTypeId: ctx.locationTypeId,
-        funcLocId: ctx.funcLocId,
-        departmentIds: ctx.departmentIds,
-        failureCategoryId: categoryId,
-        causeOfFailureId: causeId,
-      );
-      popupRootCauseList.assignAll(rows
-          .map((r) => LabelValue(
-        label: r['rootCause']?.toString().trim() ?? '',
-        value: r['rootCauseId']?.toString() ?? '',
-      ))
-          .where((c) => (c.label ?? '').isNotEmpty && (c.value ?? '').isNotEmpty));
-    } catch (e) {
-      debugPrint('_loadPopupRootCausesFromApi error: $e');
-    }
+    final rows = await LocalDatabaseService().getRcaRootCauseOptions(causeId);
+    popupRootCauseList.assignAll([
+      for (final r in rows)
+        LabelValue(label: r['label'] as String, value: r['id'] as String),
+    ]);
   }
 
   @override
   void filterPopupRootCauses(String? selectedCauseLabel) {
-    if (_rcaApiMode && _rcaContext() != null) {
-      _loadPopupRootCausesFromApi(selectedCauseLabel);
+    if (_rcaApiMode) {
+      _loadPopupRootCausesLocal(selectedCauseLabel);
       return;
     }
     super.filterPopupRootCauses(selectedCauseLabel);
@@ -4208,9 +4153,8 @@ class CreateFailureController extends GetxController
       // selectedRcaFailureCategory holds the label → look up the numeric ID
       final failureCategoryId = _resolveRcaCategoryId();
 
-      if (_rcaApiMode && _rcaContext() != null) {
-        _rcaPopupCategoryId = failureCategoryId;
-        await _loadRcaCausesFromApi(failureCategoryId);
+      if (_rcaApiMode) {
+        await _loadRcaCausesLocal(failureCategoryId);
         return;
       }
 
@@ -4339,6 +4283,16 @@ class CreateFailureController extends GetxController
     }
   }
 
+  /// "Failure Reported by" of the Station and Depot create forms is the
+  /// logged-in user (read-only, no list and no API).
+  Future<void> _setReportedByToLoggedInUser() async {
+    final id = await AuthManager().getUserId() ?? '';
+    final full = (await AuthManager().getFullName())?.trim() ?? '';
+    final name = full.isNotEmpty ? full : (await AuthManager().getUserName()) ?? '';
+    userList.assignAll([LabelValue(label: name, value: id)]);
+    selectedFailureReportedBy.value = name.isEmpty ? null : name;
+  }
+
   /// Priority, Department, Location, Reported by and Failure Category Type for
   /// the Depot create form (DCC), all from getDepotFailureCreationDeptLocation.
   /// Functional location and system follow the selections (shared handlers).
@@ -4347,13 +4301,7 @@ class CreateFailureController extends GetxController
     try {
       apiFailureCategoryList.assignAll(await _localFailureCategoryTypes());
       await _loadLocalPriorityDeptLocation();
-      final out = await _failureService.getDepotFailureLookups();
-      userList.assignAll(_apiOptions(out['getFailureReportedbyList']));
-
-      // Default "Failure Reported by" to the logged-in user, like the web.
-      final me = await AuthManager().getUserId();
-      selectedFailureReportedBy.value =
-          userList.firstWhereOrNull((u) => u.value == me)?.label;
+      await _setReportedByToLoggedInUser();
       debugPrint('loadDepotCreateDropdowns: priorities=${priorityTypeList.length}, '
           'departments=${departmentList.length}, locations=${locationTypeList.length}, '
           'categories=${apiFailureCategoryList.length}');
@@ -4438,13 +4386,7 @@ class CreateFailureController extends GetxController
     try {
       apiFailureCategoryList.assignAll(await _localFailureCategoryTypes());
       await _loadLocalPriorityDeptLocation();
-      final out = await _failureService.getStationFailureLookups();
-      userList.assignAll(_apiOptions(out['getFailureReportedbyList']));
-
-      // Station failures are reported by the logged-in user.
-      final me = await AuthManager().getUserId();
-      selectedFailureReportedBy.value =
-          userList.firstWhereOrNull((u) => u.value == me)?.label;
+      await _setReportedByToLoggedInUser();
       debugPrint(
           'loadStationCreateDropdowns: priorities=${priorityTypeList.length}, '
               'departments=${departmentList.length}, locations=${locationTypeList.length}, '
@@ -4572,8 +4514,12 @@ class CreateFailureController extends GetxController
         options.add(LabelValue(
             label: desc.isEmpty ? code : '$code - $desc', value: id));
       }
-      // The department / location may have changed again while waiting.
-      if (departmentId.value == dept &&
+      debugPrint('_loadApiFunctionalLocations: dept=$dept loc=$loc ba=${ctx.ba} '
+          'wcs=${ctx.wcs} userWcs=${ctx.userWcs} locCode=${ctx.locCode} '
+          'rows=${rows.length}');
+      // The department / location may have changed again while waiting (no
+      // department selected counts as 0, as it did when the load started).
+      if ((departmentId.value ?? 0) == dept &&
           _apiIdFor(locationTypeList, selectedLocation.value) == loc) {
         functionalLocationList.assignAll(options);
       }
@@ -4791,20 +4737,13 @@ class CreateFailureController extends GetxController
     final locations = locationTypeList.toList();
     locationList.assignAll(locations);
     // "Notification Type" on this form is the corrective notification type
-    // (Failure, Snag, ...): getCorrNotificationTypeList. Without a connection
-    // the bundled notificationType.db provides the same list.
-    List<LabelValue> corrTypes;
-    try {
-      final out = await _failureService.getLookupCreateCorrNotificationRaw();
-      corrTypes = _apiOptions(out['getCorrNotificationTypeList']);
-    } catch (e) {
-      debugPrint('_loadSiLookups: notification types from local data: $e');
-      corrTypes = (await LocalDatabaseService().getNotificationTypes())
-          .where((t) => t.id != null && (t.notificationType ?? '').trim().isNotEmpty)
-          .map((t) => LabelValue(
-          label: t.notificationType!.trim(), value: t.id.toString()))
-          .toList();
-    }
+    // (Failure, Snag, ...): always the bundled notificationType.db, no API.
+    final corrTypes = (await LocalDatabaseService().getNotificationTypes())
+        .where((t) =>
+            t.id != null && (t.notificationType ?? '').trim().isNotEmpty)
+        .map((t) => LabelValue(
+            label: t.notificationType!.trim(), value: t.id.toString()))
+        .toList();
     corrNotificationTypeList.assignAll(corrTypes);
     notificationTypeList
         .assignAll([LabelValue(label: 'Select', value: ''), ...corrTypes]);
@@ -4826,19 +4765,15 @@ class CreateFailureController extends GetxController
       debugPrint('_applyJeApiLists: lookups failed: $e');
     }
 
-    final types = (output.getCorrNotificationTypeList ?? const <LabelValue>[])
-        .where((o) =>
-    (o.label ?? '').trim().isNotEmpty &&
-        (o.value ?? '').isNotEmpty &&
-        o.value != '0')
-        .toList();
-    if (types.isNotEmpty) {
-      corrNotificationTypeList.assignAll(types);
-      notificationTypeList
-          .assignAll([LabelValue(label: 'Select', value: ''), ...types]);
+    // Notification Type: local notificationType.db (set by _loadSiLookups).
+    final types = corrNotificationTypeList;
+    try {
+      await _loadJeActionList();
+    } catch (e) {
+      debugPrint('_applyJeApiLists: action list: $e');
     }
     debugPrint('_applyJeApiLists: notification types=${types.length}, '
-        'locations=${locationTypeList.length}');
+        'locations=${locationTypeList.length}, actions=${actionTakenList.length}');
   }
 
   /// Existing failure (e.g. one created by the Station Controller, DCC or OCC
@@ -4867,7 +4802,23 @@ class CreateFailureController extends GetxController
       ensureDropdownOption(
           departmentList, deptLabel!, model.deptId?.toString() ?? '');
     }
-    if (deptLabel != null) {
+    if (deptLabel == null && isJE) {
+      // A Junior Engineer works in the selected department (the form shows it
+      // read-only); the local copy of the failure does not carry a department.
+      final session = Get.find<SessionController>().selectedDepartment.value;
+      if (session?.deptId != null) {
+        deptLabel = labelFor(departmentList, session!.deptId);
+        if (deptLabel == null && (session.deptName ?? '').isNotEmpty) {
+          deptLabel = session.deptName;
+          ensureDropdownOption(
+              departmentList, deptLabel!, session.deptId.toString());
+        }
+        if (deptLabel != null) {
+          selectedDepartment.value = deptLabel;
+          departmentId.value = session.deptId;
+        }
+      }
+    } else if (deptLabel != null) {
       selectedDepartment.value = deptLabel;
       departmentId.value = model.deptId ?? 0;
     }
@@ -4885,6 +4836,28 @@ class CreateFailureController extends GetxController
       selectedLocation.value = locLabel;
       locationDisplayController.text = locLabel;
       maintenanceLocationTypeId.value = model.locationTypeId ?? 0;
+    }
+
+    // The local copy of a Junior Engineer failure carries no location: it is the
+    // one of its functional location.
+    if (locLabel == null && isJE && (model.functionLocationId ?? 0) > 0) {
+      try {
+        final db = LocalDatabaseService();
+        final fl = await db.getFailureFunctionalLocationRow(model.functionLocationId!);
+        final code = fl?['Location']?.toString().trim() ?? '';
+        if (code.isNotEmpty && code.toUpperCase() != 'NULL') {
+          final id = await db.getLocationIdByCode(code);
+          final label = id == null ? null : labelFor(locationTypeList, id);
+          if (label != null) {
+            locLabel = label;
+            selectedLocation.value = label;
+            locationDisplayController.text = label;
+            maintenanceLocationTypeId.value = id!;
+          }
+        }
+      } catch (e) {
+        debugPrint('_applySiSavedSelections: location of the functional location: $e');
+      }
     }
 
     // Functional location (API list for this department + location)
@@ -6021,7 +5994,9 @@ class CreateFailureController extends GetxController
       // row has.
       Map<String, dynamic> offlineLabels = const {};
       FailureDetailResponse? offlineResult;
-      if (item != null && item.syncStatus == 'offline' && (item.id ?? 0) <= 0) {
+      if (item != null &&
+          (item.syncStatus == 'offline' || item.syncStatus == 'failed') &&
+          (item.id ?? 0) <= 0) {
         final saved = await _failureService.offlineCreatedDetails(
             -(item.id ?? 0),
             failureNo: item.notificationCode ?? item.failureNo);
@@ -6140,6 +6115,19 @@ class CreateFailureController extends GetxController
               ? apiNotificationTypeList
               : failureCategoryTypeList,
           model.notificationTypeId);
+      // Created offline: the saved names of these two, when the lists have none.
+      final savedNature = offlineLabels['natureOfWork']?.toString() ?? '';
+      if (selectedNatureOfWork.value == null && savedNature.isNotEmpty) {
+        ensureDropdownOption(natureOfWorkList, savedNature,
+            model.natureOfWorkId?.toString() ?? '');
+        selectedNatureOfWork.value = savedNature;
+      }
+      final savedFailureType = offlineLabels['failureType']?.toString() ?? '';
+      if (selectedFailureCategoryType.value == null && savedFailureType.isNotEmpty) {
+        ensureDropdownOption(failureCategoryTypeList, savedFailureType,
+            model.notificationTypeId?.toString() ?? '');
+        selectedFailureCategoryType.value = savedFailureType;
+      }
       trainRunningKmController.text = model.trainRunningKm ?? '';
 
       isServiceAffected.value = model.isServiceAffected ?? false;
