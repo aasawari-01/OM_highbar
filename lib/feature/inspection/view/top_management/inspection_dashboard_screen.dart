@@ -4,7 +4,6 @@ import 'package:om_mobile/constants/colors.dart';
 import 'package:om_mobile/utils/widgets/cust_button.dart';
 import 'package:om_mobile/utils/widgets/cust_text.dart';
 import 'package:om_mobile/utils/widgets/custom_app_bar.dart';
-import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
 import 'top_management_create_inspection_screen.dart';
 
 class InspectionDashboardScreen extends StatelessWidget {
@@ -48,12 +47,7 @@ class InspectionDashboardScreen extends StatelessWidget {
       appBar: CustomAppBar(
         title: 'Inspection Dashboard',
         showDrawer: true,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12.0),
-            child: const SyncIconButton(),
-          ),
-        ],
+        actions: const [],
       ),
       body: Container(
         width: double.infinity,

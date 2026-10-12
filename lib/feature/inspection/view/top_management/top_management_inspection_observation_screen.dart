@@ -10,7 +10,6 @@ import 'package:om_mobile/utils/widgets/cust_radio.dart';
 import 'package:om_mobile/utils/widgets/cust_text.dart';
 import 'package:om_mobile/utils/widgets/custom_app_bar.dart';
 import 'package:om_mobile/utils/widgets/custom_dialog.dart';
-import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
 import '../../controller/top_management_inspection_controller.dart';
 
 class TopManagementInspectionObservationScreen extends StatefulWidget {
@@ -67,8 +66,6 @@ class _TopManagementInspectionObservationScreenState extends State<TopManagement
             icon: const Icon(Icons.menu, color: Colors.white, size: 28),
             onPressed: () {},
           ),
-          const SizedBox(width: 4),
-          const SyncIconButton(),
           const SizedBox(width: 16),
         ],
       ),

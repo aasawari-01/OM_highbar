@@ -8,7 +8,6 @@ import 'package:om_mobile/utils/widgets/cust_radio.dart';
 import 'package:om_mobile/utils/widgets/cust_text.dart';
 import 'package:om_mobile/utils/widgets/cust_textfield.dart';
 import 'package:om_mobile/utils/widgets/custom_app_bar.dart';
-import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
 import '../../controller/top_management_inspection_controller.dart';
 import 'top_management_inspection_observation_screen.dart';
 
@@ -50,8 +49,6 @@ class _TopManagementCreateInspectionScreenState extends State<TopManagementCreat
             icon: const Icon(Icons.menu, color: Colors.white, size: 28),
             onPressed: () {},
           ),
-          const SizedBox(width: 4),
-          const SyncIconButton(),
           const SizedBox(width: 16),
         ],
       ),

@@ -4,7 +4,6 @@ import '../../../constants/app_constants.dart';
 import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
-import '../../../utils/widgets/sync_icon_button.dart';
 import 'package:get/get.dart';
 import '../../../core/controller/session_controller.dart';
 import 'inspection_detail_screen.dart';
@@ -64,8 +63,6 @@ class InspectionListScreen extends StatelessWidget {
             icon: const Icon(Icons.filter_list, color: Colors.white, size: 28),
             onPressed: () {},
           ),
-          const SizedBox(width: 4),
-          const SyncIconButton(),
           const SizedBox(width: 16),
         ],
       ),
