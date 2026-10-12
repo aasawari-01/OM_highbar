@@ -161,6 +161,15 @@ class MasterDataSyncService extends GetxController {
         });
   }
 
+  // The incremental sync only brings what changed: a failure the server stops
+  // listing (a closed one leaves the Junior Engineer inbox) is never mentioned,
+  // so it stays in the local copy. After such an action this flag makes the
+  // next sync download everything and replace the local copy.
+  static const String _fullSyncNeededKey = 'failureTxnFullNeeded';
+
+  Future<void> markFullSyncNeeded() =>
+      _dbService.setAppSetting(_fullSyncNeededKey, '1');
+
   Future<bool> _syncFailureTransactions(bool forceAll) async {
     const lastSyncKey = 'failureTxnLastSync';
     const userKey = 'failureTxnUserId';
@@ -175,7 +184,8 @@ class MasterDataSyncService extends GetxController {
         await _dbService.setAppSetting(userKey, userId);
       }
       final last = await _dbService.getAppSetting(lastSyncKey);
-      final incremental = !forceAll && (last ?? '').isNotEmpty;
+      final fullNeeded = await _dbService.getAppSetting(_fullSyncNeededKey) == '1';
+      final incremental = !forceAll && !fullNeeded && (last ?? '').isNotEmpty;
 
       final res = await _failureService
           .getFailureTransactions(lastSyncDate: incremental ? last : null)
@@ -189,6 +199,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.replaceSiFailureCache(res.siRecords);
         await _dbService.replaceJeFailureCache(res.jeRecords);
       }
+      if (!incremental) await _dbService.setAppSetting(_fullSyncNeededKey, '');
       final downloaded = DateTime.tryParse(res.downloadedAt ?? '')?.toUtc();
       await _dbService.setAppSetting(
           lastSyncKey,

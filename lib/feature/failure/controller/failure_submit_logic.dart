@@ -19,6 +19,7 @@ import '../service/failure_service.dart';
 import '../service/si_offline_service.dart';
 import '../service/je_offline_service.dart';
 import '../service/station_overlay.dart';
+import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/network_errors.dart';
 import '../view/failure_list_screen.dart';
 
@@ -1757,6 +1758,11 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         return;
       }
       EasyLoading.dismiss();
+      // The server decides what stays in the JE inbox (a closed failure leaves
+      // it): the next list load downloads the lists again to show exactly that.
+      if (isJE && Get.isRegistered<MasterDataSyncService>()) {
+        await Get.find<MasterDataSyncService>().markFullSyncNeeded();
+      }
       // Reload the JE inbox list(s) so the closed/updated failure shows.
       refreshFailureListAfterSubmission(isStation);
       Get.back(result: true);

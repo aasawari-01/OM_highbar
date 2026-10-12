@@ -1173,6 +1173,10 @@ class CreateFailureController extends GetxController
       debugPrint("submitJointInspection: payload=$payload");
 
       final message = await _failureService.submitJIScreenData(payload);
+      // The Joint Inspection inbox is decided by the server: show it as it is.
+      if (Get.isRegistered<MasterDataSyncService>()) {
+        await Get.find<MasterDataSyncService>().markFullSyncNeeded();
+      }
 
 
       Get.back(result: true);
