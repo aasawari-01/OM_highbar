@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:intl/intl.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:om_mobile/constants/colors.dart';
 import '../../../constants/app_constants.dart';
@@ -11,11 +12,11 @@ import '../../../service/auth_manager.dart';
 import '../../../service/network_service/api_client.dart';
 import '../../../service/network_service/app_urls.dart';
 import '../../../utils/widgets/cust_button.dart';
+import '../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../utils/widgets/cust_dropdown.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
-import '../../../utils/widgets/sync_icon_button.dart';
 
 typedef _Json = Map<String, dynamic>;
 
@@ -245,6 +246,16 @@ List<_Json> _orderedColumns(_Json row, List<_Json> headers) {
     if (!out.contains(c)) out.add(c);
   }
   return out;
+}
+
+/// Failure number of a checklist row; empty when none ("0" counts as none).
+String _rowFailureCode(_Json row) {
+  for (final v in [row['notificationCode'], row['NotificationCode']]) {
+    if (v == null || v is Map || v is List) continue;
+    final t = v.toString().trim();
+    if (t.isNotEmpty && t != '0') return t;
+  }
+  return '';
 }
 
 void _normalizeRow(_Json row) {
@@ -507,6 +518,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
     final details = <MapEntry<String, String>>[
       MapEntry('System', (row['systemName'] ?? '-').toString()),
       MapEntry('Sub System', (row['subSystemName'] ?? '-').toString()),
+      MapEntry('Failure No', _rowFailureCode(row).isEmpty ? '-' : _rowFailureCode(row)),
     ];
     final seen = <String>{};
     for (final c in _orderedColumns(row, _headers)) {
@@ -698,7 +710,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
   void _snack(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
-  Future<void> _showErrorDialog(String message) {
+  Future<void> _showErrorDialog(String message, {String? title}) {
     return showDialog<void>(
       context: context,
       builder: (ctx) => Dialog(
@@ -719,6 +731,15 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
                 child: const Icon(Icons.cancel_outlined, color: AppColors.red, size: 36),
               ),
               const SizedBox(height: AppConstants.elementSpacing),
+              if (title != null) ...[
+                CustText(
+                  name: title,
+                  size: AppConstants.headerSize,
+                  color: AppColors.black,
+                  fontWeightName: FontWeight.w700,
+                ),
+                const SizedBox(height: AppConstants.subElementSpacing),
+              ],
               CustText(
                 name: message,
                 textAlign: TextAlign.center,
@@ -740,7 +761,9 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
     );
   }
 
-  bool _validate() {
+  bool _validate({bool isDraft = false}) {
+    // Save as Draft skips all validation; only Final Submit validates.
+    if (isDraft) return true;
     for (final f in _fields) {
       if (!_isMandatory(f)) continue;
       final v = (f['fieldSelectedValue'] ?? '').toString().trim();
@@ -761,6 +784,11 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
         _showErrorDialog('If Action Is No/Na/NotOk Please Enter Remark');
         return false;
       }
+    }
+    // Final submit needs an overall remark.
+    if (!isDraft && _overallRemarksController.text.trim().isEmpty) {
+      _showErrorDialog('Please enter Overall Remark', title: 'Error!');
+      return false;
     }
     return true;
   }
@@ -798,6 +826,21 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
 
   /// API 1: Inspection/SaveCommonInspectionCheckListData (multipart).
   Future<bool> _saveChecklist({required bool isDraft}) async {
+    // The API wants the new file's metadata as JSON in `AttachmentList` and
+    // the binary itself under `OverallInspectionAttachments`.
+    final attachment = _attachment;
+    final attachmentMeta = <Map<String, dynamic>>[];
+    if (attachment != null) {
+      final name = attachment.path.split(RegExp(r'[\\/]')).last;
+      final dot = name.lastIndexOf('.');
+      attachmentMeta.add({
+        'attachmentId': 0,
+        'originalFileName': name,
+        'filePath': '',
+        'fileExtension': dot >= 0 ? name.substring(dot + 1).toLowerCase() : '',
+        'fileSize': await attachment.length(),
+      });
+    }
     final res = await _apiClient.postMultipart(
       AppUrls.saveCommonInspectionCheckListData,
       headers: await _authHeaders(),
@@ -811,12 +854,12 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
         'TableBodyItems': jsonEncode(_clean(_rows)),
         'OverallInspectionRemark': _overallRemarksController.text,
         'ExistingAttachments': jsonEncode(_existingAttachments),
-        if (_attachment == null) 'AttachmentList': '[]',
+        'AttachmentList': jsonEncode(attachmentMeta),
         'IsDraft': isDraft.toString(),
       },
       files: [
-        if (_attachment != null)
-          await http.MultipartFile.fromPath('AttachmentList', _attachment!.path),
+        if (attachment != null)
+          await http.MultipartFile.fromPath('OverallInspectionAttachments', attachment.path),
       ],
     );
     return res.statusCode == 200 && _isSuccess(res.body);
@@ -838,7 +881,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
       _snack('Sample data cannot be saved');
       return;
     }
-    if (!_validate()) return;
+    if (!_validate(isDraft: isDraft)) return;
     setState(() => _saving = true);
     try {
       var ok = await _saveChecklist(isDraft: isDraft);
@@ -895,7 +938,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
           title: 'Common Inspection Checklist',
           showDrawer: false,
           onLeadingPressed: _onBack,
-          actions: const [SyncIconButton(), SizedBox(width: 16)],
+          actions: const [SizedBox(width: 16)],
         ),
         body: Container(
           width: double.infinity,
@@ -924,12 +967,42 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CustText.formLabel('Inspection Date : ${_basic['inspectionScheduledDate'] ?? ''}'),
-          const SizedBox(height: AppConstants.labelSpacing),
-          CustText(
-            name: 'Inspection No : ${_basic['inspectionNo'] ?? ''}',
-            size: AppConstants.formLabelSize,
-            color: AppColors.orangeColor,
+          if (_inspectionName.isNotEmpty) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                CustText(
+                  name: 'Inspection Name:',
+                  size: AppConstants.formLabelSize,
+                  color: AppColors.textDarkSecondary,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: CustText(
+                    name: _inspectionName,
+                    size: AppConstants.formLabelSize,
+                    color: AppColors.black,
+                    fontWeightName: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: AppConstants.labelSpacing),
+          ],
+          Row(
+            children: [
+              Expanded(
+                child: CustText.formLabel('Inspection Date : ${_basic['inspectionScheduledDate'] ?? ''}'),
+              ),
+              const SizedBox(width: AppConstants.elementSpacing),
+              Flexible(
+                child: CustText(
+                  name: 'Inspection No : ${_basic['inspectionNo'] ?? ''}',
+                  size: AppConstants.formLabelSize,
+                  color: AppColors.orangeColor,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: AppConstants.elementSpacing),
           _readOnly('Department', (_basic['deptName'] ?? '').toString()),
@@ -952,7 +1025,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
             label: 'Overall Remarks',
             hintText: 'Enter Remarks',
             controller: _overallRemarksController,
-            readOnly: _isViewMode,
+            enabled: !_isViewMode,
             onChanged: (_) => _dirty = true,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
@@ -997,9 +1070,27 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
         key: ValueKey('ro-$label-$value'),
         label: label,
         controller: TextEditingController(text: value),
-        readOnly: true,
-        fillColor: AppColors.containerColor2,
+        enabled: false,
       );
+
+  bool _isTimeField(_Json f) {
+    final name = _norm(_fieldLabel(f));
+    return _norm(f['fieldType']) == 'time' || name == 'departure time' || name == 'arrival time';
+  }
+
+  /// Accepts "HH:mm", "HH:mm:ss" or "hh:mm a"; null when empty/unparseable.
+  DateTime? _parseTime(String v) {
+    final s = v.trim();
+    if (s.isEmpty) return null;
+    for (final pattern in const ['HH:mm', 'HH:mm:ss', 'hh:mm a']) {
+      try {
+        final t = DateFormat(pattern).parseStrict(s);
+        final now = DateTime.now();
+        return DateTime(now.year, now.month, now.day, t.hour, t.minute);
+      } catch (_) {}
+    }
+    return null;
+  }
 
   Widget _dynamicField(_Json f) {
     final label = _fieldLabel(f) + (_isMandatory(f) ? ' *' : '');
@@ -1024,11 +1115,23 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
         },
       );
     }
+    if (_isTimeField(f)) {
+      return CustDateTimePicker(
+        key: ValueKey('field-${f['fieldID']}'),
+        label: label,
+        hint: 'Select time',
+        pickerType: PickerType.time,
+        enabled: enabled,
+        selectedDateTime: _parseTime((f['fieldSelectedValue'] ?? '').toString()),
+        onDateTimeSelected: (dt) => _touch(
+            () => f['fieldSelectedValue'] = dt == null ? '' : DateFormat('HH:mm').format(dt)),
+      );
+    }
     return CustomTextField(
       key: ValueKey('field-${f['fieldID']}'),
       label: label,
       controller: TextEditingController(text: (f['fieldSelectedValue'] ?? '').toString()),
-      readOnly: !enabled,
+      enabled: enabled,
       onChanged: (v) {
         f['fieldSelectedValue'] = v;
         _dirty = true;
@@ -1040,7 +1143,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
 
   Widget _itemCard() {
     final row = _rows[_index];
-    final failure = (row['notificationCode'] ?? row['NotificationCode'] ?? '').toString().trim();
+    final failure = _rowFailureCode(row);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppConstants.cardPadding),
@@ -1063,11 +1166,14 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
           const SizedBox(height: AppConstants.subElementSpacing),
           CustText.detailLabel('Sub system:'),
           CustText(name: (row['subSystemName'] ?? '-').toString(), size: 16, fontWeightName: FontWeight.bold),
-          if (failure.isNotEmpty && failure != '0') ...[
-            const SizedBox(height: AppConstants.subElementSpacing),
-            CustText.detailLabel('Failure No:'),
-            CustText(name: failure, size: 16, color: AppColors.orangeColor, fontWeightName: FontWeight.bold),
-          ],
+          const SizedBox(height: AppConstants.subElementSpacing),
+          CustText.detailLabel('Failure No:'),
+          CustText(
+            name: failure.isEmpty ? '-' : failure,
+            size: 16,
+            color: failure.isEmpty ? AppColors.black : AppColors.orangeColor,
+            fontWeightName: FontWeight.bold,
+          ),
           for (final col in _orderedColumns(row, _headers)) ...[
             const SizedBox(height: AppConstants.elementSpacing),
             _columnWidget(row, col),
@@ -1099,7 +1205,7 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
         decoration: InputDecoration(
           hintText: 'Enter Remarks',
           filled: true,
-          fillColor: AppColors.white1,
+          fillColor: (!_isViewMode && !_isDisabled(ctrl)) ? AppColors.white1 : AppColors.containerColor2,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(AppConstants.inputRadius),
             borderSide: BorderSide(color: AppColors.textFieldColor),
@@ -1276,9 +1382,24 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
             fontSize: 14,
             onSelected: (_) => _pickAttachment(),
           ),
+        for (final att in _existingAttachments.whereType<Map>()) ...[
+          const SizedBox(height: AppConstants.labelSpacing),
+          _existingAttachmentTile(att),
+        ],
         if (_attachment != null) ...[
           const SizedBox(height: AppConstants.labelSpacing),
           Row(children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: GestureDetector(
+                onTap: () => _previewImage(
+                    FileImage(_attachment!), _attachment!.path.split(RegExp(r'[\\/]')).last),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: Image.file(_attachment!, width: 48, height: 48, fit: BoxFit.cover),
+                ),
+              ),
+            ),
             Expanded(
               child: CustText(
                 name: _attachment!.path.split(Platform.pathSeparator).last,
@@ -1294,6 +1415,95 @@ class _CommonInspectionChecklistScreenState extends State<CommonInspectionCheckl
         ],
       ],
     );
+  }
+
+  void _previewImage(ImageProvider image, String title) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        backgroundColor: AppColors.white1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(AppConstants.cardPadding),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(children: [
+                Expanded(
+                  child: CustText(
+                    name: title,
+                    size: AppConstants.formLabelSize,
+                    fontWeightName: FontWeight.w600,
+                  ),
+                ),
+                GestureDetector(
+                  onTap: () => Navigator.pop(ctx),
+                  child: const Icon(TablerIcons.x, size: 24),
+                ),
+              ]),
+              const SizedBox(height: AppConstants.elementSpacing),
+              Flexible(
+                child: InteractiveViewer(
+                  child: Image(
+                    image: image,
+                    fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Text('Unable to load image'),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _existingAttachmentTile(Map att) {
+    final name = (att['originalFileName'] ?? att['OriginalFileName'] ?? att['fileName'] ?? 'Attachment').toString();
+    final path = (att['filePath'] ?? att['FilePath'] ?? '').toString();
+    final url = path.isEmpty
+        ? ''
+        : path.startsWith('http')
+            ? path
+            : '${AppUrls.imageUrl}${path.replaceFirst(RegExp(r'^/'), '')}';
+    final isImage = RegExp(r'\.(png|jpe?g)$', caseSensitive: false).hasMatch(name);
+    return Row(children: [
+      if (isImage && url.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: GestureDetector(
+            onTap: () => _previewImage(NetworkImage(url), name),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.network(
+                url,
+                width: 48,
+                height: 48,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Icon(TablerIcons.photo, size: 32),
+              ),
+            ),
+          ),
+        ),
+      Expanded(
+        child: GestureDetector(
+          onTap: isImage && url.isNotEmpty ? () => _previewImage(NetworkImage(url), name) : null,
+          child: CustText(name: name, size: AppConstants.detailValueSize),
+        ),
+      ),
+      if (!_isViewMode)
+        GestureDetector(
+          onTap: () => setState(() {
+            _existingAttachments.remove(att);
+            _dirty = true;
+          }),
+          child: const Icon(TablerIcons.x, size: 18),
+        ),
+    ]);
   }
 
   Widget _popupRow(String label, String value) {

@@ -6,7 +6,6 @@ import '../../../utils/responsive_helper.dart';
 import '../../../utils/widgets/accordion_card.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
-import '../../../utils/widgets/sync_icon_button.dart';
 
 
 class InspectionDetailScreen extends StatefulWidget {
@@ -58,12 +57,7 @@ class _InspectionDetailScreenState extends State<InspectionDetailScreen> {
         title: inspection['inspectionType'] ?? 'Inspection Detail',
         showDrawer: false,
         onLeadingPressed: () => Navigator.pop(context),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 12.0),
-            child: const SyncIconButton(),
-          ),
-        ],
+        actions: const [],
       ),
       body: SafeArea(
         child: Column(

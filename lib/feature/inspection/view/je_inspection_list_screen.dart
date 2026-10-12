@@ -5,7 +5,6 @@ import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
-import '../../../utils/widgets/sync_icon_button.dart';
 import '../model/je_inspection_item.dart';
 import '../service/inspection_service.dart';
 import 'common_inspection_checklist_screen.dart';
@@ -23,6 +22,15 @@ class _JEInspectionListScreenState extends State<JEInspectionListScreen> {
   List<JEInspectionItem> _items = [];
   bool _loading = true;
   String _statusFilter = 'All';
+  bool _searching = false;
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -41,23 +49,34 @@ class _JEInspectionListScreenState extends State<JEInspectionListScreen> {
   }
 
   List<String> get _statusTabs {
-    final unique = _items.map((e) => e.statusText).where((s) => s.isNotEmpty).toSet().toList()
+    final unique = _common.map((e) => e.statusText).where((s) => s.isNotEmpty).toSet().toList()
       ..sort();
     return ['All', ...unique];
   }
 
-  List<JEInspectionItem> get _filtered => _statusFilter == 'All'
-      ? _items
-      : _items.where((e) => e.statusText == _statusFilter).toList();
+  // Only common inspections (api `url` == "/CommonInsepectionChecklist").
+  List<JEInspectionItem> get _common =>
+      _items.where((e) => e.url.trim().replaceFirst(RegExp(r'^/+'), '').toLowerCase() == 'commoninsepectionchecklist').toList();
+
+  List<JEInspectionItem> get _filtered {
+    final q = _query.trim().toLowerCase();
+    return _common.where((e) {
+      if (_statusFilter != 'All' && e.statusText != _statusFilter) return false;
+      if (q.isEmpty) return true;
+      return [e.inspectionNo, e.inspectionName, e.createdName, e.inspectionType, e.deptName, e.inspectionScheduledDate, e.statusText]
+          .any((v) => v.toLowerCase().contains(q));
+    }).toList();
+  }
 
   void _snack(String msg) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
 
-  void _openChecklist(JEInspectionItem item, {bool view = false}) {
-    Navigator.push(
+  Future<void> _openChecklist(JEInspectionItem item, {bool view = false}) async {
+    final saved = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => CommonInspectionChecklistScreen(inspectionId: item.jeInspectionId, isView: view)),
     );
+    if (saved == true && mounted) _load();
   }
 
   Future<void> _skip(JEInspectionItem item) async {
@@ -116,7 +135,19 @@ class _JEInspectionListScreenState extends State<JEInspectionListScreen> {
         title: 'JE Inspection List',
         showDrawer: false,
         onLeadingPressed: () => Navigator.pop(context),
-        actions: const [SyncIconButton(), SizedBox(width: 16)],
+        actions: [
+          IconButton(
+            icon: Icon(_searching ? Icons.close : Icons.search, color: Colors.white, size: 26),
+            onPressed: () => setState(() {
+              _searching = !_searching;
+              if (!_searching) {
+                _searchController.clear();
+                _query = '';
+              }
+            }),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: Container(
         width: double.infinity,
@@ -128,6 +159,18 @@ class _JEInspectionListScreenState extends State<JEInspectionListScreen> {
             ? const Center(child: CircularProgressIndicator(color: AppColors.orangeColor))
             : Column(
                 children: [
+                  if (_searching)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(AppConstants.screenPadding, 8, AppConstants.screenPadding, 0),
+                      child: CustomTextField(
+                        controller: _searchController,
+                        hintText: 'Search inspections',
+                        autofocus: true,
+                        textInputAction: TextInputAction.search,
+                        prefixIcon: const Icon(Icons.search),
+                        onChanged: (v) => setState(() => _query = v),
+                      ),
+                    ),
                   SizedBox(
                     height: 48,
                     child: ListView(

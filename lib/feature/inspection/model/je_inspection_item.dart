@@ -11,6 +11,7 @@ class JEInspectionItem {
   final String createdName;
   final String status;
   final String statusName;
+  final String url;
   final int isSkip;
   final int countSkip;
 
@@ -26,6 +27,7 @@ class JEInspectionItem {
     required this.createdName,
     required this.status,
     required this.statusName,
+    required this.url,
     required this.isSkip,
     required this.countSkip,
   });
@@ -45,6 +47,7 @@ class JEInspectionItem {
       createdName: s('createdName'),
       status: s('status'),
       statusName: s('statusName'),
+      url: s('url'),
       isSkip: i('isSkip'),
       countSkip: i('countSKip'),
     );
