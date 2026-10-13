@@ -13,6 +13,7 @@ import '../model/failure_list_response.dart';
 import '../service/failure_service.dart';
 import '../service/si_ids.dart';
 import '../service/station_overlay.dart';
+import '../service/si_normalize.dart';
 import '../../../service/master_data_sync_service.dart';
 
 enum JEFailureListTab { inbox, jointInspection }
@@ -321,7 +322,8 @@ class FailureListController extends GetxController {
     for (final row in await _dbService.getSiFailureCache()) {
       try {
         final record = row['record'] as Map<String, dynamic>;
-        final si = Map<String, dynamic>.from(record['siFailure'] as Map);
+        final si = await SiNormalize.normalize(
+            Map<String, dynamic>.from(record['siFailure'] as Map), record);
         final notificationId = _toInt(si['notificationId']);
         if (notificationId == null) continue;
 
@@ -369,10 +371,10 @@ class FailureListController extends GetxController {
           assignedUseeName: si['assignedUseeName']?.toString(),
           occRequestStatus: si['occRequestStatus']?.toString(),
           otherRequestFrom: si['otherRequestFrom']?.toString(),
-          locationName: locNames[locId],
+          locationName: locNames[locId] ?? si['locationName']?.toString(),
           creationType: 'Manual',
           priority: si['priorityType']?.toString(),
-          departmentName: deptNames[itemDept],
+          departmentName: deptNames[itemDept] ?? si['deptName']?.toString(),
           subLocation: si['locationFailure']?.toString(),
           system: si['system']?.toString(),
           subSystems: si['subSystem']?.toString(),
@@ -453,7 +455,8 @@ class FailureListController extends GetxController {
     for (final row in await _dbService.getJeFailureCache()) {
       try {
         final record = row['record'] as Map<String, dynamic>;
-        final je = Map<String, dynamic>.from(record['jeFailure'] as Map);
+        final je = await SiNormalize.normalize(
+            Map<String, dynamic>.from(record['jeFailure'] as Map), record);
         final notificationId = _toInt(je['notificationId']);
         if (notificationId == null) continue;
 
@@ -464,7 +467,7 @@ class FailureListController extends GetxController {
         } else if (assigned != 0 && assigned != userId) {
           continue;
         }
-        final itemDept = _toInt(je['mainDeptId']) ?? 0;
+        final itemDept = _toInt(je['mainDeptId']) ?? _toInt(je['deptId']) ?? 0;
         if (deptId > 0 && itemDept > 0 && itemDept != deptId) continue;
 
         // Status and dates are not always filled in jeFailure: the history has them.
@@ -484,8 +487,13 @@ class FailureListController extends GetxController {
             : text(latest?['statusName']);
         final occurred = text(je['failureOccuranceDateTime']).isNotEmpty
             ? text(je['failureOccuranceDateTime'])
-            : (created ?? '');
-        final token = encryptedIdFromSiFailure(je, notificationId);
+            : (text(je['actualFailureOccuranceOn']).isNotEmpty
+                ? text(je['actualFailureOccuranceOn'])
+                : (created ?? ''));
+        final token = encryptedIdFromSiFailure(je, notificationId) ??
+            (record['encryptedId']?.toString().isNotEmpty == true
+                ? record['encryptedId'].toString()
+                : null);
         final pendingAction = row['pendingAction']?.toString();
         items.add(FailureItem(
           id: notificationId,

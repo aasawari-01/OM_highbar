@@ -3962,6 +3962,46 @@ class LocalDatabaseService {
     return plants;
   }
 
+  Future<int?> getDeptIdByName(String name) async {
+    try {
+      final db = await deptDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DeptId FROM deptMaster WHERE lower(trim(DeptName)) = ? LIMIT 1',
+          [name.trim().toLowerCase()]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['DeptId']}');
+    } catch (e) {
+      debugPrint('getDeptIdByName error: $e');
+      return null;
+    }
+  }
+
+  Future<int?> getDeptIdByCode(String code) async {
+    try {
+      final db = await deptDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DeptId FROM deptMaster WHERE upper(trim(DeptCode)) = ? LIMIT 1',
+          [code.trim().toUpperCase()]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['DeptId']}');
+    } catch (e) {
+      debugPrint('getDeptIdByCode error: $e');
+      return null;
+    }
+  }
+
+  Future<String?> getUserNameById(int userId) async {
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return null;
+      final rows = await db.rawQuery(
+          'SELECT UserName FROM "$t" WHERE UserId = ? LIMIT 1', [userId]);
+      return rows.isEmpty ? null : rows.first['UserName']?.toString();
+    } catch (e) {
+      debugPrint('getUserNameById error: $e');
+      return null;
+    }
+  }
+
   Future<String?> getDeptCodeById(int deptId) async {
     try {
       final db = await deptDatabase;

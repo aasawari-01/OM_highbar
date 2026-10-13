@@ -1212,10 +1212,12 @@ class CreateFailureController extends GetxController
       // This prevents UI blocking with 84,609 functional locations
 
       // JE change notification API call for online flow
-      final result = await _failureService.getFailureDetails(failureNo, ids: [
-        if ((item?.id ?? 0) > 0) item!.id.toString(),
-        item?.notificationCode ?? '',
-      ]);
+      final result = await _failureService.getFailureDetails(failureNo,
+          ids: [
+            if ((item?.id ?? 0) > 0) item!.id.toString(),
+            item?.notificationCode ?? '',
+          ],
+          deptId: Get.find<SessionController>().selectedDepartment.value?.deptId ?? 0);
 
       if (result.responseCode == 200 && result.responseOutput != null) {
         final output = result.responseOutput!;
@@ -1538,6 +1540,16 @@ class CreateFailureController extends GetxController
                   (e) => e.value == model.userStatus.toString(),
               orElse: () => LabelValue(label: null));
           selectedUserStatus.value = matchedUserStatus?.label;
+          // The local copy has no status list of its own: use the local masters.
+          if ((selectedUserStatus.value ?? '').isEmpty &&
+              isJE &&
+              (model.userStatus ?? 0) > 0) {
+            final id = model.userStatus.toString();
+            selectedUserStatus.value = (userStatusJeList
+                        .firstWhereOrNull((e) => e.value == id) ??
+                    userStatusList.firstWhereOrNull((e) => e.value == id))
+                ?.label;
+          }
 
           if (model.assignedUserId != null) {
             final matchedUser = userList.firstWhere(

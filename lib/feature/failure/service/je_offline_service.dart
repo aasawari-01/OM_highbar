@@ -12,6 +12,7 @@ import '../../../service/local_database_service.dart';
 import '../../../core/controller/session_controller.dart';
 import '../../../service/master_data_sync_service.dart';
 import 'failure_service.dart';
+import 'je_overlay.dart';
 import 'si_ids.dart';
 
 /// Junior Engineer actions that also work without internet: the failure form
@@ -101,6 +102,7 @@ class JeOfflineService {
       'payload': payload,
       'files': kept,
     }, queueType);
+    await JeOverlay.save(notificationId, payload);
     await _db.setJeFailurePending(notificationId, 'update');
   }
 

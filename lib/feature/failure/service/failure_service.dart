@@ -13,6 +13,8 @@ import '../../../service/network_service/app_urls.dart';
 import '../../../service/local_database_service.dart';
 import '../model/failure_detail_response.dart';
 import 'si_ids.dart';
+import 'je_overlay.dart';
+import 'si_normalize.dart';
 import '../model/joint_inspection_history.dart';
 import '../model/asset_qr_response.dart';
 
@@ -73,12 +75,30 @@ class FailureService {
   /// or has no model for it. [ids] are other ids of the same failure (numeric
   /// id, notification code) used to find the local copy.
   Future<FailureDetailResponse> getFailureDetails(String failureNo,
-      {List<String> ids = const []}) async {
+      {List<String> ids = const [], int deptId = 0}) async {
     final local = await _jeLocalDetails([failureNo, ...ids]);
     if (local != null && local.pending) return local.response;
     if (local == null) return _getFailureDetailsFromServer(failureNo);
+    // The list may carry only the numeric id; the details call needs the
+    // encrypted one, which the local copy knows once it was found.
+    var token = local.token;
+    final numeric = RegExp(r'^\d+$').hasMatch(failureNo.trim());
+    if (numeric && (token ?? '').isEmpty) {
+      // Not known yet: the inbox lists carry it. Failing here (no connection)
+      // just leaves the local copy.
+      try {
+        final nid = int.tryParse(failureNo.trim()) ?? 0;
+        token = await findJeEncryptedId(notificationId: nid, deptId: deptId);
+        if ((token ?? '').isNotEmpty) {
+          await LocalDatabaseService().setJeEncryptedId(nid, token!);
+        }
+      } catch (e) {
+        debugPrint('JE details: encrypted id not found ($e)');
+      }
+    }
+    final serverId = numeric && (token ?? '').isNotEmpty ? token! : failureNo;
     try {
-      final r = await _getFailureDetailsFromServer(failureNo)
+      final r = await _getFailureDetailsFromServer(serverId)
           .timeout(const Duration(seconds: 20));
       if (r.responseOutput?.getCreateVMModel != null) return r;
     } catch (e) {
@@ -144,8 +164,8 @@ class FailureService {
   }
 
   /// The Junior Engineer failure from the local copy as a details response.
-  Future<({FailureDetailResponse response, bool pending})?> _jeLocalDetails(
-      List<String> ids) async {
+  Future<({FailureDetailResponse response, bool pending, String? token})?>
+      _jeLocalDetails(List<String> ids) async {
     int? notificationId;
     String? code;
     String? token;
@@ -165,7 +185,8 @@ class FailureService {
         .findJeFailure(notificationId: notificationId, code: code, token: token);
     if (row == null) return null;
     final rec = row['record'] as Map<String, dynamic>;
-    final je = Map<String, dynamic>.from(rec['jeFailure'] as Map);
+    final je = await SiNormalize.normalize(
+        Map<String, dynamic>.from(rec['jeFailure'] as Map), rec);
     List<dynamic> list(String key) => rec[key] is List ? rec[key] as List : const [];
 
     final history = list('correctiveNotificationActionUserHistory');
@@ -176,7 +197,22 @@ class FailureService {
     final model = <String, dynamic>{
       'notificationId': nid,
       'notificationCode': je['notificationCode'],
-      'description': je['failureDescription'] ?? je['description'],
+      'description': je['description'],
+      'locationFailure': je['locationFailure'],
+      // What the JE form shows about the service / passengers.
+      'isServiceAffected': je['isServiceAffected'],
+      'trainDelayInMin': je['trainDelayInMin'],
+      'trainDelayInNo': je['trainDelayInNo'],
+      'noOfTranCancel': je['noOfTranCancel'],
+      'noOfTranWithdrawal': je['noOfTranWithdrawal'],
+      'noOfTrainReplace': je['noOfTrainReplace'],
+      'isPassengerDeboarding': je['isPassengerDeboarding'],
+      'noofTrainDeboarded': je['noofTrainDeboarded'],
+      'isPassengerAffected': je['isPassengerAffected'],
+      'noOfPassengerAffected': je['noOfPassengerAffected'],
+      'trappedDuration': je['trappedDuration'],
+      'rescuedDuration': je['rescuedDuration'],
+      'corr_NotificationTypeId': je['corr_NotificationTypeId'],
       'functionLocationId': je['functionLocationId'],
       'equipmentId': je['equipmentId'],
       'funcLocation': je['functionalLocation'],
@@ -187,7 +223,10 @@ class FailureService {
       'deptId': je['deptId'] ?? je['mainDeptId'],
       'priorityId': je['priorityId'],
       'priorityType': je['priorityType'],
-      'actualFailureOccuranceOn': je['failureOccuranceDateTime'],
+      'actualFailureOccuranceOn':
+          ('${je['failureOccuranceDateTime'] ?? ''}'.trim().isNotEmpty)
+              ? je['failureOccuranceDateTime']
+              : je['actualFailureOccuranceOn'],
       'systems': je['systems'],
       'subSystems': je['subSystems'],
       'frequency': je['freq'],
@@ -200,7 +239,7 @@ class FailureService {
     if ((token2 ?? '').isNotEmpty) model['Id'] = token2;
 
     // RCA rows in the shape the form reads from FailureRectificationJson.
-    final rca = [
+    var rca = [
       for (final r in list('newRca'))
         if (r is Map)
           {
@@ -210,6 +249,54 @@ class FailureService {
           }
     ];
 
+    // What the JE already filled in (user status, rectification details, dates,
+    // RCA, materials) when the synced data does not carry it.
+    final ov = await JeOverlay.load(nid);
+    var materials = <dynamic>[];
+    var dismantle = <dynamic>[];
+    if (ov != null) {
+      void fill(String k) {
+        final cur = model[k];
+        final v = ov[k];
+        if (v != null && (cur == null || (cur is String && cur.trim().isEmpty))) {
+          model[k] = v;
+        }
+      }
+
+      for (final k in const [
+        'userStatus', 'failureRectificationDetails', 'failureAttendedDate',
+        'actualFailureRectifiedDate', 'underObservationDate', 'failureType',
+        'failureTypeId', 'ptwNo', 'isPTWReq', 'isHardwareReplaced',
+      ]) {
+        fill(k);
+      }
+      if (rca.isEmpty && ov['rca'] is List) {
+        rca = [for (final r in ov['rca'] as List) if (r is Map) Map<String, dynamic>.from(r)];
+      }
+      // The update body names them differently from the details lists.
+      materials = [
+        for (final m in (ov['materials'] as List? ?? const []))
+          if (m is Map)
+            {
+              'id': m['Id'],
+              'materialid': m['Materialid'],
+              'materialValue': m['MaterialValue'],
+              'quantity': m['Quantity'],
+              'issuedQty': m['IssuedQty'],
+              'usedQty': m['UsedQty'],
+              'balanceQty': m['BalanceQty'],
+              'remainingBalanceQTY': m['RemainingBalanceQTY'],
+              'storageLocation': m['StorageLocation'],
+              'unitOfMeasurement': m['UnitMeasurement'],
+            }
+      ];
+      dismantle = [
+        for (final m in (ov['dismantle'] as List? ?? const []))
+          if (m is Map && '${m['InsertUpdateStatusId']}' != '3')
+            {...Map<String, dynamic>.from(m), 'id': m['Id']}
+      ];
+    }
+
     final response = FailureDetailResponse.fromJson({
       'responseCode': 200,
       'responseMessage': 'Success',
@@ -217,7 +304,8 @@ class FailureService {
         'getCreateVMModel': model,
         'getNotificationActionUserHistory': history,
         'getNotificationHistory': const [],
-        'getMaterialReqDetails': const [],
+        'getMaterialReqDetails': materials,
+        'getMaterialDismantleDetails': dismantle,
         'measurementPoint': list('measurementPoint'),
         'getJoinInspectionHistory': list('joinInspectionHistory'),
       },
@@ -230,6 +318,7 @@ class FailureService {
       failureRectificationJson: rca.isEmpty ? null : jsonEncode(rca),
     ),
     pending: row['pendingAction'] != null,
+    token: token2,
     );
   }
 
@@ -2344,7 +2433,8 @@ class FailureService {
         .findSiFailure(notificationId: notificationId, code: code);
     if (row == null) return null;
     final rec = row['record'] as Map<String, dynamic>;
-    final si = Map<String, dynamic>.from(rec['siFailure'] as Map);
+    final si = await SiNormalize.normalize(
+        Map<String, dynamic>.from(rec['siFailure'] as Map), rec);
     // The encrypted id (details model "Id"): from the sync's siFailure, or
     // the one kept with the local copy.
     final token = encryptedIdFromSiFailure(
