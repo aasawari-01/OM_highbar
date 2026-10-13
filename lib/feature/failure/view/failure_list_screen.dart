@@ -442,7 +442,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ],
                 ),
               ],
-              if ((failure.statusName ?? '').trim().toLowerCase() == 'work complete' && _isStationController) ...[
+              if ((failure.statusName ?? '').trim().toLowerCase() == 'work complete' &&
+                  _isStationController &&
+                  failure.pendingAction == null) ...[
                 const SizedBox(height: 12),
                 const Divider(color: AppColors.dividerColor3, height: 1),
                 const SizedBox(height: 12),
@@ -991,16 +993,15 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
     );
   }
 
-  /// Section Incharge Close button: status 4 and not a train set failure. A
-  /// Station request only appears once the Station Controller has acknowledged
-  /// it (occRequestStatusId 197 or 176). Depot requests need no acknowledge:
-  /// the SI closes them directly after the JE.
+  /// Section Incharge Close button (same rule as the web list): status 4 and
+  /// not a train set failure. A Station or Depot request only appears once it
+  /// was acknowledged (occRequestStatusId 197 or 176).
   bool _sectionInchargeCanClose(FailureItem failure) {
     if (failure.statusId != 4 || failure.isTrainSetFailure != false) {
       return false;
     }
     final from = (failure.otherRequestFrom ?? '').trim();
-    if (from == 'Station Request') {
+    if (from == 'Station Request' || from == 'Depot Request') {
       final ack = failure.occRequestStatusId;
       return ack == 197 || ack == 176;
     }

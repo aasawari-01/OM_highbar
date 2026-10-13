@@ -29,8 +29,12 @@ class SiNormalize {
   static int? _int(dynamic v) =>
       v is int ? v : (v is num ? v.toInt() : int.tryParse('${v ?? ''}'));
 
+  /// [deriveRequestFlags] (Section Incharge list only): fills otherRequestFrom
+  /// and occRequestStatus, which the server no longer sends, from the creation
+  /// type, because the Close / Reject / Delete buttons depend on them.
   static Future<Map<String, dynamic>> normalize(
-      Map<String, dynamic> si, Map<String, dynamic> record) async {
+      Map<String, dynamic> si, Map<String, dynamic> record,
+      {bool deriveRequestFlags = false}) async {
     final m = Map<String, dynamic>.from(si);
     final db = LocalDatabaseService();
     try {
@@ -101,9 +105,33 @@ class SiNormalize {
         }
       }
 
-      // Not a train set failure unless the server says so (the Close rule
-      // needs an explicit false).
-      if (m['isTrainSetFailure'] == null) m['isTrainSetFailure'] = false;
+      // Train set failure: the server sends 0 / 1 (or a bool); not a train set
+      // failure unless it says so (the Close rule needs an explicit false).
+      final t = m['isTrainSetFailure'];
+      m['isTrainSetFailure'] = t is bool
+          ? t
+          : (t is num
+              ? t != 0
+              : (t is String && (t.toLowerCase() == 'true' || t == '1')));
+
+      if (deriveRequestFlags) {
+        final from = '${m['creationType'] ?? ''}'.trim().toLowerCase();
+        // Where the request came from: the Close rule asks for the Station
+        // Controller's acknowledge for Station and Depot requests.
+        if (_blank(m['otherRequestFrom'])) {
+          if (from == 'station') m['otherRequestFrom'] = 'Station Request';
+          if (from == 'depot') m['otherRequestFrom'] = 'Depot Request';
+        }
+        // "Yes" = raised by OCC / Station / Depot (Reject For Duplicate),
+        // "No" = created by hand (Delete).
+        if (_blank(m['occRequestStatus'])) {
+          if (from == 'station' || from == 'depot' || from == 'occ') {
+            m['occRequestStatus'] = 'Yes';
+          } else if (from == 'manual') {
+            m['occRequestStatus'] = 'No';
+          }
+        }
+      }
 
       // Location: the one of the functional location
       final flId = _int(m['functionLocationId']) ?? 0;

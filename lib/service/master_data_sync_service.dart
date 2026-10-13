@@ -552,6 +552,9 @@ class MasterDataSyncService extends GetxController {
       final syncedNumbers = <String>[]; // real failure numbers of Station failures
       var stationSynced = 0;
       var stationFailed = 0;
+      var ackSynced = 0; // Station Controller Acknowledge: sent and failed
+      var ackFailed = 0;
+      final ackNumbers = <String>[];
       var siSynced = 0; // Section Incharge: sent and failed
       var siFailed = 0;
       final siCreatedNumbers = <String>[];
@@ -599,6 +602,63 @@ class MasterDataSyncService extends GetxController {
                 DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
             stationFailed++;
             debugPrint('syncPendingSubmissions: station failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
+        // Station Controller: Acknowledge (Accept / Deny) saved offline.
+        if (submission['failureType'] == 'StationAck') {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+
+          Future<void> failIt(String reason) async {
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            _retryAfter[sid] = DateTime.now()
+                .add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            ackFailed++;
+            debugPrint('syncPendingSubmissions: acknowledge $sid failed ($n): $reason');
+          }
+
+          try {
+            final status = payload['submitStatus']?.toString();
+            final response = await _failureService
+                .updateStationAcknowledgeStatus(
+                  id: int.tryParse('${payload['id']}') ?? 0,
+                  action: 'UPDATE_Acknowledge_OCC_Station',
+                  description: payload['remark']?.toString() ?? '',
+                  statusId: status == 'deny' ? 198 : (status == 'accept' ? 197 : 202),
+                  createdBy: int.tryParse(me) ?? 0,
+                  createdByName: (await AuthManager().getFullName()) ?? '',
+                )
+                .timeout(const Duration(seconds: 60));
+            final ok = response['responseCode'] == 200 ||
+                '${response['responseMessage']}'.toLowerCase() == 'success';
+            if (ok) {
+              await _dbService.deletePendingSubmission(sid);
+              _retryAfter.remove(sid);
+              syncedCount++;
+              ackSynced++;
+              final no = payload['failureNo']?.toString() ?? '';
+              if (no.isNotEmpty) ackNumbers.add(no);
+            } else {
+              await failIt('${response['responseMessage'] ?? 'The server did not accept it'}');
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break;
+            }
+            await failIt(e.toString().replaceFirst('Exception: ', ''));
           }
           continue;
         }
@@ -753,6 +813,22 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
+      if (ackSynced > 0 || ackFailed > 0) {
+        final lines = <String>[
+          if (ackSynced > 0)
+            '$ackSynced acknowledge${ackSynced == 1 ? '' : 's'} synced'
+                '${ackNumbers.isEmpty ? '' : ': ${ackNumbers.join(', ')}'}',
+          if (ackFailed > 0)
+            '$ackFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          ackFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: ackFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
       if (siSynced > 0 || siFailed > 0) {
         final lines = <String>[
           if (siCreatedNumbers.isNotEmpty)
@@ -770,15 +846,15 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
-      if (syncedCount > stationSynced + siSynced) {
+      if (syncedCount > stationSynced + siSynced + ackSynced) {
         Get.snackbar(
           'Sync Complete',
-          'Successfully synced ${syncedCount - stationSynced - siSynced} pending submissions',
+          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced} pending submissions',
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
       }
-      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0) {
+      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0) {
         debugPrint("syncPendingSubmissions: Reloading lists after offline submissions");
         // Bring the server's state of what was just sent (a dropped action gets a
         // full reload so its local change disappears).

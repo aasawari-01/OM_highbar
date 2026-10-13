@@ -50,6 +50,8 @@ class SiOfflineService {
         return 'Update';
       case 'create':
         return 'Create';
+      case 'acknowledge':
+        return 'Acknowledge';
       default:
         return action ?? '';
     }

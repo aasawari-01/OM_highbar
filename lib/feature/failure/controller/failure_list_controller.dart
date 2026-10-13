@@ -13,6 +13,7 @@ import '../model/failure_list_response.dart';
 import '../service/failure_service.dart';
 import '../service/si_ids.dart';
 import '../service/station_overlay.dart';
+import '../../../service/network_service/network_errors.dart';
 import '../service/si_normalize.dart';
 import '../../../service/master_data_sync_service.dart';
 
@@ -323,7 +324,8 @@ class FailureListController extends GetxController {
       try {
         final record = row['record'] as Map<String, dynamic>;
         final si = await SiNormalize.normalize(
-            Map<String, dynamic>.from(record['siFailure'] as Map), record);
+            Map<String, dynamic>.from(record['siFailure'] as Map), record,
+            deriveRequestFlags: true);
         final notificationId = _toInt(si['notificationId']);
         if (notificationId == null) continue;
 
@@ -675,12 +677,22 @@ class FailureListController extends GetxController {
       }
     } catch (_) {}
 
+    final ackPending = await _dbService.getStationAckPending();
     final items = <FailureItem>[];
     for (final r in await _dbService.getStationFailureCache()) {
       try {
         final code = (r['failure'] as Map)['notificationCode']?.toString() ?? '';
-        items.add(FailureItem.fromJson(_stationRowFromTransaction(r,
-            categoryNames: categoryNames, overlay: overlays[code])));
+        final row = _stationRowFromTransaction(r,
+            categoryNames: categoryNames, overlay: overlays[code]);
+        // An Acknowledge saved offline: shown as waiting (or failed, with why).
+        final ack = ackPending[row['id']];
+        if (ack != null) {
+          final error = '${ack['error'] ?? ''}'.trim();
+          row['pendingAction'] = 'acknowledge';
+          row['syncStatus'] = error.isEmpty ? 'offline' : 'failed';
+          if (error.isNotEmpty) row['pendingError'] = error;
+        }
+        items.add(FailureItem.fromJson(row));
       } catch (e) {
         debugPrint('_fetchStationControllerFailures: skipped bad row: $e');
       }
@@ -725,6 +737,13 @@ class FailureListController extends GetxController {
 
   /// Retry of a Station failure the server refused.
   Future<void> retryOfflineFailure(FailureItem f) async {
+    if (f.pendingAction == 'acknowledge') {
+      final ack = (await _dbService.getStationAckPending())[f.id];
+      if (ack != null) await _dbService.resetSubmissionAttempts(ack['sid'] as int);
+      await fetchFailures();
+      await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
+      return;
+    }
     final sid = _submissionIdOf(f);
     if (sid <= 0) return;
     await _dbService.resetSubmissionAttempts(sid);
@@ -735,6 +754,13 @@ class FailureListController extends GetxController {
 
   /// Removes an offline Station failure (and what is waiting to be sent).
   Future<void> discardOfflineFailure(FailureItem f) async {
+    if (f.pendingAction == 'acknowledge') {
+      // The failure goes back to what the server has: Acknowledge shows again.
+      final ack = (await _dbService.getStationAckPending())[f.id];
+      if (ack != null) await _dbService.deletePendingSubmission(ack['sid'] as int);
+      await fetchFailures();
+      return;
+    }
     final sid = _submissionIdOf(f);
     if (sid <= 0) return;
     await _dbService.deletePendingSubmission(sid);
@@ -1052,8 +1078,84 @@ class FailureListController extends GetxController {
   }
 
 
+  /// Station Controller Acknowledge (Accept / Deny). Without a connection it is
+  /// saved on the device and sent when internet returns.
   Future<void> acknowledgeFailure(int id, String remark, String submitStatus, {String? failureNo}) async {
-    await _updateStationAcknowledgeStatus(id, "UPDATE_Acknowledge_OCC_Station", remark, submitStatus: submitStatus, failureNo: failureNo);
+    try {
+      isLoading.value = true;
+      errorMessage.value = "";
+
+      final String? userIdStr = await AuthManager().getUserId();
+      final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
+      final String userName =
+          (await AuthManager().getFullName()) ?? _sessionController.userName.value;
+      final int statusId = submitStatus == "deny"
+          ? 198
+          : submitStatus == "accept"
+              ? 197
+              : 202;
+      final String notifCode = failureNo ?? id.toString();
+
+      Map<String, dynamic> response;
+      try {
+        response = await _failureService
+            .updateStationAcknowledgeStatus(
+              id: id,
+              action: "UPDATE_Acknowledge_OCC_Station",
+              description: remark,
+              statusId: statusId,
+              createdBy: userId,
+              createdByName: userName,
+            )
+            .timeout(const Duration(seconds: 30));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: keep it and send it when internet returns.
+        await _dbService.insertPendingSubmission({
+          'action': 'acknowledge',
+          'id': id,
+          'submitStatus': submitStatus,
+          'remark': remark,
+          'failureNo': notifCode,
+          'queuedBy': userIdStr,
+        }, 'StationAck');
+        Get.snackbar(
+          'Saved Offline',
+          'Acknowledge for Failure No.$notifCode saved. It is sent when the internet is back.',
+          backgroundColor: AppColors.orangeColor,
+          colorText: AppColors.white1,
+        );
+        await fetchFailures();
+        return;
+      }
+
+      if (response['responseCode'] == 200 ||
+          response['responseMessage'] == "Success" ||
+          response['responseMessage'] == "success") {
+        Get.snackbar(
+          "Success",
+          submitStatus == "accept"
+              ? "Failure No.$notifCode acknowledge accepted successfully."
+              : submitStatus == "deny"
+                  ? "Failure No.$notifCode acknowledge denied successfully."
+                  : (response['responseMessage'] ?? "Action completed successfully."),
+          backgroundColor: AppColors.green,
+          colorText: AppColors.white1,
+        );
+        fetchFailures(); // Refresh list
+      } else {
+        errorMessage.value =
+            response['responseMessage'] ?? "Failed to perform action";
+        Get.snackbar("Error", errorMessage.value,
+            backgroundColor: AppColors.red, colorText: AppColors.white1);
+      }
+    } catch (e) {
+      errorMessage.value = "Error: $e";
+      Get.snackbar("Error", errorMessage.value,
+          backgroundColor: AppColors.red, colorText: AppColors.white1);
+    } finally {
+      isLoading.value = false;
+    }
   }
 
   Future<String?> _getStationFailureLastSyncDate() async {

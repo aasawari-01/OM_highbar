@@ -4654,14 +4654,43 @@ class LocalDatabaseService {
     });
   }
 
+  /// Station failures with an Acknowledge waiting to be sent: {failure id:
+  /// {sid, error, status}}.
+  Future<Map<int, Map<String, dynamic>>> getStationAckPending() async {
+    final db = await database;
+    return _stationAckPending(db);
+  }
+
+  Future<Map<int, Map<String, dynamic>>> _stationAckPending(DatabaseExecutor ex) async {
+    final out = <int, Map<String, dynamic>>{};
+    final rows = await ex.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0', whereArgs: ['StationAck']);
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        final id = int.tryParse('${p['id']}');
+        if (id == null) continue;
+        out[id] = {
+          'sid': r['id'],
+          'error': r['syncError'],
+          'status': p['submitStatus'],
+        };
+      } catch (_) {}
+    }
+    return out;
+  }
+
   Future<void> _insertStationRecords(
       DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
     final now = DateTime.now().toIso8601String();
+    // The server does not know about an Acknowledge waiting to be sent yet: its
+    // state must not replace the local one.
+    final pendingAck = (await _stationAckPending(txn)).keys.toSet();
     final batch = txn.batch();
     for (final r in records) {
       final f = r['failure'];
       final id = f is Map ? int.tryParse('${f['id']}') : null;
-      if (id == null) continue;
+      if (id == null || pendingAck.contains(id)) continue;
       batch.insert(
         'StationFailureCache',
         {
