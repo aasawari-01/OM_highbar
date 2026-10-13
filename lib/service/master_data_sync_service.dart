@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:get/get.dart';
@@ -11,6 +13,7 @@ import '../feature/failure/service/failure_service.dart';
 import '../feature/failure/controller/failure_list_controller.dart';
 import '../core/controller/global_master_data_controller.dart';
 import '../core/controller/session_controller.dart';
+import '../core/models/master_data_response.dart';
 import 'local_database_service.dart';
 import 'network_service/network_errors.dart';
 import '../feature/failure/service/si_offline_service.dart';
@@ -223,202 +226,107 @@ class MasterDataSyncService extends GetxController {
   }
 
   /// Syncs master data from API using lastSyncDate to get only changed data
-  Future<void> syncMasterDataFromAPI() async {
-    debugPrint("syncMasterDataFromAPI: STARTING");
-    await _executeSyncTask('Syncing master data from server...', () async {
-      debugPrint("syncMasterDataFromAPI: Inside sync task");
-      try {
-      final userId = await AuthManager().getUserId() ?? 1;
-      final lastSyncDate = await _getLastSyncDate();
-      
-      final apiUrl = '${AppUrls.baseUrl}${AppUrls.getMasterData}';
-      
-      final requestBody = {
-        "userId": userId,
-        "action": "",
-        "pageNumber": 0,
-        "pageSize": 0,
-        "lastSyncDate": lastSyncDate,
-        "syncType": "all"
-      };
-      
-      debugPrint("syncMasterDataFromAPI: Calling API with lastSyncDate: $lastSyncDate");
-      debugPrint("syncMasterDataFromAPI: API URL: $apiUrl");
-      debugPrint("syncMasterDataFromAPI: Request body: ${jsonEncode(requestBody)}");
-      
-      // Total steps: API call + 6 data types = 7 steps
-      final totalSteps = 7;
-      int completedSteps = 0;
-      
-      // Update status before API call
-      completedSteps++;
-      final percentage = ((completedSteps / totalSteps) * 100).toInt();
-      syncStatus.value = 'Connecting to server... $percentage%';
-      EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-      debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-      
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(requestBody),
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          debugPrint("syncMasterDataFromAPI: API call timed out after 30 seconds");
-          throw Exception('API request timed out');
-        },
-      );
-      
-      debugPrint("syncMasterDataFromAPI: Response status: ${response.statusCode}");
-      
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        debugPrint("syncMasterDataFromAPI: Response data: $responseData");
-        
-        if (responseData['success'] == true) {
-          final data = responseData['data'];
-          int totalUpdates = 0;
-          
-          debugPrint("syncMasterDataFromAPI: Starting to sync data types");
-          
-          // Sync functional locations
-          if (data['functionalLocations'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing functional locations... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final funcLocs = data['functionalLocations'] as List;
-            await _dbService.updateFunctionalLocationsFromAPI(funcLocs);
-            // Same table the failure-form dropdowns read from.
-            await _dbService.upsertFunctionalLocationsToMaster(funcLocs,
-                onProgress: (done, total) {
-              syncStatus.value = 'Syncing functional locations... $done/$total';
-              EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
-                  status: syncStatus.value,
-                  maskType: EasyLoadingMaskType.none);
-            });
-            totalUpdates += funcLocs.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${funcLocs.length} functional locations");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No functional locations to sync");
-          }
+  // The version of the master data on this device. MasterDataLogin (a null
+  // version) downloads everything and returns it; getMasterDataSync with it
+  // returns only what changed after it.
+  static const String _rowVersionKey = 'masterDataRowVersion';
+  static const String _deviceIdKey = 'masterDataDeviceId';
 
-          // Sync equipment (dropdown table)
-          if (data['equipments'] != null) {
-            final equipments = data['equipments'] as List;
-            await _dbService.upsertEquipmentsToMaster(equipments,
-                onProgress: (done, total) {
-              syncStatus.value = 'Syncing equipment... $done/$total';
-              EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
-                  status: syncStatus.value,
-                  maskType: EasyLoadingMaskType.none);
-            });
-            totalUpdates += equipments.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${equipments.length} equipments");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No equipments to sync");
+  Future<String> _masterDeviceId() async {
+    var id = await _dbService.getAppSetting(_deviceIdKey);
+    if (id == null || id.isEmpty) {
+      final r = Random.secure();
+      id = 'DEV-${List.generate(8, (_) => r.nextInt(16).toRadixString(16)).join().toUpperCase()}';
+      await _dbService.setAppSetting(_deviceIdKey, id);
+    }
+    return id;
+  }
+
+  /// One call of MasterDataLogin ([login], rowVersion null) or getMasterDataSync.
+  Future<MasterDataResponse> _callMasterData(
+      {required bool login, int? rowVersion}) async {
+    final userId = int.tryParse(await AuthManager().getUserId() ?? '') ?? 0;
+    final body = {
+      'userId': userId,
+      'deviceId': await _masterDeviceId(),
+      'rowVersion': login ? null : rowVersion,
+      'appVersion': '1.0.0',
+    };
+    final token = await AuthManager().getToken();
+    final url =
+        '${AppUrls.baseUrl}${login ? AppUrls.masterDataLogin : AppUrls.masterDataSync}';
+    debugPrint('syncMasterDataFromAPI: POST $url body=${jsonEncode(body)}');
+    final response = await http
+        .post(
+          Uri.parse(url),
+          headers: {
+            'Content-Type': 'application/json',
+            if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 120));
+    debugPrint('syncMasterDataFromAPI: status ${response.statusCode}, '
+        '${response.body.length} characters');
+    if (response.statusCode != 200) {
+      throw Exception('Master data: server error ${response.statusCode}');
+    }
+    // A full download is several MB: decode it off the UI thread.
+    final json = await compute(_decodeJsonMap, response.body);
+    return MasterDataResponse.fromJson(json);
+  }
+
+  /// Master data of the server. At login ([isLogin]) it downloads everything
+  /// (MasterDataLogin, version null) and keeps the version it returns; the sync
+  /// button asks only for the changes after the kept version (getMasterDataSync).
+  Future<void> syncMasterDataFromAPI({bool isLogin = false}) async {
+    debugPrint("syncMasterDataFromAPI: STARTING (login=$isLogin)");
+    await _executeSyncTask('Syncing master data from server...', () async {
+      try {
+        var stored = int.tryParse(await _dbService.getAppSetting(_rowVersionKey) ?? '');
+        // No version kept yet (first run, or this app version never synced): full.
+        var login = isLogin || stored == null;
+        var askedFull = false;
+        var pages = 0;
+        var totalUpdates = 0;
+
+        while (true) {
+          EasyLoading.showProgress(0.05,
+              status: 'Connecting to server...', maskType: EasyLoadingMaskType.none);
+          final res = await _callMasterData(login: login, rowVersion: stored);
+          if (!res.success) {
+            syncStatus.value = 'Sync failed: ${res.message}';
+            EasyLoading.showError(syncStatus.value);
+            return;
           }
-          
-          // Sync measurement points
-          if (data['measurementPoints'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing measurement points... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final measPoints = data['measurementPoints'] as List;
-            await _dbService.updateMeasurementPointsFromAPI(measPoints);
-            totalUpdates += measPoints.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${measPoints.length} measurement points");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No measurement points to sync");
+          if (res.needFullResync && !login && !askedFull) {
+            // The server cannot give the changes after our version: start over.
+            askedFull = true;
+            login = true;
+            stored = null;
+            continue;
           }
-          
-          // Sync locations
-          if (data['locations'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing locations... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final locations = data['locations'] as List;
-            await _dbService.updateLocationsFromAPI(locations);
-            totalUpdates += locations.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${locations.length} locations");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No locations to sync");
+          if (res.isChanged || login) {
+            totalUpdates += await _applyMasterData(res);
           }
-          
-          // Sync users
-          if (data['users'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing users... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final users = data['users'] as List;
-            // Users are saved in UserMaster.db, the table they are read from.
-            // (The old insert into the small MasterUsers table has columns it
-            // does not have and failed the whole sync.)
-            await _dbService.upsertUsersToMaster(users);
-            totalUpdates += users.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${users.length} users");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No users to sync");
+          if (res.rowVersion != null) {
+            stored = res.rowVersion;
+            await _dbService.setAppSetting(_rowVersionKey, '${res.rowVersion}');
           }
-          
-          // Sync materials
-          if (data['materials'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing materials... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final materials = data['materials'] as List;
-            await _dbService.updateMaterialsFromAPI(materials);
-            totalUpdates += materials.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${materials.length} materials");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No materials to sync");
-          }
-          
-          // Sync priorities
-          if (data['priorities'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing priorities... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final priorities = data['priorities'] as List;
-            await _dbService.updatePrioritiesFromAPI(priorities);
-            totalUpdates += priorities.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${priorities.length} priorities");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No priorities to sync");
-          }
-          
-          debugPrint("syncMasterDataFromAPI: Updating last sync date");
-          // Update last sync date
-          await _setLastSyncDate(DateTime.now().toIso8601String().split('T')[0]);
-          
-          debugPrint("syncMasterDataFromAPI: Reloading master data controller");
-          // Reload master data controller
-          await Get.find<GlobalMasterDataController>().reloadMasterData();
-          
-          syncStatus.value = 'Synced $totalUpdates records from server';
-          debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-          EasyLoading.showSuccess('Successfully synced $totalUpdates records');
-        } else {
-          syncStatus.value = 'Sync failed: ${responseData['message']}';
-          debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-          EasyLoading.showError(syncStatus.value);
+          pages++;
+          if (!res.hasMore || pages >= 50) break;
+          login = false; // the next pages: after the version just received
         }
-      } else {
-        syncStatus.value = 'Sync failed: ${response.reasonPhrase}';
-        debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-        EasyLoading.showError(syncStatus.value);
-      }
+
+        // Reload master data controller
+        await Get.find<GlobalMasterDataController>().reloadMasterData();
+        syncStatus.value = totalUpdates == 0
+            ? 'Master data is up to date'
+            : 'Synced $totalUpdates records from server';
+        debugPrint("syncMasterDataFromAPI: ${syncStatus.value}, rowVersion=$stored");
+        EasyLoading.showSuccess(totalUpdates == 0
+            ? 'Master data is up to date'
+            : 'Successfully synced $totalUpdates records');
       } catch (e) {
         // Never leave the progress popup on screen when the sync fails.
         debugPrint("syncMasterDataFromAPI: failed: $e");
@@ -429,30 +337,67 @@ class MasterDataSyncService extends GetxController {
     debugPrint("syncMasterDataFromAPI: FINISHED");
   }
 
-  Future<String> _getLastSyncDate() async {
-    final db = await _dbService.database;
-    final result = await db.rawQuery(
-      "SELECT value FROM AppSettings WHERE key = 'lastSyncDate'"
-    );
-    if (await _dbService.getAppSetting('usersMasterBackfillV1') != 'done') {
-      await _dbService.setAppSetting('usersMasterBackfillV1', 'done');
-      return await _dbService.getMasterBaselineDate() ?? '2026-08-01';
-    }
-    if (result.isNotEmpty) {
-      final saved = result.first['value']?.toString();
-      if (saved != null && saved.isNotEmpty) return saved;
-    }
-    // First sync: start from the date of the data bundled in the asset
-    // databases so nothing changed after the export is missed.
-    return await _dbService.getMasterBaselineDate() ?? '2026-08-01';
-  }
+  /// Writes the lists of one response into the local master tables; returns
+  /// how many rows it handled. A list that fails does not stop the others.
+  Future<int> _applyMasterData(MasterDataResponse res) async {
+    var total = 0;
+    final steps = <String, Future<void> Function(List<dynamic>)>{
+      MasterDataResponse.functionalLocations: (rows) async {
+        await _dbService.updateFunctionalLocationsFromAPI(rows);
+        // Same table the failure-form dropdowns read from.
+        await _dbService.upsertFunctionalLocationsToMaster(rows,
+            onProgress: (done, total) {
+          syncStatus.value = 'Syncing functional locations... $done/$total';
+          EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
+              status: syncStatus.value, maskType: EasyLoadingMaskType.none);
+        });
+      },
+      MasterDataResponse.equipments: (rows) =>
+          _dbService.upsertEquipmentsToMaster(rows, onProgress: (done, total) {
+            syncStatus.value = 'Syncing equipment... $done/$total';
+            EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
+                status: syncStatus.value, maskType: EasyLoadingMaskType.none);
+          }),
+      MasterDataResponse.measurementPoints: _dbService.updateMeasurementPointsFromAPI,
+      MasterDataResponse.locations: _dbService.updateLocationsFromAPI,
+      MasterDataResponse.materials: _dbService.updateMaterialsFromAPI,
+      MasterDataResponse.priorities: _dbService.updatePrioritiesFromAPI,
+      MasterDataResponse.departments: _dbService.upsertDepartmentsToMaster,
+      MasterDataResponse.plants: _dbService.upsertPlantsToMaster,
+      MasterDataResponse.notificationTypes: _dbService.upsertNotificationTypesToMaster,
+      MasterDataResponse.failureCategories: _dbService.upsertFailureCategoryTypesToMaster,
+      MasterDataResponse.newFailureCategories: _dbService.upsertRcaCategoriesToMaster,
+      MasterDataResponse.newCausesOfFailure: _dbService.upsertRcaCausesToMaster,
+      MasterDataResponse.newRootCauses: _dbService.upsertRcaRootCausesToMaster,
+      MasterDataResponse.actionMasters: _dbService.upsertActionMastersToMaster,
+    };
 
-  Future<void> _setLastSyncDate(String date) async {
-    final db = await _dbService.database;
-    await db.rawInsert(
-      "INSERT OR REPLACE INTO AppSettings (key, value) VALUES ('lastSyncDate', ?)",
-      [date]
-    );
+    final todo = [
+      for (final e in steps.entries)
+        if (res.list(e.key).isNotEmpty) e.key,
+      if (res.users.isNotEmpty) 'users',
+    ];
+    var done = 0;
+    for (final name in todo) {
+      final rows = name == 'users' ? res.users : res.list(name);
+      syncStatus.value = 'Syncing $name...';
+      EasyLoading.showProgress((done + 1) / (todo.length + 1),
+          status: syncStatus.value, maskType: EasyLoadingMaskType.none);
+      try {
+        if (name == 'users') {
+          // Users are saved in UserMaster.db, the table they are read from.
+          await _dbService.upsertUsersToMaster(rows);
+        } else {
+          await steps[name]!(rows);
+        }
+        total += rows.length;
+        debugPrint('syncMasterDataFromAPI: $name: ${rows.length} rows');
+      } catch (e) {
+        debugPrint('syncMasterDataFromAPI: $name failed: $e');
+      }
+      done++;
+    }
+    return total;
   }
 
   Future<String?> _getStationFailureLastSyncDate() async {
@@ -898,3 +843,6 @@ class MasterDataSyncService extends GetxController {
     }
   }
 }
+
+Map<String, dynamic> _decodeJsonMap(String body) =>
+    Map<String, dynamic>.from(jsonDecode(body) as Map);

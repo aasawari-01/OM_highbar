@@ -89,7 +89,7 @@ class LoginController extends GetxController {
         final syncService = Get.find<MasterDataSyncService>();
         // Sync master data from API first
         debugPrint("_startMasterDataSync: Calling syncMasterDataFromAPI");
-        await syncService.syncMasterDataFromAPI();
+        await syncService.syncMasterDataFromAPI(isLogin: true);
         // Station and Section Incharge failures (lists + details) are stored
         // locally at login so they work offline.
         debugPrint("_startMasterDataSync: Calling syncFailureTransactions");

@@ -4196,8 +4196,8 @@ class LocalDatabaseService {
       final t = await _firstUserTable(db);
       if (t == null) return [];
       return await db.rawQuery(
-          'SELECT ID, FailureCategoryType FROM "$t" '
-          'WHERE IsActive = 1 ORDER BY OrderNo, ID');
+          'SELECT ID, FailureCategoryType, MIN(OrderNo) AS OrderNo FROM "$t" '
+          'WHERE IsActive = 1 GROUP BY ID, FailureCategoryType ORDER BY OrderNo, ID');
     } catch (e) {
       debugPrint('getFailureCategoryTypeOptions error: $e');
       return [];
@@ -4428,6 +4428,166 @@ class LocalDatabaseService {
       await Future<void>.delayed(Duration.zero);
     }
   }
+
+  // ===========================================================================
+  // Master data of MasterDataLogin / getMasterDataSync written into the bundled
+  // databases the dropdowns read: rows that exist are updated with the values
+  // the server sent, new rows are added (see _mergeMasterRows).
+  // ===========================================================================
+
+  Object? _masterValue(Object? v) => v is bool ? (v ? 1 : 0) : v;
+
+  Future<void> _upsertAssetRows(
+    Database db,
+    String keyColumn,
+    List<dynamic> apiRows,
+    Map<String, String> columns, // local column -> name in the API row
+    Map<String, Object?> insertDefaults,
+  ) async {
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    // The bundled tables have no key, so "insert if new" would add the same row
+    // again at every sync: drop the copies made so far (keep the first row of
+    // each key) and make the key unique.
+    try {
+      await db.execute(
+          'DELETE FROM "$t" WHERE rowid NOT IN (SELECT MIN(rowid) FROM "$t" GROUP BY $keyColumn)');
+      await db.execute(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_key_${keyColumn.toLowerCase()} ON "$t"($keyColumn)');
+    } catch (e) {
+      debugPrint('_upsertAssetRows: key of $t: $e');
+    }
+    final inserts = <Map<String, Object?>>[];
+    final updates = <Map<String, Object?>>[];
+    for (final r in apiRows) {
+      if (r is! Map) continue;
+      final sent = <String, Object?>{
+        for (final e in columns.entries) e.key: _masterValue(r[e.value]),
+      };
+      updates.add(sent);
+      inserts.add({
+        ...insertDefaults,
+        ...Map<String, Object?>.from(sent)..removeWhere((k, v) => v == null),
+      });
+    }
+    await _mergeMasterRows(db, t, keyColumn, inserts, updates);
+  }
+
+  Future<void> upsertDepartmentsToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await deptDatabase,
+          'DeptId',
+          rows,
+          {'DeptId': 'deptId', 'DeptName': 'deptName', 'DeptCode': 'workCenter'},
+          {'IsActive': 1, 'IsONM': 1});
+
+  Future<void> upsertNotificationTypesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await notificationTypeDatabase,
+          'ID',
+          rows,
+          {
+            'ID': 'notificationTypeId',
+            'NotificationType': 'notificationType',
+            'Description': 'notificationType',
+            'CreatedOn': 'createdOn',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertFailureCategoryTypesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await failureCategoryDatabase,
+          'ID',
+          rows,
+          {
+            'ID': 'id',
+            'FailureCategoryType': 'failureCategoryType',
+            'Description': 'failureCategoryType',
+            'OrderNo': 'orderNo',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertPlantsToMaster(List<dynamic> rows) async {
+    await _upsertAssetRows(
+        await plantDatabase,
+        'Plant',
+        rows,
+        {
+          'Plant': 'plant',
+          'Name1': 'name1',
+          'Name2': 'name2',
+          'BusinessArea': 'businessArea',
+        },
+        {});
+    _plantsByBusinessArea.clear();
+  }
+
+  Future<void> upsertActionMastersToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await actionTakenDatabase,
+          'ID',
+          rows,
+          {
+            'ID': 'id',
+            'SystemGroup': 'systemGroup',
+            'ActionCode': 'actionCode',
+            'ActionDescr': 'actionDescr',
+            'IsActive': 'isActive',
+          },
+          {'IsActive': 1, 'ObjectCode': 'NULL', 'FaultCode': 'NULL'});
+
+  Future<void> upsertRcaCategoriesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await rcaFailureCategoryDatabase,
+          'FailureCategoryId',
+          rows,
+          {
+            'FailureCategoryId': 'failureCategoryId',
+            'Systems': 'systems',
+            'FailureCategory': 'failureCategory',
+            'WorkCenter': 'workCenter',
+            'BusinessArea': 'businessArea',
+            'CreatedOn': 'createdOn',
+            'CreatedBy': 'createdBy',
+            'IsActive': 'isActive',
+            'SubSystem': 'subSystem',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertRcaCausesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await causeOfFailureDatabase,
+          'CauseOfFailureId',
+          rows,
+          {
+            'CauseOfFailureId': 'causeOfFailureId',
+            'Cause': 'cause',
+            'FailureCategoryId': 'failureCategoryId',
+            'Systems': 'systems',
+            'WorkCenter': 'workCenter',
+            'BusinessArea': 'businessArea',
+            'IsActive': 'isActive',
+            'subSystem': 'subSystem',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertRcaRootCausesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await rootCauseDatabase,
+          'RootCauseId',
+          rows,
+          {
+            'RootCauseId': 'rootCauseId',
+            'RootCause': 'rootCause',
+            'CauseOfFailureId': 'causeOfFailureId',
+            'FailureCategoryId': 'failureCategoryId',
+            'Systems': 'systems',
+            'WorkCenter': 'workCenter',
+            'BusinessArea': 'businessArea',
+            'IsActive': 'isActive',
+            'subSystems': 'subSystems',
+          },
+          {'IsActive': 1});
 
   /// Merges functional locations from the API sync into the table the
   /// dropdowns read. New rows get status 'Created' when the API sends none

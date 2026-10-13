@@ -53,7 +53,8 @@ class AppUrls {
   static const String updateDepotAcknowledgeStatus = 'OCCMaintainance/updateDepotAcknowledgeStatus';
   static const String getDepotFailureById = 'OCCMaintainance/getDepotFailureCreationById';
   static const String createDepotFailure = 'OCCMaintainance/insertDepotFailureDetails';
-  static const String getMasterData = 'mobileAppAPI/GetMasterData';
+  static const String masterDataLogin = 'mobileAppAPI/MasterDataLogin';
+  static const String masterDataSync = 'mobileAppAPI/getMasterDataSync';
   static const String rstNotificationInbox = 'CorrectiveNotification/getRSTNotificationInboxJE';
   static const String getRSTFailureData = 'mobileAppAPI/GetRSTFailureData';
   static const String updateRSTNotificationAccept = "JECorrectivesMaintenance/updateRSTNotificationAccept";
