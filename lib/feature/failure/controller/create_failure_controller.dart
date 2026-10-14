@@ -1493,7 +1493,15 @@ class CreateFailureController extends GetxController
                 e['funcLocation']?.toString() == model.funcLocation?.toString(),
             orElse: () => <String, dynamic>{},
           );
-          if (funcLocEntry.isNotEmpty) {
+          if (isJE) {
+            // Only the points the Section Incharge chose for this failure: the
+            // stored copy of GetAllFailuresTransactionData first (the details
+            // call may not carry them), else what the details returned.
+            final stored = await _failureService.jeMeasurementPoints(
+                notificationId: model.notificationId, code: model.notificationCode);
+            _applyJeMeasurementPoints(
+                stored.isNotEmpty ? stored : output.measurementPoint);
+          } else if (funcLocEntry.isNotEmpty) {
             final objectNumber = funcLocEntry['objectNumber']?.toString();
             final objectKey = funcLocEntry['objectKey']?.toString();
             final valueToUse = (objectNumber != null && objectNumber.isNotEmpty)
@@ -3684,6 +3692,104 @@ class CreateFailureController extends GetxController
     }
   }
 
+  // ===========================================================================
+  // Junior Engineer "Measurement Reading": the measurement points the Section
+  // Incharge chose for the failure (from GetAllFailuresTransactionData or the
+  // details call). The JE only enters the before / after readings.
+  // ===========================================================================
+
+  String _measurementText(dynamic v) {
+    if (v == null) return '';
+    if (v is num) return v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+    return v.toString();
+  }
+
+  void _applyJeMeasurementPoints(List<Map<String, dynamic>>? rows) {
+    // The id and names under the keys the server uses for them.
+    dynamic pick(Map<String, dynamic> m, List<String> keys) {
+      for (final k in keys) {
+        if (m[k] != null) return m[k];
+      }
+      return null;
+    }
+
+    final points = <Map<String, dynamic>>[];
+    for (final m in rows ?? const <Map<String, dynamic>>[]) {
+      final measId = pick(m, ['measId', 'measurementId', 'MeasId']);
+      final measPoint = pick(m, ['measPoint', 'MeasPoint']);
+      if ((int.tryParse('$measId') ?? 0) <= 0 && measPoint == null) continue;
+      if (m['isRequired'] == false) continue;
+      points.add({
+        'measId': measId ?? measPoint,
+        'measPoint': _measurementText(measPoint),
+        'measPointDesc': _measurementText(pick(m, ['measPointDesc', 'MeasPointDesc'])),
+        'unitOfMeasurement': _measurementText(
+            pick(m, ['unitOfMeasurement', 'measRangeUnit', 'UnitOfMeasurement'])),
+        'lowerRangeLimit': _measurementText(m['lowerRangeLimit']),
+        'upperRangeLimit': _measurementText(m['upperRangeLimit']),
+        'beforeReading': _measurementText(m['beforeReading']),
+        'afterReading': _measurementText(m['afterReading']),
+      });
+    }
+    debugPrint('_applyJeMeasurementPoints: ${rows?.length ?? 0} rows, '
+        '${points.length} points');
+    measurementPointsList.assignAll(points);
+    showMeasurementButton.value = points.isNotEmpty;
+  }
+
+  // ===========================================================================
+  // Section Incharge "Measurement Reading": the measurement points of the chosen
+  // functional location (matched by object number) with a checkbox each. The
+  // checked ones are sent as MeasurementPointIds when the failure is saved.
+  // ===========================================================================
+
+  final siMeasurementRows = <Map<String, dynamic>>[].obs;
+
+  /// True when the chosen functional location has measurement points: the
+  /// Measurement Reading button is only shown then.
+  final siHasMeasurement = false.obs;
+  int _siMeasCheckedFor = -1;
+
+  Future<void> refreshSiMeasurementAvailability() async {
+    final funcId = _apiIdFor(functionalLocationList, selectedFunctionalLocation.value);
+    if (funcId == _siMeasCheckedFor) return;
+    _siMeasCheckedFor = funcId;
+    if (funcId <= 0) {
+      siHasMeasurement.value = false;
+      return;
+    }
+    final rows =
+        await LocalDatabaseService().getMeasurementPointsForFunctionalLocation(funcId);
+    if (_siMeasCheckedFor == funcId) siHasMeasurement.value = rows.isNotEmpty;
+  }
+
+  Future<void> loadSiMeasurementPoints() async {
+    final funcId = _apiIdFor(functionalLocationList, selectedFunctionalLocation.value);
+    final rows = funcId > 0
+        ? await LocalDatabaseService().getMeasurementPointsForFunctionalLocation(funcId)
+        : <Map<String, dynamic>>[];
+    final chosen = measurementPointIdsController.text
+        .split(',')
+        .map((e) => int.tryParse(e.trim()))
+        .whereType<int>()
+        .toSet();
+    siMeasurementRows.assignAll([
+      for (final r in rows) {...r, 'checked': chosen.contains(r['measId'])},
+    ]);
+  }
+
+  void toggleSiMeasurement(int index, bool value) {
+    siMeasurementRows[index]['checked'] = value;
+    siMeasurementRows.refresh();
+  }
+
+  void saveSiMeasurementSelection() {
+    measurementPointIdsController.text = [
+      for (final r in siMeasurementRows)
+        if (r['checked'] == true && r['measId'] != null) '${r['measId']}',
+    ].join(',');
+  }
+
   Future<void> fetchFaults(String objectPartId) async {
     try {
       isFaultLoading.value = true;
@@ -4968,6 +5074,7 @@ class CreateFailureController extends GetxController
 
   /// Clears what depends on the functional location.
   void _siClearFunctionalDerived() {
+    measurementPointIdsController.clear(); // they belong to the functional location
     selectedFunctionalLocation.value = null;
     functionalLocationList.clear();
     _apiClearSystem();
@@ -4997,6 +5104,12 @@ class CreateFailureController extends GetxController
   Future<void> _onSiFunctionalLocationChanged(String? label) async {
     final none = label == null || label.isEmpty || label == 'Select';
     selectedFunctionalLocation.value = none ? null : label;
+    measurementPointIdsController.clear(); // they belong to the functional location
+    if (isJE) {
+      // The points the SI chose belong to the old functional location.
+      measurementPointsList.clear();
+      showMeasurementButton.value = false;
+    }
     _apiClearSystem();
     equipmentList.clear();
     selectedEquipmentNumber.value = null;
@@ -6084,6 +6197,11 @@ class CreateFailureController extends GetxController
           .assignAll(output.getNotificationHistory ?? []);
 
       await _applySiSavedSelections(model, output);
+      // The measurement points chosen for this failure.
+      measurementPointIdsController.text = [
+        for (final m in output.measurementPoint ?? const <Map<String, dynamic>>[])
+          if ((int.tryParse('${m['measId']}') ?? 0) > 0) '${m['measId']}',
+      ].toSet().join(',');
 
       if ((model.frequency ?? 0) > 0) {
         fmecaFrequencyController.text = model.frequency.toString();

@@ -28,6 +28,17 @@ class JeOverlay {
       bool? flag(String k) => je[k] is bool ? je[k] as bool : null;
       List<dynamic>? list(dynamic v) => v is List && v.isNotEmpty ? v : null;
 
+      // The readings entered for the measurement points (by measurement id).
+      final readings = [
+        for (final m in payload['getMeasurementPoints'] as List? ?? const [])
+          if (m is Map)
+            {
+              'measId': m['measId'],
+              'beforeReading': m['beforeReading'],
+              'afterReading': m['afterReading'],
+            }
+      ];
+
       final m = <String, dynamic>{
         'userStatus': number('UserStatus'),
         'failureRectificationDetails': text('FailureRectificationDetails'),
@@ -42,6 +53,7 @@ class JeOverlay {
         'rca': list(je['FailureRectificationJson']),
         'materials': list(payload['materialRequiredDetails']),
         'dismantle': list(payload['materialDismantleDetails']),
+        'readings': list(readings),
       };
       m.removeWhere((k, v) => v == null);
       await LocalDatabaseService().setAppSetting(_key(notificationId), jsonEncode(m));

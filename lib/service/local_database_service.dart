@@ -1755,6 +1755,52 @@ class LocalDatabaseService {
     return results;
   }
 
+  /// Measurement points of a functional location: the object number of the
+  /// functional location (fun_loc ObjectNumber) is matched with the ObjectNo of
+  /// the measurement point master - the copy kept by the master data sync and
+  /// the bundled measurementPointMaster.db. Works offline.
+  Future<List<Map<String, dynamic>>> getMeasurementPointsForFunctionalLocation(
+      int funcLocId) async {
+    try {
+      final fl = await funLocDatabase;
+      final t = await _firstUserTable(fl);
+      if (t == null) return [];
+      final rows = await fl.rawQuery(
+          'SELECT ObjectNumber, ObjectKey FROM "$t" WHERE FuncLocId = ? LIMIT 1',
+          [funcLocId]);
+      if (rows.isEmpty) return [];
+      final candidates = <String>{
+        for (final k in ['ObjectNumber', 'ObjectKey'])
+          if ('${rows.first[k] ?? ''}'.trim().isNotEmpty &&
+              '${rows.first[k]}'.trim().toUpperCase() != 'NULL')
+            '${rows.first[k]}'.trim(),
+      };
+      final byId = <String, Map<String, dynamic>>{};
+      for (final objectNo in candidates) {
+        final found = <MeasurementPointModel>[
+          ...await getMeasurementPointsFromLocal(objectNumber: objectNo),
+          ...await getMeasurementPointsFromAssetsFiltered(objectNo),
+        ];
+        for (final m in found) {
+          final key = '${m.measId ?? m.measPoint}';
+          byId.putIfAbsent(key, () => {
+                'measId': m.measId,
+                'measPoint': m.measPoint,
+                'measPointDesc': m.measPointDesc,
+                'measRangeUnit': m.measRangeUnit,
+              });
+        }
+        if (byId.isNotEmpty) break; // the object number matched
+      }
+      final out = byId.values.toList()
+        ..sort((a, b) => '${a['measPoint']}'.compareTo('${b['measPoint']}'));
+      return out;
+    } catch (e) {
+      debugPrint('getMeasurementPointsForFunctionalLocation error: $e');
+      return [];
+    }
+  }
+
   Future<List<MeasurementPointModel>> getMeasurementPoints() async {
     try {
       final db = await measurementDatabase;

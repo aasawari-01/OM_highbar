@@ -163,6 +163,34 @@ class FailureService {
     return best;
   }
 
+  /// The measurement points the Section Incharge chose for a Junior Engineer
+  /// failure: the stored copy from GetAllFailuresTransactionData, with the
+  /// readings the JE saved offline on top. Empty when the failure is not stored.
+  Future<List<Map<String, dynamic>>> jeMeasurementPoints(
+      {int? notificationId, String? code}) async {
+    final row = await LocalDatabaseService()
+        .findJeFailure(notificationId: notificationId, code: code);
+    if (row == null) return [];
+    final rec = row['record'] as Map<String, dynamic>;
+    final nid = int.tryParse('${(rec['jeFailure'] as Map?)?['notificationId']}') ?? 0;
+    final ov = await JeOverlay.load(nid);
+    final readings = {
+      for (final r in (ov?['readings'] as List? ?? const []))
+        if (r is Map) '${r['measId']}': r,
+    };
+    return [
+      for (final m in (rec['measurementPoint'] as List? ?? const []))
+        if (m is Map)
+          {
+            ...Map<String, dynamic>.from(m),
+            if (readings['${m['measId']}'] != null) ...{
+              'beforeReading': readings['${m['measId']}']!['beforeReading'],
+              'afterReading': readings['${m['measId']}']!['afterReading'],
+            },
+          }
+    ];
+  }
+
   /// The Junior Engineer failure from the local copy as a details response.
   Future<({FailureDetailResponse response, bool pending, String? token})?>
       _jeLocalDetails(List<String> ids) async {
@@ -254,6 +282,7 @@ class FailureService {
     final ov = await JeOverlay.load(nid);
     var materials = <dynamic>[];
     var dismantle = <dynamic>[];
+    var measurementPoints = list('measurementPoint');
     if (ov != null) {
       void fill(String k) {
         final cur = model[k];
@@ -295,6 +324,24 @@ class FailureService {
           if (m is Map && '${m['InsertUpdateStatusId']}' != '3')
             {...Map<String, dynamic>.from(m), 'id': m['Id']}
       ];
+      // The readings the JE saved offline are newer than the synced ones.
+      final readings = {
+        for (final r in (ov['readings'] as List? ?? const []))
+          if (r is Map) '${r['measId']}': r,
+      };
+      if (readings.isNotEmpty) {
+        measurementPoints = [
+          for (final m in measurementPoints)
+            if (m is Map)
+              {
+                ...Map<String, dynamic>.from(m),
+                if (readings['${m['measId']}'] != null) ...{
+                  'beforeReading': readings['${m['measId']}']!['beforeReading'],
+                  'afterReading': readings['${m['measId']}']!['afterReading'],
+                },
+              }
+        ];
+      }
     }
 
     final response = FailureDetailResponse.fromJson({
@@ -306,7 +353,7 @@ class FailureService {
         'getNotificationHistory': const [],
         'getMaterialReqDetails': materials,
         'getMaterialDismantleDetails': dismantle,
-        'measurementPoint': list('measurementPoint'),
+        'measurementPoint': measurementPoints,
         'getJoinInspectionHistory': list('joinInspectionHistory'),
       },
     });
@@ -2403,7 +2450,12 @@ class FailureService {
           'getNotificationActionUserHistory': const [],
           'getNotificationHistory': const [],
           'getMaterialReqDetails': const [],
-          'measurementPoint': const [],
+          // The measurement points chosen on the form.
+          'measurementPoint': [
+            for (final id in '${form['measurementPointIds'] ?? ''}'.split(','))
+              if ((int.tryParse(id.trim()) ?? 0) > 0)
+                {'measId': int.parse(id.trim()), 'isRequired': true},
+          ],
         },
       });
       return (response: response, labels: labels);
