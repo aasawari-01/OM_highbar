@@ -1120,6 +1120,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
                   .add("Used Quantity is required for all replaced materials.");
               break;
             }
+            final used = int.tryParse(usedQtyStr) ?? 0;
+            final required = int.tryParse('${mat['requiredQty'] ?? 0}') ?? 0;
+            if (used > required) {
+              errors.add(
+                  "Used Quantity cannot be greater than Required Quantity (${mat['materialCode']}).");
+              break;
+            }
           }
         }
       }
@@ -1431,7 +1438,14 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         "IsFailureRectifiDetails": isRcaRequired.value,
         "IsFmecaFailureRectificationDetails": true,
         "FailureType": selectedActualFailureRectified.value ?? "No",
-        "FailureTypeId": "1",
+        "FailureTypeId": (const {
+          'software': 1,
+          'hardware': 2,
+          'communication': 3,
+          'other': 4,
+        }[(selectedMaterialType.value ?? '').trim().toLowerCase()] ??
+            1)
+            .toString(),
         "IsHardwareReplaced": isSparePartReplaced.value,
         "IsJointInspectionReq": isJointInspection.value,
         "FunctionLocation_JI": isJointInspection.value ? 0 : null,

@@ -1858,7 +1858,12 @@ class CreateFailureController extends GetxController
                 'issuedQty': issuedQty?.toString(),
                 'usedQty': usedQty?.toString(),
                 'balanceQty': balanceQty?.toString(),
-                'storeLocation': storageLocationValue,
+                // The label of the store location when only its id was kept.
+                'storeLocation': storageLocationValue ??
+                    storageLocationList
+                        .firstWhereOrNull(
+                            (s) => s.value == '${item['storageLocation'] ?? item['StorageLocation'] ?? ''}')
+                        ?.label,
                 'storageLocation': storageLocation,
                 'uom': uom,
                 'RemainingBalanceQTY':
@@ -3690,6 +3695,18 @@ class CreateFailureController extends GetxController
       showMeasurementButton.value = false;
       debugPrint("_checkMeasurementPoints error: $e");
     }
+  }
+
+  /// Spare part: picking a material shows its unit of measurement (from
+  /// materialMaster.db, "N/A" when it has none).
+  Future<void> onSpareMaterialSelected(String? label) async {
+    selectedMaterialCode.value = label;
+    final id = int.tryParse(materialMasterList
+            .firstWhereOrNull((m) => m.label == label)
+            ?.value ??
+        '');
+    uomController.text =
+        id == null ? 'N/A' : await LocalDatabaseService().getMaterialUnit(id);
   }
 
   // ===========================================================================

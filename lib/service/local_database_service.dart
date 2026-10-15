@@ -3731,6 +3731,24 @@ class LocalDatabaseService {
     }
   }
 
+  /// Unit of measurement of a material (materialMaster.db); "N/A" when the
+  /// master has none.
+  Future<String> getMaterialUnit(int materialId) async {
+    try {
+      final db = await materialMasterDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return 'N/A';
+      final rows = await db.rawQuery(
+          'SELECT UnitOfMeasurement FROM "$t" WHERE MaterialId = ? LIMIT 1',
+          [materialId]);
+      final unit = rows.isEmpty ? '' : '${rows.first['UnitOfMeasurement'] ?? ''}'.trim();
+      return (unit.isEmpty || unit.toUpperCase() == 'NULL') ? 'N/A' : unit;
+    } catch (e) {
+      debugPrint('getMaterialUnit error: $e');
+      return 'N/A';
+    }
+  }
+
   Future<List<MaterialMaster>> getMaterialMasters() async {
     try {
       final db = await materialMasterDatabase;
@@ -4711,6 +4729,96 @@ class LocalDatabaseService {
             } catch (_) {}
             _userDatabase = null;
           });
+
+  /// Applies the user changes of MasterDataLogin / getMasterDataSync, one entry
+  /// per user {userId, action, addedRights, removedRights}:
+  ///  DELETE     the user is gone or inactive: all their rows are removed
+  ///  NO_RIGHTS  the user keeps no right: all their rows are removed
+  ///  NEW        a new user: the added rights are stored (none yet = nothing)
+  ///  UPSERT     profile or role / department / designation names changed: the
+  ///             removed rights go, the added rights are stored, and the profile
+  ///             (name, email, code, area, designation) is updated on every row
+  ///  RIGHTS     only rights added / removed
+  /// A right without a role is the user alone (no right): it is not stored,
+  /// so the user does not appear in any user list.
+  Future<void> applyUserChanges(List<dynamic> changes) =>
+      _retryIfDbMoved(() => _applyUserChangesOnce(changes), () async {
+        try {
+          await _userDatabase?.close();
+        } catch (_) {}
+        _userDatabase = null;
+      });
+
+  Future<void> _applyUserChangesOnce(List<dynamic> changes) async {
+    final db = await userDatabase;
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    for (final c in changes) {
+      if (c is! Map) continue;
+      final userId = int.tryParse('${c['userId']}');
+      if (userId == null || userId <= 0) continue;
+      final action = '${c['action'] ?? ''}'.trim().toUpperCase();
+      List<Map> rights(String key) => [
+            for (final r in (c[key] as List? ?? const []))
+              if (r is Map) r
+          ];
+      final added = rights('addedRights');
+      final removed = rights('removedRights');
+      String right(Map r) =>
+          'role=${r['roleId']}(${r['roleDescr']}) dept=${r['deptId']} area=${r['businessArea']}';
+      debugPrint('applyUserChanges: user $userId $action '
+          'added=[${added.map(right).join('; ')}] '
+          'removed=[${removed.map(right).join('; ')}]');
+
+      if (action == 'DELETE' || action == 'NO_RIGHTS') {
+        final n = await db.delete('"$t"', where: 'UserId = ?', whereArgs: [userId]);
+        debugPrint('applyUserChanges: user $userId: $n rows removed');
+        continue;
+      }
+
+      for (final r in removed) {
+        await db.delete('"$t"',
+            where: 'UserId = ? AND RoleId IS ? AND DeptId IS ?',
+            whereArgs: [userId, r['roleId'], r['deptId']]);
+      }
+      final withRole = [
+        for (final r in added)
+          if (r['roleId'] != null) {...r, 'userId': userId}
+      ];
+      if (withRole.isNotEmpty) await _upsertUsersToMasterOnce(withRole);
+
+      // The profile is the same on every row of the user.
+      if (added.isNotEmpty) {
+        final p = added.first;
+        var userName = _cleanMasterText(p['userName']);
+        if (userName.isEmpty) {
+          userName = '${_cleanMasterText(p['firstName'])} ${_cleanMasterText(p['lastName'])}'
+              .trim();
+        }
+        await db.update(
+          '"$t"',
+          {
+            'Initial': p['initial'],
+            'FirstName': p['firstName'],
+            'LastName': p['lastName'],
+            'EmailId': p['emailId'],
+            'EmpCode': p['empCode'],
+            if (userName.isNotEmpty) 'UserName': userName,
+            'BusinessArea': p['businessArea'],
+            'DesignationID': p['designationID'],
+            'DesignationName': p['designationName'],
+          },
+          where: 'UserId = ?',
+          whereArgs: [userId],
+        );
+      }
+      final now = await db.rawQuery(
+          'SELECT DISTINCT RoleId, DeptId, BusinessArea FROM "$t" WHERE UserId = ?',
+          [userId]);
+      debugPrint('applyUserChanges: user $userId now has '
+          '${now.map((r) => 'role=${r['RoleId']} dept=${r['DeptId']} area=${r['BusinessArea']}').toList()}');
+    }
+  }
 
   Future<void> _upsertUsersToMasterOnce(List<dynamic> rows,
       {void Function(int done, int total)? onProgress}) async {

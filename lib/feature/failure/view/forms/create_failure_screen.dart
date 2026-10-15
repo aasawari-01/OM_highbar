@@ -3697,9 +3697,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 CustDropdown(
                   label: "Failure Type *",
                   hint: "Select Failure Type",
-                  items: controller.corrFailureTypeList
-                      .map((e) => e.label ?? '')
-                      .toList(),
+                  // The bundled failure type list can be empty: the four types
+                  // the server knows (Software, Hardware, Communication, Other).
+                  items: controller.corrFailureTypeList.isNotEmpty
+                      ? controller.corrFailureTypeList
+                          .map((e) => e.label ?? '')
+                          .toList()
+                      : controller.materialTypeList,
                   selectedValue: controller.selectedMaterialType.value,
                   enabled: !controller.isFormDisabled &&
                       (controller.isJE || controller.isTechnician),
@@ -3714,6 +3718,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   onChanged: (v) {
                     if (controller.isFormDisabled) return;
                     controller.selectedMaterialType.value = v!;
+                    if (controller.isJE && v != "Hardware") {
+                      // The section is hidden: nothing of it is sent.
+                      controller.isMaterialDismantle.value = false;
+                      controller.dismantleMaterialsList.clear();
+                    }
                   },
                 ),
                 if (controller.selectedMaterialType.value == "Other") ...[
@@ -3759,8 +3768,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             );
           }),
           Obx(() {
+            // A Junior Engineer sees Material Dismantle only for Hardware.
             if (controller.selectedMaterialType.value != "Hardware" &&
-                controller.replacedMaterialsList.isEmpty) {
+                (controller.isJE || controller.replacedMaterialsList.isEmpty)) {
               return const SizedBox.shrink();
             }
 
@@ -7329,8 +7339,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   onChanged: (v) {
                     if (controller.isFormDisabled) return;
-                    controller.selectedMaterialCode.value = v;
-                    controller.uomController.text = "NO";
+                    controller.onSpareMaterialSelected(v);
                     // Unfocus all used qty fields
                     for (final focusNode
                     in controller.usedQtyFocusNodes.values) {

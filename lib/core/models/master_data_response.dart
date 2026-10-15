@@ -10,7 +10,7 @@
 ///             notificationTypes, newFailureCategories, newRootCauses,
 ///             newCausesOfFailure, actionMasters, rootCauseMasters,
 ///             faultMasters, corrFailureTypes },
-///     userData: { users }
+///     userData: { users, userChanges }
 ///   }
 /// }
 ///
@@ -33,7 +33,15 @@ class MasterDataResponse {
   final bool isChanged;
 
   final Map<String, List<dynamic>> lists;
+
+  /// The full user list (rows of user, role and department) when the server
+  /// sends it.
   final List<dynamic> users;
+
+  /// What changed for the users since the version asked for: one entry per user
+  /// {userId, action, addedRights, removedRights}. The action is DELETE, NEW,
+  /// NO_RIGHTS, UPSERT or RIGHTS (see LocalDatabaseService.applyUserChanges).
+  final List<dynamic> userChanges;
 
   const MasterDataResponse({
     required this.success,
@@ -45,6 +53,7 @@ class MasterDataResponse {
     this.isChanged = true,
     this.lists = const {},
     this.users = const [],
+    this.userChanges = const [],
   });
 
   // The lists of the response, by the name the server uses.
@@ -98,6 +107,8 @@ class MasterDataResponse {
           if (e.value is List) e.key: e.value as List,
       },
       users: userData['users'] is List ? userData['users'] as List : const [],
+      userChanges:
+          userData['userChanges'] is List ? userData['userChanges'] as List : const [],
     );
   }
 }

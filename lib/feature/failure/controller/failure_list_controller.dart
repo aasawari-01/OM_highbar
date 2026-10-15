@@ -407,8 +407,12 @@ class FailureListController extends GetxController {
           if (d.deptId != null) d.deptId!,
         if (deptId > 0) deptId,
       };
+      // Junior Engineers of the departments in the Section Incharge's own
+      // business area.
       final staff = await _dbService.getJuniorEngineersForDepartments(deptIds,
           businessArea: await AuthManager().getBusinessArea());
+      debugPrint('_fetchSectionInchargeFailures: staff of departments $deptIds: '
+          '${staff.map((r) => '${r['UserId']}:${r['UserName']}').toList()}');
       staffList.assignAll(staff.map((r) => StaffItem(
         userId: _toInt(r['UserId']),
         userName: r['UserName']?.toString(),

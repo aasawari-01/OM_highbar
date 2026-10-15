@@ -376,10 +376,17 @@ class MasterDataSyncService extends GetxController {
       for (final e in steps.entries)
         if (res.list(e.key).isNotEmpty) e.key,
       if (res.users.isNotEmpty) 'users',
+      if (res.userChanges.isNotEmpty) 'userChanges',
     ];
     var done = 0;
     for (final name in todo) {
-      final rows = name == 'users' ? res.users : res.list(name);
+      final rows = name == 'users'
+          ? res.users
+          : (name == 'userChanges' ? res.userChanges : res.list(name));
+      // What arrived: the count and the first row of each list.
+      final sample = jsonEncode(rows.first);
+      debugPrint('syncMasterDataFromAPI: received $name: ${rows.length} rows, '
+          'first = ${sample.length > 300 ? '${sample.substring(0, 300)}...' : sample}');
       syncStatus.value = 'Syncing $name...';
       EasyLoading.showProgress((done + 1) / (todo.length + 1),
           status: syncStatus.value, maskType: EasyLoadingMaskType.none);
@@ -387,6 +394,8 @@ class MasterDataSyncService extends GetxController {
         if (name == 'users') {
           // Users are saved in UserMaster.db, the table they are read from.
           await _dbService.upsertUsersToMaster(rows);
+        } else if (name == 'userChanges') {
+          await _dbService.applyUserChanges(rows);
         } else {
           await steps[name]!(rows);
         }
