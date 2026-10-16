@@ -1625,20 +1625,36 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
             "ActionText": actionFormatted,
           };
         }).toList(),
-        "getMeasurementPoints": measurementPointsList
-            .map((e) => {
-          "measId": e['measId'],
-          "measPoint": e['measPoint'],
-          "measPointDesc": e['measPointDesc'],
-          "unitOfMeasurement": e['unitOfMeasurement'],
-          "isRequired": false,
-          "beforeReading":
-          num.tryParse(e['beforeReading']?.toString() ?? "") ?? 0,
-          "finalConfirmation": true,
-          "afterReading":
-          num.tryParse(e['afterReading']?.toString() ?? "") ?? 0
-        })
-            .toList(),
+        // The same entry the web sends: the stored row (id / measurementId) is
+        // named, otherwise the readings are not saved on it.
+        "getMeasurementPoints": measurementPointsList.map((e) {
+          final unit = e['unitOfMeasurement']?.toString().trim() ?? '';
+          return {
+            "notificationId": 0,
+            "actionType": "",
+            "id": int.tryParse('${e['id'] ?? ''}') ?? 0,
+            "measurementId":
+                int.tryParse('${e['measurementId'] ?? e['measId'] ?? ''}') ?? 0,
+            "finalConfirmation": true,
+            "beforeReading":
+                num.tryParse(e['beforeReading']?.toString() ?? "") ?? 0,
+            "afterReading":
+                num.tryParse(e['afterReading']?.toString() ?? "") ?? 0,
+            "lowerRangeLimit":
+                num.tryParse(e['lowerRangeLimit']?.toString() ?? "") ?? 0,
+            "upperRangeLimit":
+                num.tryParse(e['upperRangeLimit']?.toString() ?? "") ?? 0,
+            "measPoint": int.tryParse('${e['measPoint'] ?? ''}') ?? e['measPoint'],
+            "measPointDesc": e['measPointDesc'],
+            "operationText": "",
+            "measuringPoint": "",
+            "description": "",
+            "measurementPosition": e['measurementPosition'] ?? "",
+            "measId": int.tryParse('${e['measId'] ?? ''}') ?? e['measId'],
+            "isRequired": true,
+            "unitOfMeasurement": unit.isEmpty ? null : unit,
+          };
+        }).toList(),
         "joinInspectionHistory": isJointInspection.value
             ? _jointInspectionHistoryForSubmit()
             : <Map<String, dynamic>>[],

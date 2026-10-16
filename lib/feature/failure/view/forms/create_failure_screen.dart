@@ -526,262 +526,159 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           (controller.isSectionIncharge && _isMaintenance);
 
 
-  /// Section Incharge: the measurement points of the chosen functional location
-  /// (object number match), each with an "Is Reading Req" checkbox. Editable
-  /// while the failure can still be edited, read-only afterwards.
-  Future<void> _showSiMeasurementDialog() async {
-    await controller.loadSiMeasurementPoints();
-    final editable = !_isExistingMaintenance ||
-        _maintenanceStatusId == 1 ||
-        _maintenanceStatusId == 202;
-    Widget cell(Widget child) => Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-          child: child,
-        );
-    Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        backgroundColor: AppColors.white1,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(Get.context!).size.height * 0.75),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    CustText.body("Measurement Reading",
-                        fontWeightName: FontWeight.bold),
-                    IconButton(
-                        onPressed: () => Get.back(),
-                        icon: const Icon(Icons.close, size: 20)),
-                  ],
-                ),
-              ),
-              Flexible(
-                child: Obx(() {
-                  final rows = controller.siMeasurementRows;
-                  if (rows.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Text(
-                          "No measurement point is defined for this functional location."),
-                    );
-                  }
-                  return SingleChildScrollView(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Table(
-                        columnWidths: const {
-                          0: FlexColumnWidth(1.2),
-                          1: FlexColumnWidth(2),
-                          2: FlexColumnWidth(1.1),
-                        },
-                        border: TableBorder(
-                          horizontalInside:
-                              BorderSide(color: Colors.grey.shade300),
-                        ),
-                        children: [
-                          TableRow(
-                            decoration:
-                                BoxDecoration(color: Colors.grey.shade300),
-                            children: [
-                              cell(const Text("Measurement Point",
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13))),
-                              cell(const Text("Measurement Description",
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13))),
-                              cell(const Text("Is Reading Req",
-                                  style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 13))),
-                            ],
-                          ),
-                          for (var i = 0; i < rows.length; i++)
-                            TableRow(children: [
-                              cell(Text('${rows[i]['measPoint']}')),
-                              cell(Text('${rows[i]['measPointDesc']}')),
-                              Checkbox(
-                                value: rows[i]['checked'] == true,
-                                onChanged: editable
-                                    ? (v) => controller.toggleSiMeasurement(
-                                        i, v ?? false)
-                                    : null,
-                              ),
-                            ]),
-                        ],
-                      ),
-                    ),
-                  );
-                }),
-              ),
-              if (editable)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: CustButton(
-                      name: "Save Changes",
-                      size: 160,
-                      sHeight: 40,
-                      fontSize: 14,
-                      onSelected: (_) {
-                        controller.saveSiMeasurementSelection();
-                        Get.back();
-                      },
-                    ),
-                  ),
-                ),
-            ],
+  // ── Measurement Reading (inline, card per measurement point) ─────────────
+
+  Widget _measurementCard({required String point, required String description, required List<Widget> body}) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.white1,
+        borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+        border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
-        ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CustText.detailLabel("Measurement Point"),
+          const SizedBox(height: 2),
+          CustText.detailValue(point),
+          const SizedBox(height: 8),
+          CustText.detailLabel("Measurement Description"),
+          const SizedBox(height: 2),
+          CustText.detailValue(description.isEmpty ? '-' : description),
+          const SizedBox(height: 12),
+          const Divider(color: AppColors.dividerColor3, height: 1),
+          const SizedBox(height: 12),
+          ...body,
+        ],
       ),
     );
   }
 
-  /// Junior Engineer: the measurement points the Section Incharge chose, as a
-  /// table. Only the Before / After Readings can be changed.
-  void _showMeasurementDialog() {
-    final editable = controller.isJE &&
-        !controller.isFormDisabled &&
-        !_isJointInspectionFlow;
-    const widths = <double>[90, 170, 90, 100, 100, 110, 110];
-    const headers = <String>[
-      'Measurement Point',
-      'Measurement Description',
-      'Unit Of Measurement',
-      'Lower Range Limit',
-      'Upper Range Limit',
-      'Before Readings',
-      'After Readings',
-    ];
-
-    Widget cell(int column, Widget child, {Color? color}) => Container(
-          width: widths[column],
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          color: color,
-          child: child,
-        );
-
-    Widget readingField(int index, String field) => TextFormField(
-          initialValue: controller.measurementPointsList[index][field]?.toString(),
-          enabled: editable,
-          keyboardType:
-              const TextInputType.numberWithOptions(decimal: true, signed: true),
-          decoration: InputDecoration(
-            isDense: true,
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(4),
-                borderSide: BorderSide(color: Colors.grey.shade300)),
-            enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(4),
-                borderSide: BorderSide(color: Colors.grey.shade300)),
-            focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(4),
-                borderSide: const BorderSide(color: AppColors.orangeColor)),
-          ),
-          onChanged: (v) =>
-              controller.updateMeasurementReading(index, field, v),
-        );
-
-    Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        backgroundColor: AppColors.white1,
-        insetPadding: const EdgeInsets.all(12),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-              maxHeight: MediaQuery.of(Get.context!).size.height * 0.8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 8, 0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    CustText.body("Measurement Reading",
-                        fontWeightName: FontWeight.bold),
-                    IconButton(
-                        onPressed: () => Get.back(),
-                        icon: const Icon(Icons.close, size: 20)),
-                  ],
-                ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Obx(() {
-                      final rows = controller.measurementPointsList;
-                      return Column(
-                        children: [
-                          Row(children: [
-                            for (var c = 0; c < headers.length; c++)
-                              cell(
-                                  c,
-                                  Text(headers[c],
-                                      style: const TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 13)),
-                                  color: Colors.grey.shade300),
-                          ]),
-                          for (var i = 0; i < rows.length; i++)
-                            Container(
-                              decoration: BoxDecoration(
-                                  border: Border(
-                                      bottom: BorderSide(
-                                          color: Colors.grey.shade300))),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  cell(0, Text('${rows[i]['measPoint']}')),
-                                  cell(1, Text('${rows[i]['measPointDesc']}')),
-                                  cell(2,
-                                      Text('${rows[i]['unitOfMeasurement']}')),
-                                  cell(3, Text('${rows[i]['lowerRangeLimit']}')),
-                                  cell(4, Text('${rows[i]['upperRangeLimit']}')),
-                                  cell(5, readingField(i, 'beforeReading')),
-                                  cell(6, readingField(i, 'afterReading')),
-                                ],
-                              ),
-                            ),
-                        ],
-                      );
-                    }),
-                  ),
-                ),
-              ),
-              if (editable)
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: CustButton(
-                      name: "Save Changes",
-                      size: 160,
-                      sHeight: 40,
-                      fontSize: 14,
-                      onSelected: (_) => Get.back(),
-                    ),
-                  ),
-                ),
-            ],
-          ),
+  Widget _measurementInfo(String label, String value) => Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustText.detailLabel(label),
+            const SizedBox(height: 2),
+            CustText.detailValue(value.isEmpty ? '-' : value),
+          ],
         ),
+      );
+
+  Widget _measurementReadingField(int index, String field, String label, bool editable) {
+    final item = controller.measurementPointsList[index];
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CustText.detailLabel(label),
+          const SizedBox(height: 6),
+          TextFormField(
+            key: ValueKey('meas_${item['measId']}_$field'),
+            initialValue: item[field]?.toString(),
+            enabled: editable,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true, signed: true),
+            decoration: InputDecoration(
+              hintText: "0",
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: BorderSide(color: Colors.grey.shade300)),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: BorderSide(color: Colors.grey.shade300)),
+              disabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: BorderSide(color: Colors.grey.shade300)),
+              focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppColors.orangeColor)),
+            ),
+            onChanged: (v) => controller.updateMeasurementReading(index, field, v),
+          ),
+        ],
       ),
     );
+  }
+
+  /// The measurement points chosen for the failure, one card each: unit and range
+  /// limits, and the before / after readings. Only the readings can be edited
+  /// (Junior Engineer); everyone else sees them read-only.
+  Widget _buildMeasurementReadings({required bool editable}) {
+    return Obx(() {
+      final rows = controller.measurementPointsList;
+      return Column(
+        children: [
+          for (var i = 0; i < rows.length; i++)
+            _measurementCard(
+              point: '${rows[i]['measPoint']}',
+              description: '${rows[i]['measPointDesc']}',
+              body: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _measurementInfo("Unit Of Measurement", '${rows[i]['unitOfMeasurement']}'),
+                    _measurementInfo("Lower Range Limit", '${rows[i]['lowerRangeLimit']}'),
+                    _measurementInfo("Upper Range Limit", '${rows[i]['upperRangeLimit']}'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _measurementReadingField(i, 'beforeReading', "Before Readings", editable),
+                    const SizedBox(width: 12),
+                    _measurementReadingField(i, 'afterReading', "After Readings", editable),
+                  ],
+                ),
+              ],
+            ),
+        ],
+      );
+    });
+  }
+
+  /// Section Incharge: the measurement points of the functional location, one
+  /// card each with an "Is Reading Req" checkbox. The ticked ones are sent as
+  /// MeasurementPointIds when the failure is saved.
+  Widget _buildSiMeasurementSelection({required bool editable}) {
+    return Obx(() {
+      final rows = controller.siMeasurementRows;
+      return Column(
+        children: [
+          for (var i = 0; i < rows.length; i++)
+            _measurementCard(
+              point: '${rows[i]['measPoint']}',
+              description: '${rows[i]['measPointDesc']}',
+              body: [
+                Row(
+                  children: [
+                    Checkbox(
+                      value: rows[i]['checked'] == true,
+                      onChanged: editable
+                          ? (v) => controller.toggleSiMeasurement(i, v ?? false)
+                          : null,
+                    ),
+                    Expanded(child: CustText.detailValue("Is Reading Req")),
+                  ],
+                ),
+              ],
+            ),
+        ],
+      );
+    });
   }
 
   void _showActionByDialog() {
@@ -2738,31 +2635,34 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 ),
               );
             }),
-          // Section Incharge: measurement points of the chosen functional location
+          // Section Incharge: measurement points. While the failure can be
+          // edited the points of the functional location are ticked here; after
+          // that the chosen ones are shown with the readings the JE entered.
           if (controller.isSectionIncharge)
             Obx(() {
-              // Work out whether the functional location has measurement points
-              // (again when the list of functional locations loads).
               controller.functionalLocationList.length;
               WidgetsBinding.instance.addPostFrameCallback(
                   (_) => controller.refreshSiMeasurementAvailability());
-              return (controller.selectedFunctionalLocation.value ?? '').isEmpty ||
-                      !controller.siHasMeasurement.value
-                ? const SizedBox.shrink()
-                : Padding(
-                    padding: const EdgeInsets.fromLTRB(AppConstants.screenPadding,
-                        0, AppConstants.screenPadding, 0),
-                    child: Align(
-                      alignment: Alignment.centerRight,
-                      child: CustButton(
-                        name: "Measurement Reading",
-                        size: 200,
-                        sHeight: 40,
-                        fontSize: 14,
-                        onSelected: (_) => _showSiMeasurementDialog(),
-                      ),
-                    ),
-                  );
+              final canEdit = !_isExistingMaintenance ||
+                  _maintenanceStatusId == 1 ||
+                  _maintenanceStatusId == 202;
+              if (canEdit) {
+                if ((controller.selectedFunctionalLocation.value ?? '').isEmpty ||
+                    !controller.siHasMeasurement.value) {
+                  return const SizedBox.shrink();
+                }
+                return CustSection(
+                  title: "Measurement Reading",
+                  child: _buildSiMeasurementSelection(editable: true),
+                );
+              }
+              if (controller.measurementPointsList.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return CustSection(
+                title: "Measurement Reading",
+                child: _buildMeasurementReadings(editable: false),
+              );
             }),
           Padding(
             padding: const EdgeInsets.all(AppConstants.screenPadding),
@@ -3822,14 +3722,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 () => controller.showMeasurementButton.value
                 ? CustSection(
               title: "Measurement Reading",
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: CustButton(
-                  name: "Measurement Reading",
-                  fontSize: AppConstants.buttonFontSize,
-                  size: 200,
-                  onSelected: (_) => _showMeasurementDialog(),
-                ),
+              child: _buildMeasurementReadings(
+                editable: controller.isJE &&
+                    !controller.isFormDisabled &&
+                    !_isJointInspectionFlow,
               ),
             )
                 : const SizedBox.shrink(),

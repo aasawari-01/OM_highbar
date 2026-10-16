@@ -3738,6 +3738,11 @@ class CreateFailureController extends GetxController
       if (m['isRequired'] == false) continue;
       points.add({
         'measId': measId ?? measPoint,
+        // The stored row of the point and its measurement id: the update names
+        // them so the server changes that row.
+        'id': m['id'],
+        'measurementId': pick(m, ['measurementId', 'measId', 'MeasId']),
+        'measurementPosition': _measurementText(m['measurementPosition']),
         'measPoint': _measurementText(measPoint),
         'measPointDesc': _measurementText(pick(m, ['measPointDesc', 'MeasPointDesc'])),
         'unitOfMeasurement': _measurementText(
@@ -3767,17 +3772,17 @@ class CreateFailureController extends GetxController
   final siHasMeasurement = false.obs;
   int _siMeasCheckedFor = -1;
 
+  /// Loads the points when the functional location changes.
   Future<void> refreshSiMeasurementAvailability() async {
     final funcId = _apiIdFor(functionalLocationList, selectedFunctionalLocation.value);
     if (funcId == _siMeasCheckedFor) return;
-    _siMeasCheckedFor = funcId;
     if (funcId <= 0) {
+      _siMeasCheckedFor = funcId;
+      siMeasurementRows.clear();
       siHasMeasurement.value = false;
       return;
     }
-    final rows =
-        await LocalDatabaseService().getMeasurementPointsForFunctionalLocation(funcId);
-    if (_siMeasCheckedFor == funcId) siHasMeasurement.value = rows.isNotEmpty;
+    await loadSiMeasurementPoints();
   }
 
   Future<void> loadSiMeasurementPoints() async {
@@ -3793,11 +3798,14 @@ class CreateFailureController extends GetxController
     siMeasurementRows.assignAll([
       for (final r in rows) {...r, 'checked': chosen.contains(r['measId'])},
     ]);
+    _siMeasCheckedFor = funcId;
+    siHasMeasurement.value = siMeasurementRows.isNotEmpty;
   }
 
   void toggleSiMeasurement(int index, bool value) {
     siMeasurementRows[index]['checked'] = value;
     siMeasurementRows.refresh();
+    saveSiMeasurementSelection();
   }
 
   void saveSiMeasurementSelection() {
@@ -6214,11 +6222,14 @@ class CreateFailureController extends GetxController
           .assignAll(output.getNotificationHistory ?? []);
 
       await _applySiSavedSelections(model, output);
-      // The measurement points chosen for this failure.
+      // The measurement points chosen for this failure, ticked in the form,
+      // and with their readings for the read-only view.
       measurementPointIdsController.text = [
         for (final m in output.measurementPoint ?? const <Map<String, dynamic>>[])
           if ((int.tryParse('${m['measId']}') ?? 0) > 0) '${m['measId']}',
       ].toSet().join(',');
+      _applyJeMeasurementPoints(output.measurementPoint);
+      await loadSiMeasurementPoints();
 
       if ((model.frequency ?? 0) > 0) {
         fmecaFrequencyController.text = model.frequency.toString();

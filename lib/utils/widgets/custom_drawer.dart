@@ -195,8 +195,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
               return ListView(
               padding: const EdgeInsets.symmetric(vertical: AppConstants.elementSpacing),
               children: [
-                _drawerItem('ESS', 'ess', null, leadingIcon: TablerIcons.users),
-                divider(),
+                // _drawerItem('ESS', 'ess', null, leadingIcon: TablerIcons.users),
+                // divider(),
                 _drawerItem('Dashboard', 'dashboard', null, leadingIcon: TablerIcons.layout),
                 divider(),
                 // Failures
@@ -297,15 +297,15 @@ class _CustomDrawerState extends State<CustomDrawer> {
                     _drawerItem('Preventive', 'ptw', null),
                   ],
                 ),
-                divider(),
-                // Operations
-                _drawerSection(
-                  title: 'Operations',
-                  sectionKey: 'operations',
-                  icon: TablerIcons.train,
-                  children: [
-                  ],
-                ),
+                // divider(),
+                // // Operations
+                // _drawerSection(
+                //   title: 'Operations',
+                //   sectionKey: 'operations',
+                //   icon: TablerIcons.train,
+                //   children: [
+                //   ],
+                // ),
                 divider(),
                 // Inspection
                 _drawerSection(
@@ -473,7 +473,10 @@ class _CustomDrawerState extends State<CustomDrawer> {
       ),
     );
   }
-  void _showEditPopup(BuildContext context) {
+  Future<void> _showEditPopup(BuildContext context) async {
+    // The roles / departments the user holds now (local table, works offline).
+    await sessionController.refreshRoleDeptFromLocal();
+    if (!context.mounted) return;
     showDialog(
       context: context,
       builder: (BuildContext context) {

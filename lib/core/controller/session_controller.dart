@@ -4,6 +4,7 @@ import 'dart:developer';
 import 'package:get/get.dart';
 import 'package:om_mobile/feature/auth_login/model/login_response.dart';
 import 'package:om_mobile/service/auth_manager.dart';
+import 'package:om_mobile/service/local_database_service.dart';
 import 'package:om_mobile/core/models/master_user.dart';
 
 class SessionController extends GetxController {
@@ -89,7 +90,7 @@ class SessionController extends GetxController {
 
     final List<DeptMaster> depts = await AuthManager().getDeptMaster();
     final List<RoleMaster> roles=await AuthManager().getRoleMaster();
-    final List<RoleAndDeptMaster> rolDepts = await AuthManager().getRoleAndDeptMaster();
+    final List<RoleAndDeptMaster> rolDepts = await _loadRoleDeptRows();
 
     log(" list of role master $rolDepts----$depts------$roles");
 
@@ -198,6 +199,62 @@ class SessionController extends GetxController {
     } else {
       selectedRole.value = null;
     }
+  }
+
+  /// The roles and departments of the logged-in user: from the local user table
+  /// (kept up to date by the master data sync, so it also works offline), else
+  /// what the login returned.
+  Future<List<RoleAndDeptMaster>> _loadRoleDeptRows() async {
+    final fromLogin = await AuthManager().getRoleAndDeptMaster();
+    final userId = int.tryParse(await AuthManager().getUserId() ?? '');
+    if (userId == null) return fromLogin;
+    final rows = await LocalDatabaseService().getUserRoleDeptRows(userId,
+        businessArea: await AuthManager().getBusinessArea());
+    if (rows.isEmpty) return fromLogin;
+    return [
+      for (final r in rows)
+        RoleAndDeptMaster(
+          roleId: int.tryParse('${r['RoleId']}'),
+          roleDescr: r['RoleDescr']?.toString(),
+          deptId: int.tryParse('${r['DeptId']}'),
+          deptName: r['DeptName']?.toString(),
+        ),
+    ];
+  }
+
+  /// Reads the roles and departments again (after a master data sync, or when
+  /// the Edit Role / Department popup opens). The chosen department and role
+  /// stay when the user still holds them, otherwise the first one is taken.
+  Future<void> refreshRoleDeptFromLocal() async {
+    final rolDepts = await _loadRoleDeptRows();
+    roleDeptMappings.assignAll(
+      rolDepts.where((rd) => isRoleAllowed(rd.roleDescr ?? '')).toList(),
+    );
+    final mappedDepts = <DeptMaster>[];
+    for (final rd in roleDeptMappings) {
+      if (rd.deptId != null && !mappedDepts.any((d) => d.deptId == rd.deptId)) {
+        mappedDepts.add(DeptMaster(deptId: rd.deptId, deptName: rd.deptName));
+      }
+    }
+    if (mappedDepts.isEmpty) return; // nothing to choose from: keep what is shown
+    departments.assignAll(mappedDepts);
+
+    final keepDept = selectedDepartment.value?.deptId;
+    final dept = departments.firstWhereOrNull((d) => d.deptId == keepDept) ??
+        departments.first;
+    if (dept.deptId != keepDept) {
+      await AuthManager().setSelectedDept(dept.deptId ?? 0);
+    }
+    selectedDepartment.value = dept;
+    _refreshRolesForDept(dept.deptId);
+
+    final keepRole = selectedRole.value?.roleId;
+    final role = roles.firstWhereOrNull((r) => r.roleId == keepRole) ??
+        (roles.isNotEmpty ? roles.first : null);
+    if (role?.roleId != keepRole && role?.roleId != null) {
+      await AuthManager().setSelectedRole(role!.roleId!);
+    }
+    selectedRole.value = role;
   }
 
 // after

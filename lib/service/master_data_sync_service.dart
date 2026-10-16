@@ -406,6 +406,15 @@ class MasterDataSyncService extends GetxController {
       }
       done++;
     }
+    // The rights of the users changed: the logged-in user's roles / departments.
+    if ((res.users.isNotEmpty || res.userChanges.isNotEmpty) &&
+        Get.isRegistered<SessionController>()) {
+      try {
+        await Get.find<SessionController>().refreshRoleDeptFromLocal();
+      } catch (e) {
+        debugPrint('syncMasterDataFromAPI: roles / departments refresh: $e');
+      }
+    }
     return total;
   }
 

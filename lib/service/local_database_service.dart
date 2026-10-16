@@ -5405,6 +5405,31 @@ class LocalDatabaseService {
   /// Junior Engineers of several departments (role id 4) in the user's business
   /// area, from UserMaster.db: the staff a Section Incharge can assign to.
   /// Rows: {UserId, UserName, DeptId, DeptName}.
+  /// The roles and departments a user holds (UserMaster.db, kept up to date by
+  /// the master data sync), within a business area when given.
+  Future<List<Map<String, dynamic>>> getUserRoleDeptRows(int userId,
+      {int? businessArea}) async {
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final args = <Object?>[userId];
+      var area = '';
+      if (businessArea != null) {
+        area = ' AND BusinessArea = ?';
+        args.add(businessArea);
+      }
+      return await db.rawQuery(
+          'SELECT DISTINCT RoleId, RoleDescr, DeptId, DeptName FROM "$t" '
+          'WHERE UserId = ? AND RoleId IS NOT NULL AND DeptId IS NOT NULL$area '
+          'ORDER BY DeptName, RoleDescr',
+          args);
+    } catch (e) {
+      debugPrint('getUserRoleDeptRows error: $e');
+      return [];
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getJuniorEngineersForDepartments(
       Iterable<int> deptIds, {int? businessArea}) async {
     final ids = deptIds.where((e) => e > 0).toSet().toList();
