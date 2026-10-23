@@ -1727,17 +1727,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   },
                 )),
                 const SizedBox(height: AppConstants.elementSpacing),
-                if (!_isExistingMaintenance ||
-                    _maintenanceStatusId == 1 ||
-                    _maintenanceStatusId == 202)
-                  CustomTextField(
-                    label: "Failure Description",
-                    controller: controller.failureDescriptionController,
-                    hintText: "Enter failure description",
-                    maxLines: 4,
-                    maxLength: 500,
-                    enabled: _maintenanceOpenOr202Editable,
-                  ),
+                // Always shown: editable while the failure can be edited (new,
+                // status 1 or 202), read-only once it was assigned or later.
+                CustomTextField(
+                  label: "Failure Description",
+                  controller: controller.failureDescriptionController,
+                  hintText: "Enter failure description",
+                  maxLines: 4,
+                  maxLength: 500,
+                  enabled: _maintenanceOpenOr202Editable,
+                ),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(
                   label: "Notification Type *",
@@ -7766,7 +7765,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         child: CustDropdown(
                           label: "Department *",
                           hint: "Select...",
-                          items: controller.jointInspectionDepartments
+                          items: controller.jointInspectionDepartmentOptions
                               .map((e) => e.label ?? '')
                               .toList(),
                           selectedValue: controller.selectedJointDept.value,
@@ -7780,7 +7779,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             controller.selectedJointAssignTo.value = null;
                             controller.jointUserList.clear();
                             if (v != null) {
-                              final dept = controller.jointInspectionDepartments
+                              final dept = controller.jointInspectionDepartmentOptions
                                   .firstWhere(
                                     (e) => e.label == v,
                                 orElse: () => LabelValue(value: "0"),

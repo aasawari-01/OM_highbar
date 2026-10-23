@@ -2424,20 +2424,25 @@ class CreateFailureController extends GetxController
     }
   }
 
+  /// Joint Inspection "Assign To": the Junior Engineers of the chosen
+  /// department in the user's business area, from the local user table (works
+  /// offline and online).
   @override
   Future<void> fetchJointInspectionUsers(String deptId) async {
     try {
       isJointUserLoading.value = true;
       jointUserList.clear();
-
-      // Assign To list comes from getFunctionLocEquipmentNoByDeptIdJI
-      // (responseOutput.getAssgineUserList).
-      final users = await _failureService.getJIUsers(deptId);
-
-      final seenUserIds = <String>{};
-      jointUserList.assignAll(
-        users.where((u) => seenUserIds.add(u.value ?? '')).toList(),
-      );
+      final rows = await LocalDatabaseService().getJuniorEngineersForDepartments(
+          [int.tryParse(deptId) ?? 0],
+          businessArea: await AuthManager().getBusinessArea());
+      final seen = <String>{};
+      jointUserList.assignAll([
+        for (final r in rows)
+          if (seen.add('${r['UserId']}'))
+            LabelValue(
+                label: r['UserName']?.toString() ?? '',
+                value: '${r['UserId']}'),
+      ]);
     } catch (e) {
       debugPrint('fetchJointInspectionUsers error: $e');
     } finally {
@@ -6320,6 +6325,9 @@ class CreateFailureController extends GetxController
             userStatusJeList, userStatus.label!, userStatus.value ?? '');
         selectedUserStatus.value = userStatus.label;
       }
+      // RCA, failure type, spare parts and dismantle the JE entered (read-only
+      // for the Section Incharge).
+      _applySiClosureData(model, output, result.failureRectificationJson);
       selectedFailureAttendedDate.value =
       (model.failureAttendedDate ?? '').isNotEmpty
           ? _parseDate(model.failureAttendedDate!)
@@ -6374,6 +6382,136 @@ class CreateFailureController extends GetxController
       isLoading.value = false;
       popLoading();
     }
+  }
+
+  /// What a Junior Engineer entered, for the Section Incharge's read-only view:
+  /// user status, PTW, failure type, RCA rows, spare parts and dismantle.
+  void _applySiClosureData(
+      CreateVMModel model, FailureDetailOutput output, String? rcaJson) {
+    // User status name (the stored copy has no status list of its own).
+    final statusId = model.userStatus ?? 0;
+    if ((selectedUserStatus.value ?? '').isEmpty && statusId > 0) {
+      final id = '$statusId';
+      final label = (userStatusJeList.firstWhereOrNull((e) => e.value == id) ??
+                  userStatusList.firstWhereOrNull((e) => e.value == id))
+              ?.label ??
+          const {
+            26: 'Under Observation',
+            27: 'Closed',
+            28: 'In-Process',
+            29: 'Escalated',
+          }[statusId];
+      if (label != null && label.isNotEmpty) {
+        ensureDropdownOption(userStatusJeList, label, id);
+        selectedUserStatus.value = label;
+      }
+    }
+
+    // Failure Type and PTW
+    final type = mapFailureTypeIdToMaterialType(model.failureTypeId);
+    if (type.isNotEmpty) selectedMaterialType.value = type;
+    isPtwRequired.value =
+        (model.ptwNo ?? '').trim().isNotEmpty || (model.isPTWReq ?? false);
+    ptwNumberController.text = model.ptwNo ?? '';
+
+    // RCA rows
+    rcaDetailsList.assignAll(_rcaRowsFromJson(rcaJson));
+
+    // Spare parts
+    replacedMaterialsList.assignAll([
+      for (final item in output.getMaterialReqDetails ?? const <Map<String, dynamic>>[])
+        {
+          'id': item['id'],
+          'materialId': item['materialid'] ?? item['MaterialId'],
+          'materialCode': item['materialValue'] ?? item['MaterialValue'],
+          'materialName': item['materialValue'] ?? item['MaterialValue'],
+          'requiredQty': '${item['quantity'] ?? item['Quantity'] ?? ''}',
+          'issuedQty': '${item['issuedQty'] ?? item['IssuedQty'] ?? ''}',
+          'usedQty': '${item['usedQty'] ?? item['UsedQty'] ?? ''}',
+          'balanceQty': '${item['balanceQty'] ?? item['BalanceQty'] ?? ''}',
+          'storeLocation': item['storageLocationValue'] ??
+              item['StorageLocationValue'] ??
+              storageLocationList
+                  .firstWhereOrNull(
+                      (s) => s.value == '${item['storageLocation'] ?? ''}')
+                  ?.label,
+          'storageLocation': item['storageLocation'] ?? item['StorageLocation'],
+          'uom': item['unitOfMeasurement'] ?? item['UnitOfMeasurement'],
+          'RemainingBalanceQTY':
+              item['remainingBalanceQTY'] ?? item['RemainingBalanceQTY'],
+        }
+    ]);
+    isSparePartReplaced.value =
+        replacedMaterialsList.isNotEmpty || (model.isHardwareReplaced ?? false);
+
+    // Material dismantle
+    dismantleMaterialsList.assignAll([
+      for (final item
+          in output.getMaterialDismantleDetails ?? const <Map<String, dynamic>>[])
+        {
+          'id': item['id'],
+          'materialId': item['materialId'] ?? item['MaterialId'],
+          'materialCode': item['materialValue'] ?? item['MaterialValue'],
+          'materialName': item['materialValue'] ?? item['MaterialValue'],
+          'oldSerialNumber': item['oldSerialNumber'] ?? item['OldSerialNumber'],
+          'newSerialNumber': item['newSerialNumber'] ?? item['NewSerialNumber'],
+          'oldSerialDismantleDate':
+              item['oldSerialNoDismantleDate'] ?? item['OldSerialNoDismantleDate'],
+          'newSerialInstallationDate': item['newSerialNoInstallationDate'] ??
+              item['NewSerialNoInstallationDate'],
+        }
+    ]);
+    isMaterialDismantle.value = dismantleMaterialsList.isNotEmpty;
+  }
+
+  /// RCA rows (the shape of the RCA cards) from the JSON list of RCA entries.
+  List<Map<String, dynamic>> _rcaRowsFromJson(String? source) {
+    if (source == null || !source.trim().startsWith('[')) return [];
+    final decoded = jsonDecode(source);
+    if (decoded is! List) return [];
+    String text(dynamic v) => v?.toString() ?? '';
+    int id(dynamic v) => int.tryParse('${v ?? ''}') ?? 0;
+    return [
+      for (final f in decoded)
+        if (f is Map)
+          {
+            'system': text(f['system'] ?? f['System']),
+            'subsystem': text(f['subsystem'] ?? f['SubSystem']),
+            'FailureCategoryId':
+                text(f['failureCategoryId'] ?? f['FailureCategoryId']).isEmpty
+                    ? '0'
+                    : text(f['failureCategoryId'] ?? f['FailureCategoryId']),
+            'failureCategory':
+                text(f['failureCategoryText'] ?? f['FailureCategoryText']),
+            'rootCauses': [
+              if (id(f['rootCauseId'] ?? f['RootCauseId']) > 0)
+                {
+                  'causeId': text(f['causeOfFailureId'] ?? f['CauseOfFailureId']),
+                  'cause': text(f['cause'] ?? f['Cause']),
+                  'rootCauseId': text(f['rootCauseId'] ?? f['RootCauseId']),
+                  'rootCause': text(f['rootCause'] ?? f['RootCause']),
+                  'causeText': text(f['rootCauseText'] ?? f['RootCauseText']),
+                  'imagePath': null,
+                },
+            ],
+            'actionTakens': [
+              if (id(f['actionTakenId'] ?? f['ActionTakenId']) > 0)
+                {
+                  'actionTakenId': text(f['actionTakenId'] ?? f['ActionTakenId']),
+                  'actionTaken': text(f['actionTaken'] ?? f['ActionTaken']),
+                  'actionTakenText':
+                      text(f['actionTakenText'] ?? f['ActionTakenText']),
+                  'imagePath': null,
+                },
+            ],
+            'ObjectPartId': '0',
+            'objectPart': '',
+            'objectPartText': '',
+            'FaultId': '0',
+            'fault': '',
+            'faultText': '',
+          }
+    ];
   }
 
   /// Fallback when the API returns no model: fill what the list row already has.

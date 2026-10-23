@@ -354,7 +354,11 @@ class FailureService {
         'getMaterialReqDetails': materials,
         'getMaterialDismantleDetails': dismantle,
         'measurementPoint': measurementPoints,
-        'getJoinInspectionHistory': list('joinInspectionHistory'),
+        'getJoinInspectionHistory': [
+          ...list('joinInspectionHistory'),
+          // Added offline and not sent yet.
+          ...await LocalDatabaseService().getPendingJiEntries(nid),
+        ],
       },
     });
     return (
@@ -1465,15 +1469,27 @@ class FailureService {
   })> getFailureTransactions({String? lastSyncDate}) async {
     final userId = await _userId();
     final headers = await _authHeaders();
-    final response = await _apiClient.getWithBody(
+    final requestBody = <String, dynamic>{
+      'userId': userId,
+      if (lastSyncDate != null) 'lastSyncDate': lastSyncDate,
+      'syncType': lastSyncDate == null ? 'ALL' : 'Incremental',
+    };
+    // The server answers a POST (as in Postman). A server that only knows the
+    // old GET-with-a-body form says 405 / 404: then that form is used.
+    var response = await _apiClient.post(
       AppUrls.getAllFailuresTransactionData,
       headers: headers,
-      body: <String, dynamic>{
-        'userId': userId,
-        if (lastSyncDate != null) 'lastSyncDate': lastSyncDate,
-        'syncType': lastSyncDate == null ? 'ALL' : 'Incremental',
-      },
+      body: requestBody,
     );
+    if (response.statusCode == 405 || response.statusCode == 404) {
+      debugPrint('getFailureTransactions: POST gave ${response.statusCode}, '
+          'trying GET with a body');
+      response = await _apiClient.getWithBody(
+        AppUrls.getAllFailuresTransactionData,
+        headers: headers,
+        body: requestBody,
+      );
+    }
     // 204 / an empty body: the server had nothing to send (no changes).
     if (response.statusCode == 204 ||
         (response.statusCode == 200 && response.body.trim().isEmpty)) {
@@ -2501,6 +2517,17 @@ class FailureService {
               (num.tryParse('${m['quantity']}') ?? 0) > 0);
     }).toList();
 
+    // RCA rows in the shape the form reads from FailureRectificationJson.
+    final rca = [
+      for (final r in list('siNewRca'))
+        if (r is Map)
+          {
+            ...Map<String, dynamic>.from(r),
+            'system': si['systems'] ?? si['system'],
+            'subsystem': si['subSystems'] ?? si['subSystem'],
+          }
+    ];
+
     final response = FailureDetailResponse.fromJson({
       'responseCode': 200,
       'responseMessage': 'Success',
@@ -2508,12 +2535,23 @@ class FailureService {
         'getCreateVMModel': si,
         'getNotificationActionUserHistory':
         list('correctiveNotificationActionUserHistory'),
-        'getNotificationHistory': const [],
+        'getNotificationHistory': list('siNotificationHistory'),
         'getMaterialReqDetails': materials,
+        'getMaterialDismantleDetails': list('siMaterialDismentle').isNotEmpty
+            ? list('siMaterialDismentle')
+            : list('siMaterialDismantle'),
         'measurementPoint': list('siMeasurementPoint'),
       },
     });
-    return (response: response, pending: row['pendingAction'] != null);
+    return (
+    response: FailureDetailResponse(
+      responseCode: response.responseCode,
+      responseMessage: response.responseMessage,
+      responseOutput: response.responseOutput,
+      failureRectificationJson: rca.isEmpty ? null : jsonEncode(rca),
+    ),
+    pending: row['pendingAction'] != null,
+    );
   }
 
 

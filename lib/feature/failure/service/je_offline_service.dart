@@ -106,12 +106,34 @@ class JeOfflineService {
     await _db.setJeFailurePending(notificationId, 'update');
   }
 
+  /// A joint inspection added offline: [body] is what addUpdateDeleteJointInspection
+  /// takes. The names are kept to show the entry until it is sent. Returns the
+  /// queue id (the entry in the history uses -id).
+  Future<int> queueJointInspectionAdd(Map<String, dynamic> body,
+      {String? deptName, String? assignedUser}) async {
+    return _db.insertPendingSubmission({
+      'action': 'jiAdd',
+      'notificationId': int.tryParse('${body['NotificationId']}') ?? 0,
+      'queuedBy': await AuthManager().getUserId(),
+      'body': body,
+      'deptName': deptName,
+      'assignedUser': assignedUser,
+    }, queueType);
+  }
+
+  /// Removes a joint inspection that was added offline and is not sent yet.
+  Future<void> discardJointInspection(int queueId) =>
+      _db.deletePendingSubmission(queueId);
+
   /// Sends one queued action. true = done. Throws when the server cannot be
   /// reached (network error) or answers with an error.
   Future<bool> replay(Map<String, dynamic> p0) async {
     final action = p0['action']?.toString() ?? '';
     final nid = int.tryParse('${p0['notificationId']}') ?? 0;
     switch (action) {
+      case 'jiAdd':
+        await _service.addJIEntry(Map<String, dynamic>.from(p0['body'] as Map));
+        return true;
       case 'update':
         final payload = Map<String, dynamic>.from(p0['payload'] as Map);
         final je = payload['changeNotifictionJE'] is Map

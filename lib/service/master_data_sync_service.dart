@@ -702,7 +702,7 @@ class MasterDataSyncService extends GetxController {
           Future<void> dropIt(String reason) async {
             debugPrint('syncPendingSubmissions: giving up $action ($reason)');
             await _dbService.deletePendingSubmission(sid);
-            if (nid > 0) {
+            if (nid > 0 && action != 'jiAdd') {
               isJe
                   ? await _dbService.clearJeFailurePending(nid)
                   : await _dbService.clearSiFailurePending(nid);
@@ -728,7 +728,7 @@ class MasterDataSyncService extends GetxController {
                 .timeout(const Duration(seconds: 90));
             if (ok) {
               await _dbService.deletePendingSubmission(sid);
-              if (nid > 0) {
+              if (nid > 0 && action != 'jiAdd') {
                 isJe
                     ? await _dbService.clearJeFailurePending(nid)
                     : await _dbService.clearSiFailurePending(nid);

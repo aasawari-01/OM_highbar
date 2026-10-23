@@ -3228,6 +3228,37 @@ class LocalDatabaseService {
         where: _stationEntryWhere, whereArgs: _stationEntryArgs(sid));
   }
 
+  /// Joint inspections added offline for a failure and not sent yet, as rows of
+  /// the joint inspection history ({jiId: -queue id, ...}).
+  Future<List<Map<String, dynamic>>> getPendingJiEntries(int notificationId) async {
+    final db = await database;
+    final rows = await db.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0', whereArgs: ['JE']);
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        if (p['action'] != 'jiAdd') continue;
+        if (int.tryParse('${p['notificationId']}') != notificationId) continue;
+        final body = Map<String, dynamic>.from(p['body'] as Map);
+        out.add({
+          'jiId': -(r['id'] as int),
+          'notificationId': notificationId,
+          'deptId': int.tryParse('${body['DeptId']}'),
+          'assignedTo': int.tryParse('${body['AssignedTo']}'),
+          'remark': body['Remark'],
+          'assginedUser': p['assignedUser'],
+          'deptName': p['deptName'],
+          'statusName': 'Pending Sync',
+          'type': body['Type'],
+          'createdBy': body['CreatedBy'],
+          'createdByName': body['CreatedByName'],
+        });
+      } catch (_) {}
+    }
+    return out;
+  }
+
   Future<void> deletePendingSubmission(int id) async {
     final db = await database;
     await db.delete('PendingFailureSubmissions', where: 'id = ?', whereArgs: [id]);

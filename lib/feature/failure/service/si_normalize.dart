@@ -105,6 +105,19 @@ class SiNormalize {
         }
       }
 
+      // User status: the server sends its name ("Closed"), the model reads the id.
+      final status = m['userStatus'];
+      if (status is String) {
+        const ids = {
+          'under observation': 26,
+          'closed': 27,
+          'in-process': 28,
+          'in process': 28,
+          'escalated': 29,
+        };
+        m['userStatus'] = int.tryParse(status) ?? ids[status.trim().toLowerCase()];
+      }
+
       // Train set failure: the server sends 0 / 1 (or a bool); not a train set
       // failure unless it says so (the Close rule needs an explicit false).
       final t = m['isTrainSetFailure'];

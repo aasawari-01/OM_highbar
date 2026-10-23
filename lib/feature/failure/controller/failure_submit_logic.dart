@@ -71,6 +71,8 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
   List<Map<String, dynamic>> _jointInspectionHistoryForSubmit() {
     final notifId = resolveNotificationId();
     return jointInspectionHistoryList
+        // Added offline: sent by its own queued call, not with the update.
+        .where((item) => (item.jiId ?? 0) >= 0)
         .map((item) => {
       "JIId": item.jiId ?? 0,
       "Remark": item.remark ?? "",
@@ -672,13 +674,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       final notificationTypeId = departmentId.value == 3
           ? lookupValue(failureTypes, selectedFailureCategoryType.value)
           : "0";
-      // Assign to the selected Person Responsible; fall back to the
-      // logged-in user when none is selected.
+      // Assigned to the selected Person Responsible. Without one the failure
+      // stays unassigned (0): the Section Incharge can open it later and choose
+      // the person (it is never given to the logged-in user).
       final selectedPersonId =
           int.tryParse(lookupValue(userList, selectedPersonResponsible.value));
-      final assignedUserId = (selectedPersonId != null && selectedPersonId > 0)
-          ? selectedPersonId
-          : createdBy;
+      final assignedUserId =
+          (selectedPersonId != null && selectedPersonId > 0) ? selectedPersonId : 0;
       // Look up in the same list the Nature of Work dropdown shows.
       final natureOfWorkId = lookupValue(
           apiNatureOfWorkList.isNotEmpty ? apiNatureOfWorkList : natureOfWorkList,
@@ -704,7 +706,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         'functionLocationId': int.tryParse(functionLocationId) ?? 0,
         'equipmentId': int.tryParse(equipmentId) ?? 0,
         'actualFailureOccuranceOn': actualFailureOccuranceOn,
-        'assignedUserId': int.tryParse(assignedUserId.toString()) ?? createdBy,
+        'assignedUserId': assignedUserId,
         'isServiceAffected': isServiceAffected.value,
         'trainDelayInMin':
         int.tryParse(trainDelayMinController.text.trim()) ?? 0,
@@ -740,7 +742,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         'systemDowntime': systemDowntime,
         'measurementPointIds': measurementPointIdsController.text.trim(),
         'priorityId': int.tryParse(priorityId) ?? 0,
-        'assignedUseeName': userName,
+        'assignedUseeName': assignedUserId > 0 ? (selectedPersonResponsible.value ?? '') : '',
         'locationFailure': subLocationController.text.trim(),
         'corrNotificationTypeId': int.tryParse(corrNotificationTypeId) ?? 0,
         // The Section Incharge form fills the FMECA fields (from the API).
