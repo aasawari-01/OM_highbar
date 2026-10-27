@@ -18,6 +18,7 @@ import 'local_database_service.dart';
 import 'network_service/network_errors.dart';
 import '../feature/failure/service/si_offline_service.dart';
 import '../feature/failure/service/je_offline_service.dart';
+import '../feature/failure/service/depot_offline_service.dart';
 import '../feature/failure/service/station_overlay.dart';
 import '../service/auth_manager.dart';
 import 'network_service/app_urls.dart';
@@ -184,6 +185,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.clearSiFailureCache();
         await _dbService.clearJeFailureCache();
         await _dbService.clearJeJointCache();
+        await _dbService.clearDepotFailureCache();
         await _dbService.setAppSetting(lastSyncKey, '');
         await _dbService.setAppSetting(userKey, userId);
       }
@@ -199,11 +201,13 @@ class MasterDataSyncService extends GetxController {
         await _dbService.upsertSiFailureCache(res.siRecords);
         await _dbService.upsertJeFailureCache(res.jeRecords);
         await _dbService.upsertJeJointCache(res.jiRecords);
+        await _dbService.upsertDepotFailureCache(res.depotRecords);
       } else {
         await _dbService.replaceStationFailureCache(res.stationRecords);
         await _dbService.replaceSiFailureCache(res.siRecords);
         await _dbService.replaceJeFailureCache(res.jeRecords);
         await _dbService.replaceJeJointCache(res.jiRecords);
+        await _dbService.replaceDepotFailureCache(res.depotRecords);
       }
       if (!incremental) await _dbService.setAppSetting(_fullSyncNeededKey, '');
       final downloaded = DateTime.tryParse(res.downloadedAt ?? '')?.toUtc();
@@ -213,7 +217,7 @@ class MasterDataSyncService extends GetxController {
       debugPrint('syncFailureTransactions: ${incremental ? 'incremental' : 'full'} '
           'sync done, station=${res.stationRecords.length} '
           'si=${res.siRecords.length} je=${res.jeRecords.length} '
-          'joint=${res.jiRecords.length}');
+          'joint=${res.jiRecords.length} depot=${res.depotRecords.length}');
       return true;
     } catch (e) {
       debugPrint('syncFailureTransactions: failed, keeping the local copy: $e');
@@ -516,6 +520,10 @@ class MasterDataSyncService extends GetxController {
       var resync = false; // a queued action was dropped: reload the server state
       final siOffline = SiOfflineService(failureService: _failureService);
       final jeOffline = JeOfflineService(failureService: _failureService);
+      final depotOffline = DepotOfflineService(failureService: _failureService);
+      var depotSynced = 0; // DCC depot failures: sent and failed
+      var depotFailed = 0;
+      final depotNumbers = <String>[];
       final syncedNumbers = <String>[]; // real failure numbers of Station failures
       var stationSynced = 0;
       var stationFailed = 0;
@@ -695,6 +703,48 @@ class MasterDataSyncService extends GetxController {
           continue;
         }
 
+        // DCC Depot failure created offline.
+        if (submission['failureType'] == DepotOfflineService.queueType) {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+          try {
+            final no = await depotOffline
+                .replay(payload)
+                .timeout(const Duration(seconds: 90));
+            await _dbService.deletePendingSubmission(sid);
+            // The real failure comes back with the next list sync.
+            await _dbService.deleteDepotOfflineEntries(sid);
+            _retryAfter.remove(sid);
+            syncedCount++;
+            depotSynced++;
+            if ((no ?? '').trim().isNotEmpty) depotNumbers.add(no!.trim());
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break; // still offline: the rest waits
+            }
+            // The server answered with an error: keep it, show why.
+            final reason = e.toString().replaceFirst('Exception: ', '');
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            await _dbService.markDepotOfflineEntries(sid, failed: true, error: reason);
+            _retryAfter[sid] =
+                DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            depotFailed++;
+            debugPrint('syncPendingSubmissions: depot failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
         final isJe = submission['failureType'] == JeOfflineService.queueType;
         if (isJe) {
           // Section Incharge actions (assign, close, update, create, ...)
@@ -784,6 +834,22 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
+      if (depotSynced > 0 || depotFailed > 0) {
+        final lines = <String>[
+          if (depotSynced > 0)
+            '$depotSynced offline depot failure${depotSynced == 1 ? '' : 's'} synced'
+                '${depotNumbers.isEmpty ? '' : ': ${depotNumbers.join(', ')}'}',
+          if (depotFailed > 0)
+            '$depotFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          depotFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: depotFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
       if (ackSynced > 0 || ackFailed > 0) {
         final lines = <String>[
           if (ackSynced > 0)
@@ -817,22 +883,22 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
-      if (syncedCount > stationSynced + siSynced + ackSynced) {
+      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced) {
         Get.snackbar(
           'Sync Complete',
-          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced} pending submissions',
+          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced} pending submissions',
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
       }
-      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0) {
+      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0) {
         debugPrint("syncPendingSubmissions: Reloading lists after offline submissions");
         // Bring the server's state of what was just sent (a dropped action gets a
         // full reload so its local change disappears).
         await syncFailureTransactions(forceAll: resync);
         // A list screen that is open shows the new state right away. (The lists
         // are registered by type and tag, so both are needed to find them.)
-        for (final tag in const ['Station', 'Maintenance', 'JE']) {
+        for (final tag in const ['Station', 'Maintenance', 'JE', 'Depot']) {
           try {
             if (Get.isRegistered<FailureListController>(tag: tag)) {
               await Get.find<FailureListController>(tag: tag).fetchFailures();

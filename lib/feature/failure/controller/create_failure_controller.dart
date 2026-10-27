@@ -38,6 +38,7 @@ import '../../../core/models/functional_location.dart';
 import '../../../core/models/equipment.dart';
 import '../service/failure_service.dart';
 import '../service/si_ids.dart';
+import '../service/depot_offline_service.dart';
 import '../service/je_offline_service.dart';
 import '../service/si_normalize.dart';
 import 'failure_form_state.dart';
@@ -7405,10 +7406,11 @@ class CreateFailureController extends GetxController
   final depotImages = <String>[].obs;
 
   /// Loads an existing depot failure for the read-only DCC detail view.
-  Future<void> loadDepotFailureDetails(String id) async {
+  Future<void> loadDepotFailureDetails(String id, {FailureItem? item}) async {
     isLoading.value = true;
     errorMessage.value = '';
     try {
+      if (await _loadDepotStoredDetails(id, item)) return;
       final output = await _failureService.getDepotFailureById(id);
       final d = output['getFailureCreationDetails'];
       if (d is! Map) {
@@ -7449,6 +7451,124 @@ class CreateFailureController extends GetxController
       errorMessage.value = 'Failed to load details. Please try again.';
     } finally {
       isLoading.value = false;
+    }
+  }
+
+  /// The depot failure from the stored list (GetAllFailuresTransactionData) or,
+  /// when it is still waiting to be sent, from what was typed on the form.
+  /// false = not stored (the server is asked instead).
+  Future<bool> _loadDepotStoredDetails(String id, FailureItem? item) async {
+    final db = LocalDatabaseService();
+    Map<String, dynamic>? detail;
+    var history = <Map<String, dynamic>>[];
+    final listId = item?.id ?? int.tryParse(id) ?? 0;
+    if (listId < 0) {
+      final sid = (-listId) ~/ 10;
+      final p = await db.getPendingSubmissionPayload(sid);
+      if (p == null || p['display'] is! Map) return false;
+      detail = Map<String, dynamic>.from(p['display'] as Map);
+      detail['failureId'] = item?.notificationCode ?? item?.failureNo ?? '';
+      detail['departmentName'] = item?.departmentName ?? detail['departmentName'];
+      detail['statusName'] = item?.statusName ?? 'Pending Sync';
+    } else {
+      final rec = await db.getDepotFailureCacheRow(listId);
+      if (rec == null || rec['depotFailures'] is! Map) return false;
+      detail = Map<String, dynamic>.from(rec['depotFailures'] as Map);
+      for (final k in const ['actualFailureOccuranceDate', 'actualFailureCompletedDateTime']) {
+        detail[k] = FailureListController.depotDate(detail[k]) ?? '';
+      }
+      final catId = '${detail['failureCategoryTypeId'] ?? ''}';
+      for (final c in await db.getFailureCategoryTypeOptions()) {
+        if ('${c['ID']}' == catId) {
+          detail['failureCategoryTypeName'] = '${c['FailureCategoryType']}'.trim();
+          break;
+        }
+      }
+      final h = rec['history'];
+      history = h is List
+          ? [
+              for (final e in h)
+                if (e is Map)
+                  {
+                    ...Map<String, dynamic>.from(e),
+                    'createdOn': FailureListController.depotDate(e['createdOn']) ?? '',
+                  }
+            ]
+          : <Map<String, dynamic>>[];
+    }
+    depotDetail.assignAll(detail);
+    notificationCode.value = detail['failureId']?.toString() ?? '';
+    mainStatusName.value = detail['statusName']?.toString();
+    depotHistory.assignAll(history);
+    depotImages.clear();
+    return true;
+  }
+
+  /// A depot failure typed without internet: kept in the queue with its images
+  /// and listed as "Pending Sync" until it is sent.
+  Future<void> _saveDepotOffline(
+      Map<String, dynamic> body, List<String> filePaths) async {
+    final db = LocalDatabaseService();
+    final me = await AuthManager().getUserId() ?? '';
+    final fullName = (await AuthManager().getFullName())?.trim() ?? '';
+    final depotId = int.tryParse(
+            Get.find<SessionController>().selectedDepotId.value ?? '') ??
+        0;
+    final kept = await DepotOfflineService.keepFiles(filePaths);
+    final labels = selectedDepartments.isNotEmpty
+        ? selectedDepartments.toList()
+        : <String>[
+            if ((selectedDepartment.value ?? '').isNotEmpty) selectedDepartment.value!
+          ];
+    final display = <String, dynamic>{
+      'priority': selectedPriority.value ?? '',
+      'failureDescription': body['FailureDescription'] ?? '',
+      'location': selectedLocation.value ?? '',
+      'funcationLocation': selectedFunctionalLocation.value ?? '',
+      'subLocation': body['SubLocation'] ?? '',
+      'system': body['System'] ?? '',
+      'actualFailureOccuranceDate': body['ActualFailureOccuranceDate'] ?? '',
+      'failureReportedby': fullName.isNotEmpty ? fullName : (selectedFailureReportedBy.value ?? ''),
+      'failureCategoryTypeName': selectedFailureCategoryType.value ?? '',
+      'isTripAffected': false,
+      'isPassengerAffected': body['IsPassengerAffected'] == true,
+      'numberOfPassengerAffected': body['NumberOfPassengerAffected'],
+      'trappedDuration': body['TrappedDuration'],
+      'rescusedDuration': body['RescusedDuration'],
+    };
+    final sid = await db.insertPendingSubmission({
+      'action': 'create',
+      'queuedBy': me,
+      'depotId': depotId,
+      'body': body,
+      'files': kept,
+      'display': display,
+    }, DepotOfflineService.queueType);
+
+    // One entry per selected department (the server creates one failure per
+    // department). Ids are -(submissionId * 10 + index).
+    final names = labels.isEmpty ? <String>[''] : labels;
+    for (var i = 0; i < names.length && i < 3; i++) {
+      final deptId = int.tryParse(lookupValue(departmentList, names[i])) ?? 0;
+      final code = (deptId > 0 ? await db.getDeptCodeById(deptId) : null) ?? '';
+      final no = await DepotOfflineService.offlineNumber(code.isEmpty ? 'DEPT' : code);
+      await db.insertFailureList([
+        {
+          'id': -(sid * 10 + i),
+          'failureNo': no,
+          'failureDescription': body['FailureDescription'] ?? '',
+          'functionalLocation': selectedFunctionalLocation.value ?? '',
+          'statusName': 'Pending Sync',
+          'failureOccuranceDateTime': body['ActualFailureOccuranceDate'] ?? '',
+          'subLocation': body['SubLocation'] ?? '',
+          'system': body['System'] ?? '',
+          'locationName': selectedLocation.value ?? '',
+          'priority': selectedPriority.value ?? '',
+          'departmentName': names[i],
+          'creationType': 'Depot',
+          'syncStatus': 'offline',
+        }
+      ], DepotOfflineService.listKey(depotId));
     }
   }
 
@@ -7560,8 +7680,37 @@ class CreateFailureController extends GetxController
       };
 
       debugPrint('createDepotFailure: payload $body, files=${files.length}');
-      final failureNo =
-      await _failureService.createDepotFailure(body, files: files);
+      String? failureNo;
+      try {
+        failureNo = await _failureService
+            .createDepotFailure(body, files: files)
+            .timeout(const Duration(seconds: 60));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: kept and sent when internet returns.
+        await _saveDepotOffline(body, [
+          for (final f in beforeFiles)
+            if ((f['path']?.toString() ?? '').isNotEmpty && f['isNetwork'] != true)
+              f['path'].toString()
+        ]);
+        if (Get.isRegistered<FailureListController>(tag: 'Depot')) {
+          Future.microtask(() async {
+            try {
+              await Get.find<FailureListController>(tag: 'Depot').fetchFailures();
+            } catch (_) {}
+          });
+        }
+        EasyLoading.dismiss();
+        Get.back();
+        showResultPopup(
+          title: 'Saved Offline',
+          message:
+              'Failure saved on this device. It is sent automatically when the internet is back, and you will be told when it is done.',
+          icon: Icons.cloud_off_outlined,
+          iconColor: AppColors.orangeColor,
+        );
+        return;
+      }
 
       if (Get.isRegistered<FailureListController>(tag: 'Depot')) {
         Future.microtask(() async {

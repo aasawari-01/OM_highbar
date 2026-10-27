@@ -395,7 +395,8 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                   ),
                 ],
               ),
-              if (failure.syncStatus == 'failed' && _isStationController) ...[
+              if (failure.syncStatus == 'failed' &&
+                  (_isStationController || _isDccDepot)) ...[
                 const SizedBox(height: 12),
                 const Divider(color: AppColors.dividerColor3, height: 1),
                 const SizedBox(height: 8),

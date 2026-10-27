@@ -1466,6 +1466,7 @@ class FailureService {
   List<Map<String, dynamic>> siRecords,
   List<Map<String, dynamic>> jeRecords,
   List<Map<String, dynamic>> jiRecords,
+  List<Map<String, dynamic>> depotRecords,
   String? downloadedAt
   })> getFailureTransactions({String? lastSyncDate}) async {
     final userId = await _userId();
@@ -1499,6 +1500,7 @@ class FailureService {
       siRecords: <Map<String, dynamic>>[],
       jeRecords: <Map<String, dynamic>>[],
       jiRecords: <Map<String, dynamic>>[],
+      depotRecords: <Map<String, dynamic>>[],
       downloadedAt: null
       );
     }
@@ -1630,6 +1632,7 @@ class FailureService {
     siRecords: records('siFailureList', 'siFailure'),
     jeRecords: records('jeInboxFailureList', 'jeFailure'),
     jiRecords: await jointRecords(),
+    depotRecords: records('depotFailuresList', 'depotFailures'),
     downloadedAt: data is Map ? data['downloadedAt']?.toString() : null,
     );
   }

@@ -321,7 +321,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     if (_isDepotView) {
       // DCC opening a depot failure from the list: read-only detail.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadDepotFailureDetails(widget.failureNo!);
+        controller.loadDepotFailureDetails(widget.failureNo!,
+            item: widget.failureItem);
       });
     } else if (_isOccUpdate) {
       // FMC user opening an OCC failure that was assigned to them.

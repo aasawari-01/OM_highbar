@@ -356,7 +356,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 23,
+      version: 24,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -975,6 +975,10 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 24) {
+      // DCC depot failure list
+      await _createFailureTables(db);
+    }
     if (oldVersion < 23) {
       // Junior Engineer joint inspection list
       await _createFailureTables(db);
@@ -1124,6 +1128,15 @@ class LocalDatabaseService {
         pendingJson TEXT,
         lastSyncedAt TEXT,
         pendingError TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS DepotFailureCache (
+        id INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        depotId INTEGER,
+        payload TEXT NOT NULL,
+        lastSyncedAt TEXT
       )
     ''');
     await db.execute('''
@@ -5520,6 +5533,109 @@ class LocalDatabaseService {
   Future<void> clearJeJointCache() async {
     final db = await database;
     await db.delete('JeJointCache');
+  }
+
+  // ===========================================================================
+  // DCC depot failure list (GetAllFailuresTransactionData, depotFailuresList).
+  // Each row keeps the whole record: {depotFailures, documents, history, ...}.
+  // ===========================================================================
+
+  Future<void> replaceDepotFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('DepotFailureCache');
+      await _insertDepotRecords(txn, records);
+    });
+  }
+
+  Future<void> upsertDepotFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertDepotRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertDepotRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['depotFailures'];
+      final id = f is Map ? int.tryParse('${f['id']}') : null;
+      if (id == null) continue;
+      batch.insert(
+        'DepotFailureCache',
+        {
+          'id': id,
+          'notificationCode': f['failureId']?.toString(),
+          'depotId': int.tryParse('${f['depotId']}'),
+          'payload': jsonEncode(r),
+          'lastSyncedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// The depot failures of one depot.
+  Future<List<Map<String, dynamic>>> getDepotFailureCache(int depotId) async {
+    final db = await database;
+    final rows = await db.query('DepotFailureCache',
+        where: 'depotId = ?', whereArgs: [depotId], orderBy: 'id DESC');
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        out.add(Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map));
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> getDepotFailureCacheRow(int id) async {
+    final db = await database;
+    final rows = await db.query('DepotFailureCache',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearDepotFailureCache() async {
+    final db = await database;
+    await db.delete('DepotFailureCache');
+  }
+
+  // Offline depot entries are in FailureList (failureType DepotOffline_<depot>)
+  // with ids -(submissionId * 10 + index).
+  static const String _depotEntryWhere =
+      'failureType LIKE ? AND id <= ? AND id > ?';
+  List<Object?> _depotEntryArgs(int sid) =>
+      ['DepotOffline_%', -(sid * 10), -(sid * 10 + 10)];
+
+  Future<void> markDepotOfflineEntries(int sid,
+      {required bool failed, String? error}) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'statusName': failed ? 'Sync Failed' : 'Pending Sync',
+        'syncStatus': failed ? 'failed' : 'offline',
+        'remarks': failed ? (error ?? '') : '',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: _depotEntryWhere,
+      whereArgs: _depotEntryArgs(sid),
+    );
+  }
+
+  Future<void> deleteDepotOfflineEntries(int sid) async {
+    final db = await database;
+    await db.delete('FailureList',
+        where: _depotEntryWhere, whereArgs: _depotEntryArgs(sid));
   }
 
   Future<void> clearSiFailureCache() async {

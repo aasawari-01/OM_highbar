@@ -257,6 +257,7 @@ class AuthManager {
       await db.clearSiFailureCache();
       await db.clearJeFailureCache();
       await db.clearJeJointCache();
+      await db.clearDepotFailureCache();
       await db.setAppSetting('failureTxnLastSync', '');
       await db.setAppSetting('failureTxnUserId', '');
       await db.setAppSetting('failureTxnFullNeeded', '1');

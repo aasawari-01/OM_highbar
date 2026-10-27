@@ -15,6 +15,7 @@ import '../service/si_ids.dart';
 import '../service/station_overlay.dart';
 import '../../../service/network_service/network_errors.dart';
 import '../service/si_normalize.dart';
+import '../service/depot_offline_service.dart';
 import '../../../service/master_data_sync_service.dart';
 
 enum JEFailureListTab { inbox, jointInspection }
@@ -807,6 +808,15 @@ class FailureListController extends GetxController {
 
   /// Retry of a Station failure the server refused.
   Future<void> retryOfflineFailure(FailureItem f) async {
+    if (failureType.toLowerCase() == 'depot') {
+      final depotSid = _submissionIdOf(f);
+      if (depotSid <= 0) return;
+      await _dbService.resetSubmissionAttempts(depotSid);
+      await _dbService.markDepotOfflineEntries(depotSid, failed: false);
+      await fetchFailures();
+      await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
+      return;
+    }
     if (f.pendingAction == 'acknowledge') {
       final ack = (await _dbService.getStationAckPending())[f.id];
       if (ack != null) await _dbService.resetSubmissionAttempts(ack['sid'] as int);
@@ -824,6 +834,14 @@ class FailureListController extends GetxController {
 
   /// Removes an offline Station failure (and what is waiting to be sent).
   Future<void> discardOfflineFailure(FailureItem f) async {
+    if (failureType.toLowerCase() == 'depot') {
+      final depotSid = _submissionIdOf(f);
+      if (depotSid <= 0) return;
+      await _dbService.deletePendingSubmission(depotSid);
+      await _dbService.deleteDepotOfflineEntries(depotSid);
+      await fetchFailures();
+      return;
+    }
     if (f.pendingAction == 'acknowledge') {
       // The failure goes back to what the server has: Acknowledge shows again.
       final ack = (await _dbService.getStationAckPending())[f.id];
@@ -909,8 +927,10 @@ class FailureListController extends GetxController {
     }
   }
 
-  /// DCC depot failures for the selected depot: online first, cached copy
-  /// (per depot) when offline.
+  /// DCC depot failures of the selected depot, from the stored copy of
+  /// GetAllFailuresTransactionData (depotFailuresList), so it also works
+  /// offline. Failures saved offline and not sent yet are listed first
+  /// (orange dot).
   Future<void> _fetchDepotFailures() async {
     final depotId = int.tryParse(_sessionController.selectedDepotId.value ?? '') ?? 0;
     if (depotId == 0) {
@@ -918,37 +938,72 @@ class FailureListController extends GetxController {
       errorMessage.value = 'Please select a depot first';
       return;
     }
-    final cacheKey = 'Depot_list_$depotId';
-    try {
-      final rows = await _failureService.getDepotFailureList(depotId);
-      final items = <FailureItem>[];
-      for (final r in rows) {
-        try {
-          items.add(_fmcItemFromRow(r, creationType: 'Depot'));
-        } catch (e) {
-          debugPrint('_fetchDepotFailures: skipped bad row: $e');
-        }
-      }
-      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-      failures.assignAll(items);
-      await _dbService.clearFailureList(cacheKey);
-      if (items.isNotEmpty) {
-        await _dbService.insertFailureList(
-            items.map((e) => e.toJson()).toList(), cacheKey);
-      } else {
-        errorMessage.value = 'No failures found.';
-      }
-    } catch (e) {
-      debugPrint('_fetchDepotFailures: API failed, using local copy: $e');
+    final synced = await Get.find<MasterDataSyncService>().syncFailureTransactions();
+    if (!synced) {
+      debugPrint('_fetchDepotFailures: server not reached, using local copy');
       isOfflineMode.value = true;
-      final local = await _dbService.getFailureList(cacheKey);
-      if (local.isNotEmpty) {
-        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
-      } else {
-        errorMessage.value =
-        'No data available. Please check your internet connection.';
+    }
+
+    final items = <FailureItem>[];
+    for (final r in await _dbService.getDepotFailureCache(depotId)) {
+      try {
+        final f = _depotRowFromTransaction(Map<String, dynamic>.from(r['depotFailures'] as Map));
+        items.add(_fmcItemFromRow(f, creationType: 'Depot'));
+      } catch (e) {
+        debugPrint('_fetchDepotFailures: skipped bad row: $e');
       }
     }
+    items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+
+    // Created offline and not sent yet ('failed' = the server refused it).
+    final pending = <FailureItem>[];
+    for (final r in await _dbService.getFailureList(DepotOfflineService.listKey(depotId))) {
+      if (r['syncStatus'] == 'offline' || r['syncStatus'] == 'failed') {
+        try {
+          pending.add(FailureItem.fromJson(r));
+        } catch (_) {}
+      }
+    }
+    // Newest submission first; its departments in the order they were picked.
+    ({int sid, int idx}) key(FailureItem f) {
+      final id = (f.id ?? 0).abs();
+      return (sid: id ~/ 10, idx: id % 10);
+    }
+
+    pending.sort((a, b) {
+      final ka = key(a), kb = key(b);
+      return ka.sid != kb.sid ? kb.sid.compareTo(ka.sid) : ka.idx.compareTo(kb.idx);
+    });
+    failures.assignAll([...pending, ...items]);
+    if (failures.isEmpty) {
+      errorMessage.value = isOfflineMode.value
+          ? 'No data available. Please sync with internet connection.'
+          : 'No failures found.';
+    }
+  }
+
+  /// depotFailures row of the sync -> what _fmcItemFromRow reads. The sync
+  /// sends no encrypted id (failureCreationId), so the numeric id stands in.
+  Map<String, dynamic> _depotRowFromTransaction(Map<String, dynamic> f) {
+    final row = Map<String, dynamic>.from(f);
+    final creation = '${row['failureCreationId'] ?? ''}'.trim();
+    if (creation.isEmpty) row['failureCreationId'] = '${row['id']}';
+    row['actualFailureOccuranceDate'] = depotDate(row['actualFailureOccuranceDate']);
+    row['createdDate'] = depotDate(row['createdDate']);
+    return row;
+  }
+
+  /// "10/27/2026 12:00:00" (month first) or an ISO date -> "27-10-2026 12:00".
+  static String? depotDate(dynamic v) {
+    final t = '${v ?? ''}'.trim();
+    if (t.isEmpty || t == 'null') return null;
+    final m = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?').firstMatch(t);
+    if (m != null) {
+      String two(String? x) => (x ?? '0').padLeft(2, '0');
+      return '${two(m[2])}-${two(m[1])}-${m[3]} ${two(m[4])}:${two(m[5])}';
+    }
+    final d = DateTime.tryParse(t);
+    return d == null ? t : DateFormat('dd-MM-yyyy HH:mm').format(d);
   }
 
   /// Maps one inbox row without strict casts (the row shape is not fixed).
