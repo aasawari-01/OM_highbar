@@ -121,6 +121,24 @@ class JeOfflineService {
     }, queueType);
   }
 
+  /// The joint inspection screen of a failure (what the user entered), saved
+  /// offline. The server's own details of the failure are fetched when it is
+  /// sent, so only the entered values are kept.
+  Future<void> queueJointInspectionSubmit({
+    required int notificationId,
+    required String notificationCode,
+    required Map<String, dynamic> payload,
+  }) async {
+    await _db.insertPendingSubmission({
+      'action': 'jiSubmit',
+      'notificationId': notificationId,
+      'notificationCode': notificationCode,
+      'queuedBy': await AuthManager().getUserId(),
+      'payload': payload,
+    }, queueType);
+    await _db.setJeJointPending(notificationId, 'jiSubmit');
+  }
+
   /// Removes a joint inspection that was added offline and is not sent yet.
   Future<void> discardJointInspection(int queueId) =>
       _db.deletePendingSubmission(queueId);
@@ -131,6 +149,10 @@ class JeOfflineService {
     final action = p0['action']?.toString() ?? '';
     final nid = int.tryParse('${p0['notificationId']}') ?? 0;
     switch (action) {
+      case 'jiSubmit':
+        await _service.submitJIScreenData(
+            Map<String, dynamic>.from(p0['payload'] as Map));
+        return true;
       case 'jiAdd':
         await _service.addJIEntry(Map<String, dynamic>.from(p0['body'] as Map));
         return true;

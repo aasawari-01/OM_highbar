@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import '../feature/auth_login/model/login_response.dart';
 import 'network_service/app_urls.dart';
 import 'network_service/api_client.dart';
+import 'local_database_service.dart';
 
 class AuthManager {
   // Singleton instance
@@ -248,6 +249,20 @@ class AuthManager {
     await prefs.remove(_keyBusinessArea);
     await prefs.remove(_keyRememberMe);
     // await prefs.remove(_keyRoleAndDeptMaster);
+    // The failure lists (GetAllFailuresTransactionData) belong to the user: removed
+    // here, downloaded again at the next login. Dropdown / master data stays.
+    try {
+      final db = LocalDatabaseService();
+      await db.clearStationFailureCache();
+      await db.clearSiFailureCache();
+      await db.clearJeFailureCache();
+      await db.clearJeJointCache();
+      await db.setAppSetting('failureTxnLastSync', '');
+      await db.setAppSetting('failureTxnUserId', '');
+      await db.setAppSetting('failureTxnFullNeeded', '1');
+    } catch (e) {
+      debugPrint('Logout: failure lists not cleared: $e');
+    }
     // Note: _keyFirstTimeLogin is NOT cleared on logout to preserve sync status
     EasyLoading.dismiss();
   }

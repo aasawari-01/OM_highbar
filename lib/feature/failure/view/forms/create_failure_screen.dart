@@ -331,7 +331,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (widget.failureNo != null) {
       if (widget.isFromJointInspection) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.loadJointInspectionDetails(widget.failureNo!);
+          controller.loadJointInspectionDetails(widget.failureNo!,
+              item: widget.failureItem);
         });
       } else if (widget.failureType == 'Station' &&
           controller.isStationController &&

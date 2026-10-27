@@ -356,7 +356,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 22,
+      version: 23,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -975,6 +975,10 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 23) {
+      // Junior Engineer joint inspection list
+      await _createFailureTables(db);
+    }
     if (oldVersion < 22) {
       // Why a queued Section Incharge action could not be sent
       try {
@@ -1120,6 +1124,16 @@ class LocalDatabaseService {
         pendingJson TEXT,
         lastSyncedAt TEXT,
         pendingError TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS JeJointCache (
+        notificationId INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        pendingAction TEXT,
+        pendingJson TEXT,
+        lastSyncedAt TEXT
       )
     ''');
     await db.execute('''
@@ -5401,6 +5415,111 @@ class LocalDatabaseService {
   Future<void> clearJeFailureCache() async {
     final db = await database;
     await db.delete('JeFailureCache');
+  }
+
+  // ===========================================================================
+  // Junior Engineer joint inspection list (GetAllFailuresTransactionData,
+  // jeJointInspectionList): failures a joint inspection was asked of this user
+  // for. Same rules as the other failure caches: a row with an action waiting
+  // to be sent is not overwritten by the sync.
+  // ===========================================================================
+
+  Future<void> replaceJeJointCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('JeJointCache', where: 'pendingAction IS NULL');
+      await _insertJointRecords(txn, records);
+    });
+  }
+
+  Future<void> upsertJeJointCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertJointRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertJointRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final pending = <int>{
+      for (final r in await txn.query('JeJointCache',
+          columns: ['notificationId'], where: 'pendingAction IS NOT NULL'))
+        int.parse('${r['notificationId']}'),
+    };
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['jeFailure'];
+      final id = f is Map ? int.tryParse('${f['notificationId']}') : null;
+      if (id == null || pending.contains(id)) continue;
+      batch.insert(
+        'JeJointCache',
+        {
+          'notificationId': id,
+          'notificationCode': f['notificationCode']?.toString(),
+          'payload': jsonEncode(r),
+          'lastSyncedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Map<String, dynamic>? _jointRow(Map<String, Object?> r) {
+    try {
+      return {
+        'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
+        'pendingAction': r['pendingAction'],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getJeJointCache() async {
+    final db = await database;
+    final rows = await db.query('JeJointCache', orderBy: 'notificationId DESC');
+    return [for (final r in rows) if (_jointRow(r) != null) _jointRow(r)!];
+  }
+
+  Future<Map<String, dynamic>?> findJeJoint({int? notificationId, String? code}) async {
+    final db = await database;
+    List<Map<String, Object?>> rows = const [];
+    if (notificationId != null && notificationId > 0) {
+      rows = await db.query('JeJointCache',
+          where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    }
+    if (rows.isEmpty && (code ?? '').trim().isNotEmpty) {
+      rows = await db.query('JeJointCache',
+          where: 'notificationCode = ?', whereArgs: [code!.trim()], limit: 1);
+    }
+    return rows.isEmpty ? null : _jointRow(rows.first);
+  }
+
+  Future<void> setJeJointPending(int notificationId, String action) async {
+    final db = await database;
+    await db.update('JeJointCache', {'pendingAction': action},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  Future<void> clearJeJointPending(int notificationId) async {
+    final db = await database;
+    await db.update('JeJointCache', {'pendingAction': null},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  /// A joint inspection that was submitted leaves the list (the server no
+  /// longer sends it).
+  Future<void> deleteJeJoint(int notificationId) async {
+    final db = await database;
+    await db.delete('JeJointCache',
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  Future<void> clearJeJointCache() async {
+    final db = await database;
+    await db.delete('JeJointCache');
   }
 
   Future<void> clearSiFailureCache() async {

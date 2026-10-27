@@ -1465,6 +1465,7 @@ class FailureService {
   List<Map<String, dynamic>> stationRecords,
   List<Map<String, dynamic>> siRecords,
   List<Map<String, dynamic>> jeRecords,
+  List<Map<String, dynamic>> jiRecords,
   String? downloadedAt
   })> getFailureTransactions({String? lastSyncDate}) async {
     final userId = await _userId();
@@ -1497,6 +1498,7 @@ class FailureService {
       stationRecords: <Map<String, dynamic>>[],
       siRecords: <Map<String, dynamic>>[],
       jeRecords: <Map<String, dynamic>>[],
+      jiRecords: <Map<String, dynamic>>[],
       downloadedAt: null
       );
     }
@@ -1522,10 +1524,112 @@ class FailureService {
       return out;
     }
 
+    // jeJointInspectionList: each item holds the failure under "jEjointInspection"
+    // (the JE screen model: notificationID, failureDescriptions, personResponsible
+    // ...). It is kept as jeFailure, with the names the app reads added.
+    Future<List<Map<String, dynamic>>> jointRecords() async {
+      final list = data is Map ? data['jeJointInspectionList'] : null;
+      final out = <Map<String, dynamic>>[];
+      if (list is! List) return out;
+      final db = LocalDatabaseService();
+      String? iso(dynamic v) {
+        final t = '${v ?? ''}'.trim();
+        final m = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?').firstMatch(t);
+        if (m == null) return t.isEmpty ? null : t;
+        String two(String? x) => (x ?? '0').padLeft(2, '0');
+        return '${m[3]}-${two(m[1])}-${two(m[2])}T${two(m[4])}:${two(m[5])}:00';
+      }
+
+      for (final e in list) {
+        if (e is! Map) continue;
+        Map? failure;
+        for (final v in e.values) {
+          if (v is Map && v.keys.any((k) => '$k'.toLowerCase() == 'notificationid')) {
+            failure = v;
+            break;
+          }
+        }
+        if (failure == null) continue;
+        final f = Map<String, dynamic>.from(failure);
+        dynamic any(List<String> keys) {
+          for (final k in keys) {
+            for (final entry in f.entries) {
+              if (entry.key.toLowerCase() == k.toLowerCase() && entry.value != null) {
+                return entry.value;
+              }
+            }
+          }
+          return null;
+        }
+
+        void alias(String key, dynamic value) {
+          if (f[key] == null && value != null) f[key] = value;
+        }
+
+        final nid = int.tryParse('${any(['notificationId', 'id'])}');
+        if (nid == null) continue;
+        alias('notificationId', nid);
+        alias('failureDescription', any(['failureDescriptions', 'failureDescription', 'description']));
+        alias('description', f['failureDescription']);
+        alias('assignedUserId', int.tryParse('${any(['personResponsible'])}'));
+        alias('actualFailureOccuranceOn', iso(any(['actualFailureOccuranceOn'])));
+        f['actualFailureOccuranceOn'] = iso(f['actualFailureOccuranceOn']);
+        alias('failureAttendedDate', iso(any(['failureAttendedOn', 'failureAttendedDate'])));
+        alias('actualFailureRectifiedDate', iso(any(['actualFailureRectifiedOn'])));
+        alias('functionalLocation', any(['functionalLocationName']));
+        alias('equipmentDescription', any(['equipmentName']));
+        alias('locationName', any(['locationTypeName']));
+        alias('systems', any(['system']));
+        alias('subSystems', any(['subSystem']));
+        alias('freq', any(['frequency']));
+        if (f['status'] is String) alias('statusName', f['status']);
+        final deptId = int.tryParse('${any(['deptId'])}') ?? 0;
+        final flId = int.tryParse('${any(['functionLocationId'])}') ?? 0;
+        try {
+          if (deptId > 0) alias('deptName', await db.getDeptNameById(deptId));
+          if (flId > 0) {
+            final fl = await db.getFailureFunctionalLocationRow(flId);
+            final code = fl?['FuncLocation']?.toString().trim() ?? '';
+            if (code.isNotEmpty) alias('functionalLocation', code);
+          }
+        } catch (_) {}
+        // The joint inspection asked (department, user, remark) is on the failure.
+        final jiDept = int.tryParse('${any(['deptId_JI'])}') ?? 0;
+        final jiUser = int.tryParse('${any(['assignedUserId_JI'])}') ?? 0;
+        String? jiDeptName;
+        String? jiUserName;
+        try {
+          if (jiDept > 0) jiDeptName = await db.getDeptNameById(jiDept);
+          if (jiUser > 0) jiUserName = await db.getUserNameById(jiUser);
+          final person = int.tryParse('${any(['personResponsible'])}') ?? 0;
+          if (person > 0) alias('assignedUserName', await db.getUserNameById(person));
+        } catch (_) {}
+        final item = Map<String, dynamic>.from(e);
+        if (item['joinInspectionHistory'] is! List && jiDept > 0) {
+          item['joinInspectionHistory'] = [
+            {
+              'deptId': jiDept,
+              'assignedTo': jiUser,
+              'remark': any(['remark_JI']),
+              'userRemark': any(['userRemark_JI']),
+              'deptName': jiDeptName,
+              'assginedUser': jiUserName,
+            }
+          ];
+        }
+        if (item['jeNotificationHistory'] is! List && item['jiNotificationHistory'] is List) {
+          item['jeNotificationHistory'] = item['jiNotificationHistory'];
+        }
+        out.add({...item, 'jeFailure': f});
+      }
+      return out;
+    }
+
     return (
     stationRecords: records('stationFailures', 'failure'),
     siRecords: records('siFailureList', 'siFailure'),
     jeRecords: records('jeInboxFailureList', 'jeFailure'),
+    jiRecords: await jointRecords(),
     downloadedAt: data is Map ? data['downloadedAt']?.toString() : null,
     );
   }

@@ -456,6 +456,10 @@ class FailureListController extends GetxController {
     final userId = int.tryParse(await AuthManager().getUserId() ?? '') ?? 0;
     final deptId = _sessionController.selectedDepartment.value?.deptId ?? 0;
     final jiTab = selectedJETab.value == JEFailureListTab.jointInspection;
+    if (jiTab) {
+      await _fetchJeJointFailures();
+      return;
+    }
 
     final items = <FailureItem>[];
     for (final row in await _dbService.getJeFailureCache()) {
@@ -533,6 +537,68 @@ class FailureListController extends GetxController {
       }
     }
 
+    final shown = items.where((item) => _matchesFailureType(item)).toList();
+    _sortJeFailures(shown);
+    failures.assignAll(shown);
+    if (failures.isEmpty) {
+      errorMessage.value = isOfflineMode.value
+          ? 'No data available. Please sync with internet connection.'
+          : 'No failures found.';
+    }
+  }
+
+  /// Joint Inspection tab of the Junior Engineer: the failures a joint
+  /// inspection was asked of him for, from the stored jeJointInspectionList.
+  Future<void> _fetchJeJointFailures() async {
+    final items = <FailureItem>[];
+    for (final row in await _dbService.getJeJointCache()) {
+      try {
+        final record = row['record'] as Map<String, dynamic>;
+        final je = await SiNormalize.normalize(
+            Map<String, dynamic>.from(record['jeFailure'] as Map), record);
+        final notificationId = _toInt(je['notificationId']);
+        if (notificationId == null) continue;
+
+        final history = record['correctiveNotificationActionUserHistory'];
+        final latest = history is List ? FailureService.latestHistory(history) : null;
+        String text(dynamic v) => v?.toString().trim() ?? '';
+        final status = text(je['statusName']).isNotEmpty
+            ? text(je['statusName'])
+            : text(latest?['statusName']);
+        final token = encryptedIdFromSiFailure(je, notificationId) ??
+            (record['encryptedId']?.toString().isNotEmpty == true
+                ? record['encryptedId'].toString()
+                : null);
+        final pendingAction = row['pendingAction']?.toString();
+        items.add(FailureItem(
+          id: notificationId,
+          failureNo: token ?? notificationId.toString(),
+          notificationCode: je['notificationCode']?.toString(),
+          jobCardId: token ?? notificationId.toString(),
+          failureDescription: je['failureDescription']?.toString(),
+          functionLocationId: _toInt(je['functionLocationId']),
+          equipmentId: _toInt(je['equipmentId']),
+          functionalLocation: je['functionalLocation']?.toString(),
+          equipmentDescription: je['equipmentDescription']?.toString(),
+          statusName: status,
+          statusId: _toInt(je['statusId']) ?? _toInt(latest?['statusId']),
+          failureOccuranceDateTime: text(je['actualFailureOccuranceOn']),
+          assignedUserId: _toInt(je['assignedUserId']),
+          occRequestStatus: je['occRequestStatus']?.toString(),
+          otherRequestFrom: je['otherRequestFrom']?.toString(),
+          locationName: je['locationName']?.toString(),
+          remarks: je['remarks']?.toString(),
+          creationType: je['creationType']?.toString(),
+          system: je['systems']?.toString(),
+          subSystems: je['subSystems']?.toString(),
+          freq: _toInt(je['freq']),
+          syncStatus: pendingAction == null ? 'synced' : 'offline',
+          pendingAction: pendingAction,
+        ));
+      } catch (e) {
+        debugPrint('_fetchJeJointFailures: skipped bad row: $e');
+      }
+    }
     final shown = items.where((item) => _matchesFailureType(item)).toList();
     _sortJeFailures(shown);
     failures.assignAll(shown);

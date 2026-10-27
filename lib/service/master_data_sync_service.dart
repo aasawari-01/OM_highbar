@@ -183,6 +183,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.clearStationFailureCache();
         await _dbService.clearSiFailureCache();
         await _dbService.clearJeFailureCache();
+        await _dbService.clearJeJointCache();
         await _dbService.setAppSetting(lastSyncKey, '');
         await _dbService.setAppSetting(userKey, userId);
       }
@@ -197,10 +198,12 @@ class MasterDataSyncService extends GetxController {
         await _dbService.upsertStationFailureCache(res.stationRecords);
         await _dbService.upsertSiFailureCache(res.siRecords);
         await _dbService.upsertJeFailureCache(res.jeRecords);
+        await _dbService.upsertJeJointCache(res.jiRecords);
       } else {
         await _dbService.replaceStationFailureCache(res.stationRecords);
         await _dbService.replaceSiFailureCache(res.siRecords);
         await _dbService.replaceJeFailureCache(res.jeRecords);
+        await _dbService.replaceJeJointCache(res.jiRecords);
       }
       if (!incremental) await _dbService.setAppSetting(_fullSyncNeededKey, '');
       final downloaded = DateTime.tryParse(res.downloadedAt ?? '')?.toUtc();
@@ -209,7 +212,8 @@ class MasterDataSyncService extends GetxController {
           DateFormat('yyyy-MM-dd').format(downloaded ?? DateTime.now().toUtc()));
       debugPrint('syncFailureTransactions: ${incremental ? 'incremental' : 'full'} '
           'sync done, station=${res.stationRecords.length} '
-          'si=${res.siRecords.length} je=${res.jeRecords.length}');
+          'si=${res.siRecords.length} je=${res.jeRecords.length} '
+          'joint=${res.jiRecords.length}');
       return true;
     } catch (e) {
       debugPrint('syncFailureTransactions: failed, keeping the local copy: $e');
@@ -702,7 +706,9 @@ class MasterDataSyncService extends GetxController {
           Future<void> dropIt(String reason) async {
             debugPrint('syncPendingSubmissions: giving up $action ($reason)');
             await _dbService.deletePendingSubmission(sid);
-            if (nid > 0 && action != 'jiAdd') {
+            if (nid > 0 && action == 'jiSubmit') {
+              await _dbService.deleteJeJoint(nid);
+            } else if (nid > 0 && action != 'jiAdd') {
               isJe
                   ? await _dbService.clearJeFailurePending(nid)
                   : await _dbService.clearSiFailurePending(nid);
@@ -728,7 +734,9 @@ class MasterDataSyncService extends GetxController {
                 .timeout(const Duration(seconds: 90));
             if (ok) {
               await _dbService.deletePendingSubmission(sid);
-              if (nid > 0 && action != 'jiAdd') {
+              if (nid > 0 && action == 'jiSubmit') {
+                await _dbService.deleteJeJoint(nid);
+              } else if (nid > 0 && action != 'jiAdd') {
                 isJe
                     ? await _dbService.clearJeFailurePending(nid)
                     : await _dbService.clearSiFailurePending(nid);

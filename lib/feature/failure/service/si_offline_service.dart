@@ -53,6 +53,7 @@ class SiOfflineService {
       case 'acknowledge':
         return 'Acknowledge';
       case 'jiAdd':
+      case 'jiSubmit':
         return 'Joint Inspection';
       default:
         return action ?? '';

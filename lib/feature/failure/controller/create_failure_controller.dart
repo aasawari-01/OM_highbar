@@ -37,6 +37,9 @@ import 'failure_list_controller.dart';
 import '../../../core/models/functional_location.dart';
 import '../../../core/models/equipment.dart';
 import '../service/failure_service.dart';
+import '../service/si_ids.dart';
+import '../service/je_offline_service.dart';
+import '../service/si_normalize.dart';
 import 'failure_form_state.dart';
 import 'failure_rca_logic.dart';
 import 'failure_material_logic.dart';
@@ -804,7 +807,8 @@ class CreateFailureController extends GetxController
     }
   }
   Map<String, dynamic> _jeScreenRaw = {};
-  Future<void> loadJointInspectionDetails(String failureNo) async {
+  Future<void> loadJointInspectionDetails(String failureNo,
+      {FailureItem? item}) async {
     encryptedId.value = failureNo;
     notificationId.value = 0;
     jointInspectionFailureNo.value = "";
@@ -813,6 +817,16 @@ class CreateFailureController extends GetxController
       errorMessage.value = "";
 
       await loadMasterDataFromDb();
+
+      // The failure as stored from GetAllFailuresTransactionData: shown the same
+      // online and offline.
+      final stored = await LocalDatabaseService()
+          .findJeJoint(notificationId: item?.id, code: item?.notificationCode);
+      if (stored != null) {
+        await _applyJiStoredDetails(
+            stored['record'] as Map<String, dynamic>, failureNo);
+        return;
+      }
 
       Map<String, dynamic> json;
       try {
@@ -837,6 +851,135 @@ class CreateFailureController extends GetxController
     } finally {
       isLoading.value = false;
     }
+  }
+
+  /// The joint inspection screen from the stored failure (jeJointInspectionList).
+  Future<void> _applyJiStoredDetails(
+      Map<String, dynamic> rec, String failureNo) async {
+    final je = await SiNormalize.normalize(
+        Map<String, dynamic>.from(rec['jeFailure'] as Map), rec);
+    List<dynamic> list(String key) => rec[key] is List ? rec[key] as List : const [];
+    String text(dynamic v) => v?.toString() ?? '';
+    final nid = int.tryParse('${je['notificationId']}') ?? 0;
+
+    // The server's own details of the failure are fetched when it is sent.
+    _jeScreenRaw = <String, dynamic>{};
+    encryptedId.value = encryptedIdFromSiFailure(je, nid) ??
+        rec['encryptedId']?.toString() ??
+        failureNo;
+    notificationId.value = nid;
+    notificationCode.value = text(je['notificationCode']);
+    jointInspectionFailureNo.value = '$nid';
+
+    failureDescriptionController.text = text(je['description']);
+    final priority = text(je['priorityType']);
+    selectedPriority.value = priority.isEmpty ? null : priority;
+    priorityDisplayController.text = priority;
+    final deptLabel = text(je['deptName']);
+    selectedDepartment.value = deptLabel.isEmpty ? null : deptLabel;
+    departmentDisplayController.text = deptLabel;
+    systemController.text = text(je['systems']);
+    subsystemController.text = text(je['subSystems']);
+    locationDisplayController.text = text(je['locationName']);
+    final funcLabel = text(je['functionalLocation']);
+    functionalLocationDisplayController.text = funcLabel;
+    if (funcLabel.isNotEmpty) selectedFunctionalLocation.value = funcLabel;
+    final equipLabel = text(je['equipmentDescription']);
+    equipmentDisplayController.text = equipLabel;
+    if (equipLabel.isNotEmpty) selectedEquipmentNumber.value = equipLabel;
+    final person = text(je['assignedUserName']);
+    selectedPersonResponsible.value = person.isEmpty ? null : person;
+    personResponsibleDisplayController.text = person;
+
+    selectedFailureOccurrenceDate.value = _parseJeDate(je['actualFailureOccuranceOn']);
+    selectedFailureAttendedDate.value = _parseJeDate(je['failureAttendedDate']);
+    selectedActualFailureRectifiedDate.value =
+        _parseJeDate(je['actualFailureRectifiedDate']);
+
+    isPtwRequired.value = text(je['ptwNo']).trim().isNotEmpty;
+    ptwNumberController.text = text(je['ptwNo']);
+    isSparePartReplaced.value = list('jeMaterialReq').any((m) =>
+        m is Map && ((int.tryParse('${m['materialid']}') ?? 0) > 0));
+
+    isServiceAffected.value = je['isServiceAffected'] == true;
+    trainDelayMinController.text = text(je['trainDelayInMin']);
+    trainDelayNosController.text = text(je['trainDelayInNo']);
+    trainCancelNosController.text = text(je['noOfTranCancel']);
+    trainWithdrawalNosController.text = text(je['noOfTranWithdrawal']);
+    trainReplaceNosController.text = text(je['noOfTrainReplace']);
+    isPassengerDeboarding.value = je['isPassengerDeboarding'] == true;
+    trainDeboardedNosController.text = text(je['noofTrainDeboarded']);
+    isPassengerAffected.value = je['isPassengerAffected'] == true;
+    numberOfPassengerAffectedController.text = text(je['noOfPassengerAffected']);
+    trappedDurationController.text = text(je['trappedDuration']);
+    rescuedDurationController.text = text(je['rescuedDuration']);
+    isJointInspection.value = je['isJointInspectionReq'] == true;
+
+    // The joint inspection asked of this user (else the first one).
+    final me = int.tryParse(await AuthManager().getUserId() ?? '') ?? 0;
+    final asked = list('joinInspectionHistory').whereType<Map>().toList();
+    final mine = asked.firstWhereOrNull((e) => '${e['assignedTo']}' == '$me') ??
+        (asked.isNotEmpty ? asked.first : null);
+    jiDepartment.value = mine?['deptId']?.toString();
+    jiAssignTo.value = mine?['assignedTo']?.toString();
+    jiDepartmentDisplayController.text = text(mine?['deptName']);
+    jiAssignToDisplayController.text = text(mine?['assginedUser']);
+    jiRemarkDisplayController.text = text(mine?['remark']);
+    jiUserRemarkController.text = text(mine?['userRemark']);
+
+    // Functional location of the joint inspection: those of the asked
+    // department, at the location of the failure (local data, works offline).
+    try {
+      final db = LocalDatabaseService();
+      final flId = int.tryParse('${je['functionLocationId']}') ?? 0;
+      final fl = flId > 0 ? await db.getFailureFunctionalLocationRow(flId) : null;
+      final loc = fl?['Location']?.toString().trim() ?? '';
+      final jiDeptId = int.tryParse('${mine?['deptId']}') ?? 0;
+      final code = jiDeptId > 0 ? await db.getDeptCodeById(jiDeptId) : null;
+      final ba = await AuthManager().getBusinessArea() ?? 0;
+      final rows = await db.queryFailureFunctionalLocations(
+        businessArea: ba,
+        workCenters: [if ((code ?? '').isNotEmpty) code!],
+        locationCode: (loc.isEmpty || loc.toUpperCase() == 'NULL') ? null : loc,
+        userWorkCenters: [if ((code ?? '').isNotEmpty) code!],
+      );
+      functionalLocationList.assignAll([
+        for (final r in rows)
+          if ('${r['FuncLocId']}'.isNotEmpty)
+            LabelValue(
+              label: '${r['FuncLocation']}'.trim() +
+                  ('${r['FuncDescription'] ?? ''}'.trim().isEmpty
+                      ? ''
+                      : ' - ${'${r['FuncDescription']}'.trim()}'),
+              value: '${r['FuncLocId']}',
+            ),
+      ]);
+    } catch (e) {
+      debugPrint('_applyJiStoredDetails: functional locations: $e');
+    }
+
+    final hist = list('jeNotificationHistory');
+    try {
+      notificationDescriptionHistoryList.assignAll([
+        for (final e in hist)
+          if (e is Map) NotificationHistory.fromJson(Map<String, dynamic>.from(e)),
+      ]);
+    } catch (e) {
+      debugPrint('_applyJiStoredDetails: notification history: $e');
+    }
+
+    // RCA rows
+    rcaDetailsList.assignAll(_rcaRowsFromJson(jsonEncode([
+      for (final r in list('newRca'))
+        if (r is Map)
+          {
+            ...Map<String, dynamic>.from(r),
+            'system': je['systems'],
+            'subsystem': je['subSystems'],
+          }
+    ])));
+    await filterRcaFailureCategoriesBySystem();
+    errorMessage.value = "";
   }
 
   /// Label for an id inside one of the {label,value} lists of the response.
@@ -1158,21 +1301,59 @@ class CreateFailureController extends GetxController
       // final String? userName = await AuthManager().getUserName();
       final int userId = int.tryParse(userIdStr ?? "0") ?? 0;
 
-      final payload = <String, dynamic>{
-        ..._jeScreenRaw,
-        'NotificationId': resolveNotificationId(),
-        'userRemark_JI': jiUserRemarkController.text.trim(),
-        'FunctionLocation_JI':
-        int.tryParse(jiFunctionalLocationId.value ?? '0') ?? 0,
-        'EquipmentId_JI': jiEquipmentId.value ?? 0,
-        'AssignedUserId_JI': int.tryParse(jiAssignTo.value ?? '0') ?? 0,
-        'DeptId_JI': int.tryParse(jiDepartment.value ?? '0') ?? 0,
-        'CreatedBy': userId,
-        'UpdatedUserId': userId,
-      };
+      final nid = resolveNotificationId();
+      final Map<String, dynamic> payload;
+      if (_jeScreenRaw.isEmpty) {
+        // Failure shown from the stored list: the same fields the web sends.
+        payload = <String, dynamic>{
+          'FailureNo': '$nid',
+          'FunctionLocation_JI':
+              int.tryParse(jiFunctionalLocationId.value ?? '0') ?? 0,
+          'EquipmentId_JI': jiEquipmentId.value ?? 0,
+          'UserRemark_JI': jiUserRemarkController.text.trim(),
+          'CreatedBy': userId,
+          'CreatedByName': await AuthManager().getFullName() ?? '',
+        };
+      } else {
+        payload = <String, dynamic>{
+          ..._jeScreenRaw,
+          'NotificationId': nid,
+          'userRemark_JI': jiUserRemarkController.text.trim(),
+          'FunctionLocation_JI':
+          int.tryParse(jiFunctionalLocationId.value ?? '0') ?? 0,
+          'EquipmentId_JI': jiEquipmentId.value ?? 0,
+          'AssignedUserId_JI': int.tryParse(jiAssignTo.value ?? '0') ?? 0,
+          'DeptId_JI': int.tryParse(jiDepartment.value ?? '0') ?? 0,
+          'CreatedBy': userId,
+          'UpdatedUserId': userId,
+        };
+      }
       debugPrint("submitJointInspection: payload=$payload");
 
-      final message = await _failureService.submitJIScreenData(payload);
+      String message;
+      try {
+        message = await _failureService
+            .submitJIScreenData(payload)
+            .timeout(const Duration(seconds: 30));
+      } catch (e) {
+        if (!isNetworkError(e) || nid <= 0) rethrow;
+        // No connection: kept and sent when internet returns.
+        await JeOfflineService().queueJointInspectionSubmit(
+          notificationId: nid,
+          notificationCode: notificationCode.value,
+          payload: payload,
+        );
+        EasyLoading.dismiss();
+        Get.back(result: true);
+        Get.snackbar('Saved Offline',
+            'Joint inspection saved. It is sent when the internet is back.',
+            backgroundColor: AppColors.orangeColor,
+            colorText: AppColors.white1,
+            snackPosition: SnackPosition.BOTTOM);
+        return;
+      }
+      // Done on the server: the failure leaves the Joint Inspection list.
+      if (nid > 0) await LocalDatabaseService().deleteJeJoint(nid);
       // The Joint Inspection inbox is decided by the server: show it as it is.
       if (Get.isRegistered<MasterDataSyncService>()) {
         await Get.find<MasterDataSyncService>().markFullSyncNeeded();
@@ -2947,6 +3128,7 @@ class CreateFailureController extends GetxController
     );
     jiFunctionalLocationId.value = matched.value;
     jiFunctionalLocation.value = label;
+    _loadJiEquipment(matched.value);
 
     // Auto-select location based on functional location
     final func = masterFunctionalLocations.firstWhere(
@@ -3010,6 +3192,34 @@ class CreateFailureController extends GetxController
         selectedDepartment.value = deptMatch.label;
         departmentDisplayController.text = deptMatch.label ?? '';
       }
+    }
+  }
+
+  /// Equipment of the functional location chosen on the joint inspection
+  /// screen (local data).
+  Future<void> _loadJiEquipment(String? funcLocId) async {
+    final id = int.tryParse(funcLocId ?? '') ?? 0;
+    if (id <= 0) return;
+    try {
+      final db = LocalDatabaseService();
+      final fl = await db.getFailureFunctionalLocationRow(id);
+      final rows = await db.queryFailureEquipments(
+        businessArea: await AuthManager().getBusinessArea() ?? 0,
+        funcLocCode: fl?['FuncLocation']?.toString() ?? '',
+      );
+      equipmentList.assignAll([
+        for (final r in rows)
+          if ('${r['EquipId']}'.isNotEmpty)
+            LabelValue(
+              label: '${r['EquipNo']}'.trim() +
+                  ('${r['EquipDesc'] ?? ''}'.trim().isEmpty
+                      ? ''
+                      : ' - ${'${r['EquipDesc']}'.trim()}'),
+              value: '${r['EquipId']}',
+            ),
+      ]);
+    } catch (e) {
+      debugPrint('_loadJiEquipment: $e');
     }
   }
 
