@@ -58,6 +58,7 @@ class LocalDatabaseService {
   Database? _rstFaultMasterDatabase;
   Database? _rstOldRootCauseDatabase;
   Database? _rstStoreLocationDatabase;
+  Database? _depotMasterDatabase;
   Database? _reasonForDelayDatabase;
   Database? _natureOfWorkDatabase;
   Database? _failureCategoryTypeDatabase;
@@ -325,6 +326,38 @@ class LocalDatabaseService {
     if (_rstOldRootCauseDatabase != null) return _rstOldRootCauseDatabase!;
     _rstOldRootCauseDatabase = await _openAssetDatabase('oldrootcause_data.db', _copyRstOldRootCauseDatabaseFromAssets);
     return _rstOldRootCauseDatabase!;
+  }
+
+  Future<Database> get depotMasterDatabase async {
+    if (_depotMasterDatabase != null) return _depotMasterDatabase!;
+    _depotMasterDatabase = await _openAssetDatabase('depotmaster_data.db', _copyDepotMasterFromAssets);
+    return _depotMasterDatabase!;
+  }
+
+  Future<void> _copyDepotMasterFromAssets(String targetPath) async {
+    try {
+      final byteData = await rootBundle.load('assets/DepotMaster.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      await File(targetPath).writeAsBytes(bytes, flush: true);
+    } catch (e) {
+      debugPrint('_copyDepotMasterFromAssets: Error copying DepotMaster.db: $e');
+    }
+  }
+
+  /// Active depots of a business area (bundled DepotMaster.db), for the DCC
+  /// depot picker: [{DepotId, DepotName}].
+  Future<List<Map<String, Object?>>> getDepotsByBusinessArea(int businessArea) async {
+    try {
+      final db = await depotMasterDatabase;
+      return await db.query('DepotMaster',
+          columns: ['DepotId', 'DepotName'],
+          where: 'BusinessArea = ? AND IsActive = 1',
+          whereArgs: [businessArea],
+          orderBy: 'DepotName');
+    } catch (e) {
+      debugPrint('getDepotsByBusinessArea error: $e');
+      return [];
+    }
   }
 
   Future<Database> get rstStoreLocationDatabase async {
