@@ -289,6 +289,9 @@ class MasterDataSyncService extends GetxController {
   /// button asks only for the changes after the kept version (getMasterDataSync).
   Future<void> syncMasterDataFromAPI({bool isLogin = false}) async {
     debugPrint("syncMasterDataFromAPI: STARTING (login=$isLogin)");
+    // Bundled depots for the DCC picker are taken in at login, before the server
+    // is asked, so they are there even when the sync cannot run.
+    await _dbService.ensureDepotMaster();
     await _executeSyncTask('Syncing master data from server...', () async {
       try {
         var stored = int.tryParse(await _dbService.getAppSetting(_rowVersionKey) ?? '');

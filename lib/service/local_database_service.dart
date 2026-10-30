@@ -58,7 +58,6 @@ class LocalDatabaseService {
   Database? _rstFaultMasterDatabase;
   Database? _rstOldRootCauseDatabase;
   Database? _rstStoreLocationDatabase;
-  Database? _depotMasterDatabase;
   Database? _reasonForDelayDatabase;
   Database? _natureOfWorkDatabase;
   Database? _failureCategoryTypeDatabase;
@@ -328,27 +327,62 @@ class LocalDatabaseService {
     return _rstOldRootCauseDatabase!;
   }
 
-  Future<Database> get depotMasterDatabase async {
-    if (_depotMasterDatabase != null) return _depotMasterDatabase!;
-    _depotMasterDatabase = await _openAssetDatabase('depotmaster_data.db', _copyDepotMasterFromAssets);
-    return _depotMasterDatabase!;
-  }
-
-  Future<void> _copyDepotMasterFromAssets(String targetPath) async {
+  /// Copies the bundled DepotMaster.db into the app database (once, when the
+  /// table is empty), so the DCC depot picker works offline. Called at login /
+  /// sync and before the picker reads.
+  Future<void> ensureDepotMaster() async {
     try {
+      final db = await database;
+      final count = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM DepotMaster')) ??
+          0;
+      if (count > 0) return;
       final byteData = await rootBundle.load('assets/DepotMaster.db');
       final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
-      await File(targetPath).writeAsBytes(bytes, flush: true);
+      final temp = join(await getDatabasesPath(), 'depotmaster_import.db');
+      await File(temp).writeAsBytes(bytes, flush: true);
+      final src = await openDatabase(temp, readOnly: true);
+      try {
+        final table = await _firstUserTable(src);
+        if (table == null) {
+          debugPrint('ensureDepotMaster: no table in DepotMaster.db');
+          return;
+        }
+        final rows = await src.query(table);
+        final batch = db.batch();
+        for (final r in rows) {
+          batch.insert(
+            'DepotMaster',
+            {
+              'DepotId': r['DepotId'],
+              'BusinessArea': r['BusinessArea'],
+              'DepotName': r['DepotName'],
+              'DepotCode': r['DepotCode'],
+              'PlantId': r['PlantId'],
+              'IsActive': r['IsActive'],
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+        debugPrint('ensureDepotMaster: ${rows.length} depots imported');
+      } finally {
+        await src.close();
+        try {
+          await File(temp).delete();
+        } catch (_) {}
+      }
     } catch (e) {
-      debugPrint('_copyDepotMasterFromAssets: Error copying DepotMaster.db: $e');
+      debugPrint('ensureDepotMaster error: $e');
     }
   }
 
-  /// Active depots of a business area (bundled DepotMaster.db), for the DCC
-  /// depot picker: [{DepotId, DepotName}].
+  /// Active depots of a business area, for the DCC depot picker:
+  /// [{DepotId, DepotName}].
   Future<List<Map<String, Object?>>> getDepotsByBusinessArea(int businessArea) async {
     try {
-      final db = await depotMasterDatabase;
+      await ensureDepotMaster();
+      final db = await database;
       return await db.query('DepotMaster',
           columns: ['DepotId', 'DepotName'],
           where: 'BusinessArea = ? AND IsActive = 1',
@@ -389,7 +423,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 24,
+      version: 25,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -1008,6 +1042,10 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 25) {
+      // DepotMaster table (DCC depot picker)
+      await _createFailureTables(db);
+    }
     if (oldVersion < 24) {
       // DCC depot failure list
       await _createFailureTables(db);
@@ -1161,6 +1199,16 @@ class LocalDatabaseService {
         pendingJson TEXT,
         lastSyncedAt TEXT,
         pendingError TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS DepotMaster (
+        DepotId INTEGER PRIMARY KEY,
+        BusinessArea INTEGER,
+        DepotName TEXT,
+        DepotCode TEXT,
+        PlantId INTEGER,
+        IsActive INTEGER
       )
     ''');
     await db.execute('''
