@@ -16,10 +16,12 @@ class TopManagementInspectionObservationScreen extends StatefulWidget {
   const TopManagementInspectionObservationScreen({super.key});
 
   @override
-  State<TopManagementInspectionObservationScreen> createState() => _TopManagementInspectionObservationScreenState();
+  State<TopManagementInspectionObservationScreen> createState() =>
+      _TopManagementInspectionObservationScreenState();
 }
 
-class _TopManagementInspectionObservationScreenState extends State<TopManagementInspectionObservationScreen> {
+class _TopManagementInspectionObservationScreenState
+    extends State<TopManagementInspectionObservationScreen> {
   late final TopManagementInspectionController controller;
 
   @override
@@ -79,10 +81,11 @@ class _TopManagementInspectionObservationScreenState extends State<TopManagement
           children: [
             Expanded(
               child: Obx(() => ListView.builder(
-                padding: const EdgeInsets.all(AppConstants.screenPadding),
-                itemCount: controller.observations.length,
-                itemBuilder: (context, index) => _buildObservationBlock(index),
-              )),
+                    padding: const EdgeInsets.all(AppConstants.screenPadding),
+                    itemCount: controller.observations.length,
+                    itemBuilder: (context, index) =>
+                        _buildObservationBlock(index),
+                  )),
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -129,7 +132,8 @@ class _TopManagementInspectionObservationScreenState extends State<TopManagement
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (index > 0) const SizedBox(height: AppConstants.sectionSpacing),
-        CustText.sectionHeader('Observation No. $no', color: AppColors.orangeColor),
+        CustText.sectionHeader('Observation No. $no',
+            color: AppColors.orangeColor),
         const SizedBox(height: AppConstants.subElementSpacing),
         CustText.body(
           'Record your observations in this section. Recording of anomalies, issues, deficiencies only is suggested',
@@ -177,7 +181,9 @@ class _TopManagementInspectionObservationScreenState extends State<TopManagement
         ),
         if (entry.files.isNotEmpty) ...[
           const SizedBox(height: AppConstants.subElementSpacing),
-          CustText.body(entry.files.first.path.split(Platform.pathSeparator).last, size: 12),
+          CustText.body(
+              entry.files.first.path.split(Platform.pathSeparator).last,
+              size: 12),
         ],
         if (index == controller.observations.length - 1) ...[
           const SizedBox(height: AppConstants.sectionSpacing),
@@ -187,30 +193,28 @@ class _TopManagementInspectionObservationScreenState extends State<TopManagement
           ),
           const SizedBox(height: AppConstants.elementSpacing),
           Obx(() => Column(
-            children: [
-              CustRadio<InspectionEndChoice>(
-                value: InspectionEndChoice.addMore,
-                groupValue: controller.endChoice.value,
-                label: 'Add Observation',
-                onChanged: (v) {
-                  if (v != null) controller.endChoice.value = v;
-                },
-              ),
-              const SizedBox(height: AppConstants.subElementSpacing),
-              CustRadio<InspectionEndChoice>(
-                value: InspectionEndChoice.endInspection,
-                groupValue: controller.endChoice.value,
-                label: 'End Of Inspection',
-                onChanged: (v) {
-                  if (v != null) controller.endChoice.value = v;
-                },
-              ),
-            ],
-          )),
+                children: [
+                  CustRadio<InspectionEndChoice>(
+                    value: InspectionEndChoice.addMore,
+                    groupValue: controller.endChoice.value,
+                    label: 'Add Observation',
+                    onChanged: (v) {
+                      if (v != null) controller.endChoice.value = v;
+                    },
+                  ),
+                  const SizedBox(height: AppConstants.subElementSpacing),
+                  CustRadio<InspectionEndChoice>(
+                    value: InspectionEndChoice.endInspection,
+                    groupValue: controller.endChoice.value,
+                    label: 'End Of Inspection',
+                    onChanged: (v) {
+                      if (v != null) controller.endChoice.value = v;
+                    },
+                  ),
+                ],
+              )),
         ],
       ],
     );
   }
-
-
 }
