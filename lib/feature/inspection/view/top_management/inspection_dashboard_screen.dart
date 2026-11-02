@@ -61,8 +61,10 @@ class InspectionDashboardScreen extends StatelessWidget {
               child: ListView.separated(
                 padding: const EdgeInsets.all(AppConstants.screenPadding),
                 itemCount: _categories.length,
-                separatorBuilder: (_, __) => const SizedBox(height: AppConstants.elementSpacing),
-                itemBuilder: (context, index) => _DashboardCard(category: _categories[index]),
+                separatorBuilder: (_, __) =>
+                    const SizedBox(height: AppConstants.elementSpacing),
+                itemBuilder: (context, index) =>
+                    _DashboardCard(category: _categories[index]),
               ),
             ),
             Padding(
@@ -80,7 +82,8 @@ class InspectionDashboardScreen extends StatelessWidget {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => const TopManagementCreateInspectionScreen(),
+                      builder: (context) =>
+                          const TopManagementCreateInspectionScreen(),
                     ),
                   );
                 },
@@ -136,7 +139,8 @@ class _DashboardCard extends StatelessWidget {
               width: 5,
               decoration: BoxDecoration(
                 color: category.accentColor,
-                borderRadius: const BorderRadius.horizontal(left: Radius.circular(AppConstants.cardRadius)),
+                borderRadius: const BorderRadius.horizontal(
+                    left: Radius.circular(AppConstants.cardRadius)),
               ),
             ),
             Expanded(
@@ -155,7 +159,8 @@ class _DashboardCard extends StatelessWidget {
                     Row(
                       children: [
                         Expanded(child: _statItem('Pending', category.pending)),
-                        Expanded(child: _statItem('Completed', category.completed)),
+                        Expanded(
+                            child: _statItem('Completed', category.completed)),
                         Expanded(child: _statItem('Overdue', category.overdue)),
                       ],
                     ),

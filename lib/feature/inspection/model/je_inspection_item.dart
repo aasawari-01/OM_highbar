@@ -85,6 +85,9 @@ class JEInspectionItem {
 
   bool get canView => status == '157';
 
+  /// Sent back by the SE: the JE edits the checklist again.
+  bool get canUpdate => isSkip != 1 && status == '194';
+
   /// Skip is offered only on the scheduled day for freshly assigned items.
   bool get canSkip =>
       status == '153' &&

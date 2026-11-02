@@ -15,10 +15,12 @@ class TopManagementCreateInspectionScreen extends StatefulWidget {
   const TopManagementCreateInspectionScreen({super.key});
 
   @override
-  State<TopManagementCreateInspectionScreen> createState() => _TopManagementCreateInspectionScreenState();
+  State<TopManagementCreateInspectionScreen> createState() =>
+      _TopManagementCreateInspectionScreenState();
 }
 
-class _TopManagementCreateInspectionScreenState extends State<TopManagementCreateInspectionScreen> {
+class _TopManagementCreateInspectionScreenState
+    extends State<TopManagementCreateInspectionScreen> {
   late final TopManagementInspectionController controller;
   final _formKey = GlobalKey<FormState>();
 
@@ -68,69 +70,84 @@ class _TopManagementCreateInspectionScreenState extends State<TopManagementCreat
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CustText.sectionHeader('Inspection Details', color: AppColors.orangeColor),
+                      CustText.sectionHeader('Inspection Details',
+                          color: AppColors.orangeColor),
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() => CustDropdown(
-                        label: 'Date of Inspection',
-                        hint: 'Select',
-                        items: TopManagementInspectionController.dateOptions,
-                        selectedValue: controller.selectedDate.value,
-                        onChanged: (v) => controller.selectedDate.value = v,
-                      )),
+                            label: 'Date of Inspection',
+                            hint: 'Select',
+                            items:
+                                TopManagementInspectionController.dateOptions,
+                            selectedValue: controller.selectedDate.value,
+                            onChanged: (v) => controller.selectedDate.value = v,
+                          )),
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() => CustDropdown(
-                        label: 'Inspector Department',
-                        hint: 'Select',
-                        items: TopManagementInspectionController.departmentOptions,
-                        selectedValue: controller.selectedDepartment.value,
-                        onChanged: (v) => controller.selectedDepartment.value = v,
-                      )),
+                            label: 'Inspector Department',
+                            hint: 'Select',
+                            items: TopManagementInspectionController
+                                .departmentOptions,
+                            selectedValue: controller.selectedDepartment.value,
+                            onChanged: (v) =>
+                                controller.selectedDepartment.value = v,
+                          )),
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() => CustDropdown(
-                        label: 'Inspecting Officer',
-                        hint: 'Select',
-                        items: TopManagementInspectionController.officerOptions,
-                        selectedValue: controller.selectedOfficer.value,
-                        onChanged: (v) => controller.selectedOfficer.value = v,
-                      )),
+                            label: 'Inspecting Officer',
+                            hint: 'Select',
+                            items: TopManagementInspectionController
+                                .officerOptions,
+                            selectedValue: controller.selectedOfficer.value,
+                            onChanged: (v) =>
+                                controller.selectedOfficer.value = v,
+                          )),
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() => CustDropdown(
-                        label: 'Type of Inspection',
-                        hint: 'Select',
-                        items: TopManagementInspectionController.inspectionTypeOptions,
-                        selectedValue: controller.selectedInspectionType.value,
-                        onChanged: (v) => controller.selectedInspectionType.value = v,
-                      )),
+                            label: 'Type of Inspection',
+                            hint: 'Select',
+                            items: TopManagementInspectionController
+                                .inspectionTypeOptions,
+                            selectedValue:
+                                controller.selectedInspectionType.value,
+                            onChanged: (v) =>
+                                controller.selectedInspectionType.value = v,
+                          )),
                       const SizedBox(height: AppConstants.elementSpacing),
                       CustText.formLabel('Inspection Location'),
                       const SizedBox(height: AppConstants.labelSpacing),
                       Obx(() => Wrap(
-                        spacing: AppConstants.elementSpacing,
-                        runSpacing: AppConstants.subElementSpacing,
-                        children: TopManagementInspectionController.locationOptions.map((loc) {
-                          return CustRadio<String>(
-                            value: loc,
-                            groupValue: controller.selectedLocation.value,
-                            label: loc,
-                            onChanged: (v) {
-                              if (v != null) controller.selectedLocation.value = v;
-                            },
-                          );
-                        }).toList(),
-                      )),
+                            spacing: AppConstants.elementSpacing,
+                            runSpacing: AppConstants.subElementSpacing,
+                            children: TopManagementInspectionController
+                                .locationOptions
+                                .map((loc) {
+                              return CustRadio<String>(
+                                value: loc,
+                                groupValue: controller.selectedLocation.value,
+                                label: loc,
+                                onChanged: (v) {
+                                  if (v != null) {
+                                    controller.selectedLocation.value = v;
+                                  }
+                                },
+                              );
+                            }).toList(),
+                          )),
                       const SizedBox(height: AppConstants.elementSpacing),
                       CustomTextField(
                         label: 'Location From',
                         hintText: 'Select frequency',
                         controller: controller.locationFromController,
-                        suffixIcon: const Icon(Icons.location_on, color: AppColors.orangeColor),
+                        suffixIcon: const Icon(Icons.location_on,
+                            color: AppColors.orangeColor),
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
                       CustomTextField(
                         label: 'Location To',
                         hintText: 'Select date',
                         controller: controller.locationToController,
-                        suffixIcon: const Icon(Icons.location_on, color: AppColors.orangeColor),
+                        suffixIcon: const Icon(Icons.location_on,
+                            color: AppColors.orangeColor),
                       ),
                     ],
                   ),
@@ -151,7 +168,8 @@ class _TopManagementCreateInspectionScreenState extends State<TopManagementCreat
                     Navigator.push(
                       context,
                       MaterialPageRoute(
-                        builder: (context) => const TopManagementInspectionObservationScreen(),
+                        builder: (context) =>
+                            const TopManagementInspectionObservationScreen(),
                       ),
                     );
                   },
@@ -163,6 +181,4 @@ class _TopManagementCreateInspectionScreenState extends State<TopManagementCreat
       ),
     );
   }
-
-
 }
