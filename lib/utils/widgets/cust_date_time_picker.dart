@@ -20,6 +20,7 @@ class CustDateTimePicker extends StatelessWidget {
   final DateTime? lastDate;
   final bool enabled;
   final String? Function(String?)? validator;
+  final bool use24Hour;
 
   const CustDateTimePicker({
     super.key,
@@ -33,6 +34,7 @@ class CustDateTimePicker extends StatelessWidget {
     this.lastDate,
     this.enabled = true,
     this.validator,
+    this.use24Hour = false,
   });
 
   ThemeData _pickerTheme(BuildContext context) {
@@ -55,13 +57,22 @@ class CustDateTimePicker extends StatelessWidget {
     );
   }
 
+  Widget _timeBuilder(BuildContext ctx, Widget? child) {
+    final themed = Theme(data: _pickerTheme(ctx), child: child!);
+    if (!use24Hour) return themed;
+    return MediaQuery(
+      data: MediaQuery.of(ctx).copyWith(alwaysUse24HourFormat: true),
+      child: themed,
+    );
+  }
+
   Future<void> _pickDateTime(BuildContext context) async {
     if (pickerType == PickerType.time) {
       // Time only
       final picked = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(selectedDateTime ?? DateTime.now()),
-        builder: (ctx, child) => Theme(data: _pickerTheme(ctx), child: child!),
+        builder: _timeBuilder,
       );
       if (picked != null) {
         final base = selectedDateTime ?? DateTime.now();
@@ -133,7 +144,7 @@ class CustDateTimePicker extends StatelessWidget {
       final pickedTime = await showTimePicker(
         context: context,
         initialTime: TimeOfDay.fromDateTime(selectedDateTime ?? DateTime.now()),
-        builder: (ctx, child) => Theme(data: _pickerTheme(ctx), child: child!),
+          builder: _timeBuilder,
       );
 
       final time = pickedTime ?? const TimeOfDay(hour: 0, minute: 0);
@@ -155,10 +166,10 @@ class CustDateTimePicker extends StatelessWidget {
         displayText = dateFormat?.format(selectedDateTime!) ??
             DateFormat('dd/MM/yyyy').format(selectedDateTime!);
       } else if (pickerType == PickerType.time) {
-        displayText = DateFormat('hh:mm a').format(selectedDateTime!);
+        displayText = DateFormat(use24Hour ? 'HH:mm' : 'hh:mm a').format(selectedDateTime!);
       } else {
         displayText =
-            DateFormat('dd/MM/yyyy hh:mm a').format(selectedDateTime!);
+            DateFormat(use24Hour ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy hh:mm a').format(selectedDateTime!);
       }
     }
 

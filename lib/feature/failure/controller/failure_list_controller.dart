@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
 import 'package:get/get.dart';
@@ -45,44 +47,44 @@ class FailureListController extends GetxController {
       final session = Get.find<SessionController>();
       final selectedStationId = session.selectedStationId.value;
       final selectedStationName = session.selectedStationName.value;
-      debugPrint("filteredFailures: Station filter - selectedStationId=$selectedStationId, selectedStationName=$selectedStationName");
+      failureLog("filteredFailures: Station filter - selectedStationId=$selectedStationId, selectedStationName=$selectedStationName");
       
       if (selectedStationId != null && selectedStationId.isNotEmpty && selectedStationId != '0') {
         final beforeFilter = list.length;
         
         // Log all location names for debugging BEFORE filtering
-        debugPrint("filteredFailures: All location names in current list (before filter):");
+        failureLog("filteredFailures: All location names in current list (before filter):");
         for (var item in list) {
-          debugPrint("  - locationName: '${item.locationName}', locationId: '${item.locationId}'");
+          failureLog("  - locationName: '${item.locationName}', locationId: '${item.locationId}'");
         }
         
         // Try to filter by locationId first
         list = list.where((item) => (item.locationId?.toString() ?? '') == selectedStationId).toList();
-        debugPrint("filteredFailures: After locationId filter: ${list.length} results");
+        failureLog("filteredFailures: After locationId filter: ${list.length} results");
         
         // If no results, try filtering by locationName with partial match
         if (list.isEmpty && selectedStationName != null && selectedStationName.isNotEmpty) {
-          debugPrint("filteredFailures: No results by locationId, trying locationName match");
+          failureLog("filteredFailures: No results by locationId, trying locationName match");
           // Normalize station name: remove spaces, dashes, convert to lowercase
           final normalizedStationName = selectedStationName.toLowerCase().replaceAll(RegExp(r'[\s\-]'), '');
-          debugPrint("filteredFailures: Normalized station name: $normalizedStationName");
+          failureLog("filteredFailures: Normalized station name: $normalizedStationName");
           
           // Need to use the original unfiltered list for name matching
           final originalList = failures.where((item) => _matchesFailureType(item)).toList();
           
-          debugPrint("filteredFailures: Comparing with ${originalList.length} failures");
+          failureLog("filteredFailures: Comparing with ${originalList.length} failures");
           list = originalList.where((item) {
             final locationName = (item.locationName ?? '').toLowerCase().replaceAll(RegExp(r'[\s\-]'), '');
-            debugPrint("filteredFailures: Comparing '$locationName' with '$normalizedStationName'");
+            failureLog("filteredFailures: Comparing '$locationName' with '$normalizedStationName'");
             // Check if normalized names match or contain each other
             return locationName.contains(normalizedStationName) || 
                    normalizedStationName.contains(locationName) ||
                    locationName == normalizedStationName;
           }).toList();
-          debugPrint("filteredFailures: Location name match results: ${list.length}");
+          failureLog("filteredFailures: Location name match results: ${list.length}");
         }
         
-        debugPrint("filteredFailures: Station filter - before=$beforeFilter, after=${list.length}");
+        failureLog("filteredFailures: Station filter - before=$beforeFilter, after=${list.length}");
       }
     }
     
@@ -108,7 +110,7 @@ class FailureListController extends GetxController {
 
   void setFailureType(String type) {
     failureType = type;
-    debugPrint("setFailureType: type='$type', final failureType='$failureType'");
+    failureLog("setFailureType: type='$type', final failureType='$failureType'");
   }
 
 
@@ -125,7 +127,7 @@ class FailureListController extends GetxController {
   bool get _isSectionIncharge {
     final role = _sessionController.selectedRole.value?.roleDescr ?? '';
     final result = role.contains('Section Incharge');
-    debugPrint("_isSectionIncharge: role='$role', result=$result");
+    failureLog("_isSectionIncharge: role='$role', result=$result");
     return result;
   }
 
@@ -171,7 +173,7 @@ class FailureListController extends GetxController {
 
   bool _matchesFailureType(FailureItem item) {
     final filter = failureType.trim().toLowerCase();
-    debugPrint("_matchesFailureType: filter='$filter', _isSectionIncharge=$_isSectionIncharge, _isJE=$_isJE, _useStationFailureListApi=$_useStationFailureListApi");
+    failureLog("_matchesFailureType: filter='$filter', _isSectionIncharge=$_isSectionIncharge, _isJE=$_isJE, _useStationFailureListApi=$_useStationFailureListApi");
     
     if (filter.isEmpty) return true;
 
@@ -185,12 +187,12 @@ class FailureListController extends GetxController {
 
     // Section Incharge sees all failure types
     if (_isSectionIncharge) {
-      debugPrint("_matchesFailureType: Section Incharge - showing all failures");
+      failureLog("_matchesFailureType: Section Incharge - showing all failures");
       return true;
     }
 
     final creation = (item.creationType ?? '').trim().toLowerCase();
-    debugPrint("_matchesFailureType: creationType='$creation'");
+    failureLog("_matchesFailureType: creationType='$creation'");
 
     // For JE users: Maintenance tab shows Manual, Station tab shows Station
     if (_isJE) {
@@ -220,7 +222,7 @@ class FailureListController extends GetxController {
       isLoading.value = true;
       errorMessage.value = "";
       isOfflineMode.value = false;
-      debugPrint("fetchFailures: Starting fetch for type $failureType, forceRefresh=$forceRefresh, isJE=$_isJE");
+      failureLog("fetchFailures: Starting fetch for type $failureType, forceRefresh=$forceRefresh, isJE=$_isJE");
 
       if (_isFmc) {
         await _fetchFmcFailures();
@@ -235,7 +237,7 @@ class FailureListController extends GetxController {
       } else if (_useStationFailureListApi) {
         await _fetchStationControllerFailures(forceAll: forceRefresh);
       } else if (failureType.toLowerCase() == 'station') {
-        debugPrint("fetchFailures: Station Controller - fetching from API if possible");
+        failureLog("fetchFailures: Station Controller - fetching from API if possible");
         
         // Try to fetch from API
         bool apiSuccess = false;
@@ -247,33 +249,33 @@ class FailureListController extends GetxController {
             final failureItems = apiFailures.map((e) => FailureItem.fromJson(e)).toList();
             await _dbService.clearFailureList(failureType);
             await _dbService.insertFailureList(failureItems.map((e) => e.toJson()).toList(), failureType);
-            debugPrint("fetchFailures: Saved ${failureItems.length} station failures to local DB");
+            failureLog("fetchFailures: Saved ${failureItems.length} station failures to local DB");
             // Update last sync date
             await _setStationFailureLastSyncDate(DateTime.now().toIso8601String().split('T')[0]);
             apiSuccess = true;
           } else if (lastSyncDate == null) {
             // Only clear local DB if this was a full sync (lastSyncDate=null) and server returned empty
             await _dbService.clearFailureList(failureType);
-            debugPrint("fetchFailures: Full sync returned empty, cleared local DB");
+            failureLog("fetchFailures: Full sync returned empty, cleared local DB");
           }
           // If lastSyncDate is not null (incremental sync) and apiFailures is empty, do nothing
           // This means no new data since last sync, keep existing local data
         } catch (e) {
-          debugPrint("fetchFailures: API failed, falling back to local DB: $e");
+          failureLog("fetchFailures: API failed, falling back to local DB: $e");
           isOfflineMode.value = true;
         }
         
-        debugPrint("fetchFailures: Station Controller - loading Station failures from local DB");
+        failureLog("fetchFailures: Station Controller - loading Station failures from local DB");
         final localFailures = await _dbService.getFailureList(failureType);
-        debugPrint("fetchFailures: Found ${localFailures.length} failures in local DB");
+        failureLog("fetchFailures: Found ${localFailures.length} failures in local DB");
         
         if (localFailures.isNotEmpty) {
           final failureItems = localFailures.map((e) => FailureItem.fromJson(e)).toList();
           final filteredItems = failureItems.where((item) => _matchesFailureType(item)).toList();
           failures.assignAll(filteredItems);
-          debugPrint("fetchFailures: Loaded ${filteredItems.length} failures from local DB for type $failureType");
+          failureLog("fetchFailures: Loaded ${filteredItems.length} failures from local DB for type $failureType");
         } else {
-          debugPrint("fetchFailures: No local data found for type $failureType");
+          failureLog("fetchFailures: No local data found for type $failureType");
           isOfflineMode.value = true;
           if (!apiSuccess) {
             errorMessage.value = "No data available. Please sync with internet connection.";
@@ -287,16 +289,16 @@ class FailureListController extends GetxController {
         await _fetchSectionInchargeFailures();
       } else {
         // For other types (Maintenance, etc.) for non-JE users
-        debugPrint("fetchFailures: Fetching $failureType failures from API");
+        failureLog("fetchFailures: Fetching $failureType failures from API");
         await _fetchFromApi();
       }
     } catch (e) {
-      debugPrint("fetchFailures: Error loading: $e");
+      failureLog("fetchFailures: Error loading: $e");
       errorMessage.value = "Error: $e";
       isOfflineMode.value = true;
     } finally {
       isLoading.value = false;
-      debugPrint("fetchFailures: Complete, total failures: ${failures.length}");
+      failureLog("fetchFailures: Complete, total failures: ${failures.length}");
     }
   }
 
@@ -308,7 +310,7 @@ class FailureListController extends GetxController {
   Future<void> _fetchSectionInchargeFailures() async {
     final synced = await Get.find<MasterDataSyncService>().syncFailureTransactions();
     if (!synced) {
-      debugPrint('_fetchSectionInchargeFailures: server not reached, using local copy');
+      failureLog('_fetchSectionInchargeFailures: server not reached, using local copy');
       isOfflineMode.value = true;
     }
 
@@ -395,7 +397,7 @@ class FailureListController extends GetxController {
           pendingAction: pendingAction,
         ));
       } catch (e) {
-        debugPrint('_fetchSectionInchargeFailures: skipped bad row: $e');
+        failureLog('_fetchSectionInchargeFailures: skipped bad row: $e');
       }
     }
     items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
@@ -412,7 +414,7 @@ class FailureListController extends GetxController {
       // business area.
       final staff = await _dbService.getJuniorEngineersForDepartments(deptIds,
           businessArea: await AuthManager().getBusinessArea());
-      debugPrint('_fetchSectionInchargeFailures: staff of departments $deptIds: '
+      failureLog('_fetchSectionInchargeFailures: staff of departments $deptIds: '
           '${staff.map((r) => '${r['UserId']}:${r['UserName']}').toList()}');
       staffList.assignAll(staff.map((r) => StaffItem(
         userId: _toInt(r['UserId']),
@@ -421,7 +423,7 @@ class FailureListController extends GetxController {
         deptName: r['DeptName']?.toString(),
       )));
     } catch (e) {
-      debugPrint('_fetchSectionInchargeFailures: staff list error: $e');
+      failureLog('_fetchSectionInchargeFailures: staff list error: $e');
     }
 
     // Created offline and not sent yet: kept in FailureList until synced.
@@ -450,7 +452,7 @@ class FailureListController extends GetxController {
   Future<void> _fetchJeFailures() async {
     final synced = await Get.find<MasterDataSyncService>().syncFailureTransactions();
     if (!synced) {
-      debugPrint('_fetchJeFailures: server not reached, using local copy');
+      failureLog('_fetchJeFailures: server not reached, using local copy');
       isOfflineMode.value = true;
     }
 
@@ -534,7 +536,7 @@ class FailureListController extends GetxController {
           pendingAction: pendingAction,
         ));
       } catch (e) {
-        debugPrint('_fetchJeFailures: skipped bad row: $e');
+        failureLog('_fetchJeFailures: skipped bad row: $e');
       }
     }
 
@@ -597,7 +599,7 @@ class FailureListController extends GetxController {
           pendingAction: pendingAction,
         ));
       } catch (e) {
-        debugPrint('_fetchJeJointFailures: skipped bad row: $e');
+        failureLog('_fetchJeJointFailures: skipped bad row: $e');
       }
     }
     final shown = items.where((item) => _matchesFailureType(item)).toList();
@@ -620,7 +622,7 @@ class FailureListController extends GetxController {
         try {
           items.add(_fmcItemFromRow(r));
         } catch (e) {
-          debugPrint('_fetchFmcFailures: skipped bad row: $e');
+          failureLog('_fetchFmcFailures: skipped bad row: $e');
         }
       }
       items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
@@ -633,7 +635,7 @@ class FailureListController extends GetxController {
         errorMessage.value = 'No failures found.';
       }
     } catch (e) {
-      debugPrint('_fetchFmcFailures: API failed, using local copy: $e');
+      failureLog('_fetchFmcFailures: API failed, using local copy: $e');
       isOfflineMode.value = true;
       final local = await _dbService.getFailureList(cacheKey);
       if (local.isNotEmpty) {
@@ -736,7 +738,7 @@ class FailureListController extends GetxController {
     final synced = await Get.find<MasterDataSyncService>()
         .syncFailureTransactions(forceAll: forceAll);
     if (!synced) {
-      debugPrint('_fetchStationControllerFailures: server not reached, using local copy');
+      failureLog('_fetchStationControllerFailures: server not reached, using local copy');
       isOfflineMode.value = true;
     }
 
@@ -765,7 +767,7 @@ class FailureListController extends GetxController {
         }
         items.add(FailureItem.fromJson(row));
       } catch (e) {
-        debugPrint('_fetchStationControllerFailures: skipped bad row: $e');
+        failureLog('_fetchStationControllerFailures: skipped bad row: $e');
       }
     }
     items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
@@ -902,7 +904,7 @@ class FailureListController extends GetxController {
         try {
           items.add(_fmcItemFromRow(r));
         } catch (e) {
-          debugPrint('_fetchOccRoleFailures: skipped bad row: $e');
+          failureLog('_fetchOccRoleFailures: skipped bad row: $e');
         }
       }
       items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
@@ -915,7 +917,7 @@ class FailureListController extends GetxController {
         errorMessage.value = 'No failures found.';
       }
     } catch (e) {
-      debugPrint('_fetchOccRoleFailures: API failed, using local copy: $e');
+      failureLog('_fetchOccRoleFailures: API failed, using local copy: $e');
       isOfflineMode.value = true;
       final local = await _dbService.getFailureList(cacheKey);
       if (local.isNotEmpty) {
@@ -940,7 +942,7 @@ class FailureListController extends GetxController {
     }
     final synced = await Get.find<MasterDataSyncService>().syncFailureTransactions();
     if (!synced) {
-      debugPrint('_fetchDepotFailures: server not reached, using local copy');
+      failureLog('_fetchDepotFailures: server not reached, using local copy');
       isOfflineMode.value = true;
     }
 
@@ -950,7 +952,7 @@ class FailureListController extends GetxController {
         final f = _depotRowFromTransaction(Map<String, dynamic>.from(r['depotFailures'] as Map));
         items.add(_fmcItemFromRow(f, creationType: 'Depot'));
       } catch (e) {
-        debugPrint('_fetchDepotFailures: skipped bad row: $e');
+        failureLog('_fetchDepotFailures: skipped bad row: $e');
       }
     }
     items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
@@ -1094,7 +1096,7 @@ class FailureListController extends GetxController {
       
       // Skip if no department selected
       if (deptId == 0) {
-        debugPrint("_fetchFromApi: No department selected (deptId=0)");
+        failureLog("_fetchFromApi: No department selected (deptId=0)");
         errorMessage.value = "Please select a department first";
         return;
       }
@@ -1109,7 +1111,7 @@ class FailureListController extends GetxController {
         "assignedUserId": userId,
         "deptId": deptId,
       };
-      debugPrint("_fetchFromApi: Calling JE API: $apiUrl for tab: ${selectedJETab.value}");
+      failureLog("_fetchFromApi: Calling JE API: $apiUrl for tab: ${selectedJETab.value}");
 
       final response = await _apiClient.post(
         apiUrl,
@@ -1127,7 +1129,7 @@ class FailureListController extends GetxController {
             _sortJeFailures(filteredItems);
 
             failures.assignAll(filteredItems);
-            debugPrint("_fetchFromApi: Loaded ${filteredItems.length} failures from API (sorted by creationType)");
+            failureLog("_fetchFromApi: Loaded ${filteredItems.length} failures from API (sorted by creationType)");
 
             // Data will be saved to local DB in fetchFailures method after API success
             // This enables offline fallback for JE users
@@ -1147,7 +1149,7 @@ class FailureListController extends GetxController {
         }
       }
     } catch (e) {
-      debugPrint("_fetchFromApi: Error fetching from API: $e");
+      failureLog("_fetchFromApi: Error fetching from API: $e");
       errorMessage.value = "Error: $e";
       isOfflineMode.value = true;
     }
@@ -1176,16 +1178,16 @@ class FailureListController extends GetxController {
       final ok = response['responseCode'] == 200 ||
           response['responseMessage']?.toString().toLowerCase() == 'success';
       if (ok) {
-        Get.snackbar('Success', successMessage,
+        FailureToast.show('Success', successMessage,
             backgroundColor: AppColors.green, colorText: AppColors.white1);
         await fetchFailures();
       } else {
-        Get.snackbar('Error',
+        FailureToast.show('Error',
             response['responseMessage']?.toString() ?? 'Failed to perform action',
             backgroundColor: AppColors.red, colorText: AppColors.white1);
       }
     } catch (e) {
-      Get.snackbar('Error', e.toString(),
+      FailureToast.show('Error', e.toString(),
           backgroundColor: AppColors.red, colorText: AppColors.white1);
     } finally {
       isLoading.value = false;
@@ -1193,12 +1195,12 @@ class FailureListController extends GetxController {
   }
 
   Future<void> reOpenFailure(int id, String remark) async {
-    debugPrint("reOpenFailure: Called with id: $id, remark: $remark");
+    failureLog("reOpenFailure: Called with id: $id, remark: $remark");
     await _updateStationAcknowledgeStatus(id, "UPDATE_REOPEN_OCC_Station", remark);
   }
 
   Future<void> closeFailure(int id) async {
-    debugPrint("closeFailure: Called with id: $id");
+    failureLog("closeFailure: Called with id: $id");
     await _updateStationAcknowledgeStatus(id, "UPDATE_CLOSED_OCC_Station", "Closed Request");
   }
 
@@ -1244,7 +1246,7 @@ class FailureListController extends GetxController {
           'failureNo': notifCode,
           'queuedBy': userIdStr,
         }, 'StationAck');
-        Get.snackbar(
+        FailureToast.show(
           'Saved Offline',
           'Acknowledge for Failure No.$notifCode saved. It is sent when the internet is back.',
           backgroundColor: AppColors.orangeColor,
@@ -1257,7 +1259,7 @@ class FailureListController extends GetxController {
       if (response['responseCode'] == 200 ||
           response['responseMessage'] == "Success" ||
           response['responseMessage'] == "success") {
-        Get.snackbar(
+        FailureToast.show(
           "Success",
           submitStatus == "accept"
               ? "Failure No.$notifCode acknowledge accepted successfully."
@@ -1271,12 +1273,12 @@ class FailureListController extends GetxController {
       } else {
         errorMessage.value =
             response['responseMessage'] ?? "Failed to perform action";
-        Get.snackbar("Error", errorMessage.value,
+        FailureToast.show("Error", errorMessage.value,
             backgroundColor: AppColors.red, colorText: AppColors.white1);
       }
     } catch (e) {
       errorMessage.value = "Error: $e";
-      Get.snackbar("Error", errorMessage.value,
+      FailureToast.show("Error", errorMessage.value,
           backgroundColor: AppColors.red, colorText: AppColors.white1);
     } finally {
       isLoading.value = false;
@@ -1309,7 +1311,7 @@ class FailureListController extends GetxController {
       errorMessage.value = "";
       isOfflineMode.value = false;
       await _fetchStationControllerFailures(forceAll: true);
-      Get.snackbar(
+      FailureToast.show(
         isOfflineMode.value ? 'Offline' : 'Sync Complete',
         isOfflineMode.value
             ? 'No connection - showing the saved station failures'
@@ -1366,7 +1368,7 @@ class FailureListController extends GetxController {
           successMsg =
               "Failure No.$notifCode acknowledge denied successfully.";
         }
-        Get.snackbar(
+        FailureToast.show(
           "Success",
           successMsg,
           backgroundColor: AppColors.green,
@@ -1376,7 +1378,7 @@ class FailureListController extends GetxController {
       } else {
         errorMessage.value =
             response['responseMessage'] ?? "Failed to perform action";
-        Get.snackbar(
+        FailureToast.show(
           "Error",
           errorMessage.value,
           backgroundColor: AppColors.red,
@@ -1385,7 +1387,7 @@ class FailureListController extends GetxController {
       }
     } catch (e) {
       errorMessage.value = "Error: $e";
-      Get.snackbar(
+      FailureToast.show(
         "Error",
         errorMessage.value,
         backgroundColor: AppColors.red,

@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import '../../../constants/colors.dart';
@@ -103,6 +105,12 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   void dispose() {
     _tabController?.removeListener(_onTabChanged);
     _tabController?.dispose();
+    _searchController.dispose();
+    // The list controller belongs to this screen: release it (and its Rx
+    // state) when the screen closes; the next visit starts clean and reloads.
+    if (Get.isRegistered<FailureListController>(tag: widget.failureType)) {
+      Get.delete<FailureListController>(tag: widget.failureType);
+    }
     super.dispose();
   }
 
@@ -789,7 +797,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                     onSelected: (_) {
                       final remark = remarkController.text.trim();
                       if (remark.isEmpty) {
-                        Get.snackbar("Required", "Please enter a remark to re-open.", backgroundColor: AppColors.red, colorText: AppColors.white1);
+                        FailureToast.show("Required", "Please enter a remark to re-open.", backgroundColor: AppColors.red, colorText: AppColors.white1);
                         return;
                       }
                       Get.back();
@@ -1195,9 +1203,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     if (jobCardNo == null || jobCardNo.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Invalid Job Card No — cannot close"))
-        );
+        FailureToast.error("Invalid Job Card No — cannot close");
       }
       return;
     }
@@ -1217,21 +1223,15 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
       if (mounted) {
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(_siMsg(outcome, "Failure closed successfully")))
-          );
+          FailureToast.show(outcome == SiOutcome.queued ? 'Saved Offline' : 'Success', _siMsg(outcome, "Failure closed successfully"));
           controller.fetchFailures();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Operation failed"))
-          );
+          FailureToast.error("Operation failed");
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Error: $e"))
-        );
+        FailureToast.error(e);
       }
     }
   }
@@ -1346,18 +1346,14 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     if (notificationId == null || notificationId == 0) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Invalid Notification ID — cannot assign"))
-        );
+        FailureToast.error("Invalid Notification ID — cannot assign");
       }
       return;
     }
 
     if (failure.assignedUserId == null || failure.assignedUserId == 0) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Please select a user before assigning"))
-        );
+        FailureToast.warning("Please select a user before assigning", title: 'Validation Error');
       }
       return;
     }
@@ -1386,22 +1382,16 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
       if (mounted) {
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(_siMsg(outcome, "$actionText successful")))
-          );
+          FailureToast.show(outcome == SiOutcome.queued ? 'Saved Offline' : 'Success', _siMsg(outcome, "$actionText successful"));
           controller.fetchFailures();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Operation failed — please try again"))
-          );
+          FailureToast.error("Operation failed — please try again");
         }
       }
     } catch (e) {
-      debugPrint("_handleAssignAction error: $e");
+      failureLog("_handleAssignAction error: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Error: $e"))
-        );
+        FailureToast.error(e);
       }
     }
   }
@@ -1519,9 +1509,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     if (notificationId == null || notificationId == 0) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid Notification ID"))
-        );
+        FailureToast.error("Invalid Notification ID");
       }
       return;
     }
@@ -1542,21 +1530,15 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
       if (mounted) {
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_siMsg(outcome, "Send for correction successful")))
-          );
+          FailureToast.show(outcome == SiOutcome.queued ? 'Saved Offline' : 'Success', _siMsg(outcome, "Send for correction successful"));
           controller.fetchFailures();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Operation failed"))
-          );
+          FailureToast.error("Operation failed");
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"))
-        );
+        FailureToast.error(e);
       }
     }
   }
@@ -1630,9 +1612,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     if (notificationId == null || notificationId == 0) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid Notification ID"))
-        );
+        FailureToast.error("Invalid Notification ID");
       }
       return;
     }
@@ -1651,21 +1631,15 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
       if (mounted) {
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_siMsg(outcome, "Reject successful")))
-          );
+          FailureToast.show(outcome == SiOutcome.queued ? 'Saved Offline' : 'Success', _siMsg(outcome, "Reject successful"));
           controller.fetchFailures();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Operation failed"))
-          );
+          FailureToast.error("Operation failed");
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"))
-        );
+        FailureToast.error(e);
       }
     }
   }
@@ -1739,9 +1713,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
     if (notificationId == null || notificationId == 0) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid Notification ID"))
-        );
+        FailureToast.error("Invalid Notification ID");
       }
       return;
     }
@@ -1760,21 +1732,15 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
       if (mounted) {
         if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(_siMsg(outcome, "Delete successful")))
-          );
+          FailureToast.show(outcome == SiOutcome.queued ? 'Saved Offline' : 'Success', _siMsg(outcome, "Delete successful"));
           controller.fetchFailures();
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Operation failed"))
-          );
+          FailureToast.error("Operation failed");
         }
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: $e"))
-        );
+        FailureToast.error(e);
       }
     }
   }

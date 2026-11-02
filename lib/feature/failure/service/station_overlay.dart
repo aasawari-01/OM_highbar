@@ -1,6 +1,6 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 
 import '../../../service/local_database_service.dart';
 
@@ -64,7 +64,7 @@ class StationOverlay {
         await db.setAppSetting('$_prefix${c.trim()}', jsonEncode(overlay));
       }
     } catch (e) {
-      debugPrint('StationOverlay.save error: $e');
+      failureLog('StationOverlay.save error: $e');
     }
   }
 
@@ -80,7 +80,7 @@ class StationOverlay {
         } catch (_) {}
       });
     } catch (e) {
-      debugPrint('StationOverlay.loadAll error: $e');
+      failureLog('StationOverlay.loadAll error: $e');
     }
     return out;
   }

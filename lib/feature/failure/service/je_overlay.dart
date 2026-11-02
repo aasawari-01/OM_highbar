@@ -1,6 +1,6 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 
 import '../../../service/local_database_service.dart';
 
@@ -58,7 +58,7 @@ class JeOverlay {
       m.removeWhere((k, v) => v == null);
       await LocalDatabaseService().setAppSetting(_key(notificationId), jsonEncode(m));
     } catch (e) {
-      debugPrint('JeOverlay.save error: $e');
+      failureLog('JeOverlay.save error: $e');
     }
   }
 
@@ -68,7 +68,7 @@ class JeOverlay {
       if (v == null || v.isEmpty) return null;
       return Map<String, dynamic>.from(jsonDecode(v) as Map);
     } catch (e) {
-      debugPrint('JeOverlay.load error: $e');
+      failureLog('JeOverlay.load error: $e');
       return null;
     }
   }

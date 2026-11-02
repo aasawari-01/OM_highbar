@@ -1,7 +1,7 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -81,7 +81,7 @@ class JeOfflineService {
         final name = '${DateTime.now().microsecondsSinceEpoch}_${p.basename(e.value)}';
         out[e.key] = (await File(e.value).copy(p.join(dir.path, name))).path;
       } catch (err) {
-        debugPrint('JeOfflineService: could not keep ${e.value}: $err');
+        failureLog('JeOfflineService: could not keep ${e.value}: $err');
       }
     }
     return out;

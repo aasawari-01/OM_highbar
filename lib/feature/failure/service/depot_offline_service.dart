@@ -1,6 +1,6 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -35,7 +35,7 @@ class DepotOfflineService {
         final name = '${DateTime.now().microsecondsSinceEpoch}_${p.basename(path)}';
         out.add((await File(path).copy(p.join(dir.path, name))).path);
       } catch (e) {
-        debugPrint('DepotOfflineService: could not keep $path: $e');
+        failureLog('DepotOfflineService: could not keep $path: $e');
       }
     }
     return out;

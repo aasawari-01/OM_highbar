@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
@@ -39,7 +41,7 @@ Future<bool> showDepotSelectionPopup() async {
   }().then((list) {
     depots.assignAll(list);
   }).catchError((e) {
-    debugPrint('showDepotSelectionPopup: error fetching depots: $e');
+    failureLog('showDepotSelectionPopup: error fetching depots: $e');
   }).whenComplete(() => isLoading.value = false);
 
   final result = await Get.dialog<bool>(
@@ -124,7 +126,7 @@ Future<bool> showDepotSelectionPopup() async {
                       onSelected: (_) async {
                         final depotId = int.tryParse(selectedId.value ?? '') ?? 0;
                         if (depotId == 0) {
-                          Get.snackbar(
+                          FailureToast.show(
                             'Error',
                             'Please select a depot',
                             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -142,7 +144,7 @@ Future<bool> showDepotSelectionPopup() async {
                               .saveUserDepot(depotId)
                               .timeout(const Duration(seconds: 8));
                         } catch (e) {
-                          debugPrint('showDepotSelectionPopup: save skipped: $e');
+                          failureLog('showDepotSelectionPopup: save skipped: $e');
                         }
                         isSaving.value = false;
                         session.selectedDepotId.value = selectedId.value;

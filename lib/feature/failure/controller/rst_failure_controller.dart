@@ -1,4 +1,6 @@
 
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart' hide Action;
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http_pkg;
@@ -124,7 +126,7 @@ class RstFailureController extends GetxController {
       selectedSicType.value = null;
       selectedSicResponsiblePerson.value = null;
     } else {
-      Get.snackbar(AppStrings.error, "Please select SIC Type and Responsible Person");
+      FailureToast.show(AppStrings.error, "Please select SIC Type and Responsible Person");
     }
   }
 
@@ -143,7 +145,7 @@ class RstFailureController extends GetxController {
       selectedJointInspectionResponsiblePerson.value = null;
       jointInspectionRemarksController.clear();
     } else {
-      Get.snackbar(AppStrings.error, "Please select Department and Responsible Person");
+      FailureToast.show(AppStrings.error, "Please select Department and Responsible Person");
     }
   }
 
@@ -205,9 +207,9 @@ class RstFailureController extends GetxController {
       }
     }
 
-    debugPrint("Before Images : ${beforeFiles.length}");
-    debugPrint("After Images  : ${afterFiles.length}");
-    debugPrint("RCA Images    : ${uploadRcaFiles.length}");
+    failureLog("Before Images : ${beforeFiles.length}");
+    failureLog("After Images  : ${afterFiles.length}");
+    failureLog("RCA Images    : ${uploadRcaFiles.length}");
   }
   // --- Part C Fields ---
   final isAcceptResponsibility = false.obs;
@@ -291,7 +293,7 @@ class RstFailureController extends GetxController {
       objectPartTextController.clear();
       faultTextController.clear();
     } else {
-      Get.snackbar(AppStrings.error, "Please select Object Part and Fault");
+      FailureToast.show(AppStrings.error, "Please select Object Part and Fault");
     }
   }
 
@@ -307,7 +309,7 @@ class RstFailureController extends GetxController {
       final faults = await _failureService.getFaults(objectPartId);
       faultDropdownList.assignAll(faults);
     } catch (e) {
-      debugPrint('fetchFaults error: $e');
+      failureLog('fetchFaults error: $e');
     } finally {
       isFaultLoading.value = false;
     }
@@ -320,7 +322,7 @@ class RstFailureController extends GetxController {
       rootCauseList.assignAll(data.rootCauses);
       actionTakenList.assignAll(data.actionTaken);
     } catch (e) {
-      debugPrint('fetchRootCauseAndAction error: $e');
+      failureLog('fetchRootCauseAndAction error: $e');
     }
   }
 
@@ -333,7 +335,7 @@ class RstFailureController extends GetxController {
       final data = await _failureService.getMCDRequiredQuantity(objectCodeId, faultCodeId);
       uomController.text = data['baseUnitOfMeasure']?.toString() ?? ''; // ✅
     } catch (e) {
-      debugPrint('fetchMCDRequiredQuantity error: $e');
+      failureLog('fetchMCDRequiredQuantity error: $e');
       uomController.text = '';
     }
   }
@@ -344,7 +346,7 @@ class RstFailureController extends GetxController {
       final data = await _failureService.getMaterialBalancedQty(materialId, storageLocationId, userId);
       balanceQtyController.text = data['balancedData']?.toString() ?? ''; // ✅
     } catch (e) {
-      debugPrint('fetchMaterialBalancedQty error: $e');
+      failureLog('fetchMaterialBalancedQty error: $e');
       balanceQtyController.text = '';
     }
   }// RCA Methods
@@ -367,7 +369,7 @@ class RstFailureController extends GetxController {
       popupRootCauseTextController.clear();
       popupRootCauseFiles.clear();
     } else {
-      Get.snackbar(AppStrings.error, "Please select Root Cause");
+      FailureToast.show(AppStrings.error, "Please select Root Cause");
     }
   }
 
@@ -385,7 +387,7 @@ class RstFailureController extends GetxController {
       popupActionTakenTextController.clear();
       popupActionTakenFiles.clear();
     } else {
-      Get.snackbar(AppStrings.error, "Please select Action Taken");
+      FailureToast.show(AppStrings.error, "Please select Action Taken");
     }
   }
 
@@ -502,7 +504,7 @@ class RstFailureController extends GetxController {
         oldSerialDismantleDate.value == null ||
         newSerialNumberController.text.trim().isEmpty ||
         newSerialInstallationDate.value == null) {
-      Get.snackbar(AppStrings.error, "Please fill all required fields");
+      FailureToast.show(AppStrings.error, "Please fill all required fields");
       return;
     }
 
@@ -588,103 +590,103 @@ class RstFailureController extends GetxController {
   final checklistRemarkController = TextEditingController();
 
   Future<void> fetchRstFailureData(int notificationId) async {
-    debugPrint("fetchRstFailureData: CALLED with notificationId=$notificationId");
+    failureLog("fetchRstFailureData: CALLED with notificationId=$notificationId");
     isLoading.value = true;
     errorMessage.value = "";
-    debugPrint("fetchRstFailureData: Starting fetch for notificationId=$notificationId");
+    failureLog("fetchRstFailureData: Starting fetch for notificationId=$notificationId");
 
     try {
-      debugPrint("fetchRstFailureData: Loading master data from DB...");
+      failureLog("fetchRstFailureData: Loading master data from DB...");
       await _loadRstMasterDataFromDb();
-      debugPrint("fetchRstFailureData: Master data loaded");
+      failureLog("fetchRstFailureData: Master data loaded");
       
-      debugPrint("fetchRstFailureData: Calling getRstFailureFullData API...");
+      failureLog("fetchRstFailureData: Calling getRstFailureFullData API...");
       final fullData = await _failureService.getRstFailureFullData(notificationId);
-      debugPrint("fetchRstFailureData: API data received, rstFetchData=${fullData.rstFetchData.notificationId}");
+      failureLog("fetchRstFailureData: API data received, rstFetchData=${fullData.rstFetchData.notificationId}");
 
       // Populate notification history
       notificationHistory.value = fullData.notificationHistory.toJson();
-      debugPrint("fetchRstFailureData: Notification history populated");
+      failureLog("fetchRstFailureData: Notification history populated");
     
-      debugPrint("fetchRstFailureData: Parsing RstFetchData...");
+      failureLog("fetchRstFailureData: Parsing RstFetchData...");
       final data = RstFetchData.fromJson(fullData.rstFetchData.toJson());
       rstFailureData.value = data;
-      debugPrint("fetchRstFailureData: RstFetchData parsed, description=${data.description}");
+      failureLog("fetchRstFailureData: RstFetchData parsed, description=${data.description}");
       
-      debugPrint("fetchRstFailureData: Populating fields...");
+      failureLog("fetchRstFailureData: Populating fields...");
       _populateFieldsFromData(data);
-      debugPrint("fetchRstFailureData: Fields populated");
+      failureLog("fetchRstFailureData: Fields populated");
 
-      debugPrint("fetchRstFailureData: Populating joint inspections...");
+      failureLog("fetchRstFailureData: Populating joint inspections...");
       _populateJointInspections(fullData.jointInspections);
-      debugPrint("fetchRstFailureData: Joint inspections hydrated, count=${jointInspectionList.length}");
+      failureLog("fetchRstFailureData: Joint inspections hydrated, count=${jointInspectionList.length}");
       
-      debugPrint("fetchRstFailureData: Populating work alloted users...");
+      failureLog("fetchRstFailureData: Populating work alloted users...");
       _populateWorkAllotedUsers(fullData.workAllotedUsers);
-      debugPrint("fetchRstFailureData: Work alloted users hydrated, count=${workAllotedList.length}");
+      failureLog("fetchRstFailureData: Work alloted users hydrated, count=${workAllotedList.length}");
       
-      debugPrint("fetchRstFailureData: Populating rectification details...");
+      failureLog("fetchRstFailureData: Populating rectification details...");
       _populateRectificationDetails(fullData.rectificationDetails);
-      debugPrint("fetchRstFailureData: Rectification details hydrated, count=${faultList.length}");
+      failureLog("fetchRstFailureData: Rectification details hydrated, count=${faultList.length}");
       
-      debugPrint("fetchRstFailureData: Populating actions and root causes...");
+      failureLog("fetchRstFailureData: Populating actions and root causes...");
       _populateActionsAndRootCauses(fullData.rectificationDetails, fullData.actions, fullData.rootCauses);
-      debugPrint("fetchRstFailureData: Actions and root causes hydrated, count=${rcaDetailsList.length}");
+      failureLog("fetchRstFailureData: Actions and root causes hydrated, count=${rcaDetailsList.length}");
 
       // isFailureRectifiDetails isn't always present in the response.
       // If there's actual fault/rectification data, show the section regardless.
       if (fullData.rectificationDetails.isNotEmpty) {
         isFailureRectification.value = true;
-        debugPrint("fetchRstFailureData: Set isFailureRectification=true");
+        failureLog("fetchRstFailureData: Set isFailureRectification=true");
       }
 
-      debugPrint("fetchRstFailureData: Populating materials required...");
+      failureLog("fetchRstFailureData: Populating materials required...");
       _populateMaterialsRequired(fullData.materials);
-      debugPrint("fetchRstFailureData: Materials required hydrated, count=${materialRequiredList.length}");
+      failureLog("fetchRstFailureData: Materials required hydrated, count=${materialRequiredList.length}");
       
-      debugPrint("fetchRstFailureData: Populating materials swapped...");
+      failureLog("fetchRstFailureData: Populating materials swapped...");
       _populateMaterialsSwapped(fullData.materialSerialNumbers);
-      debugPrint("fetchRstFailureData: Materials swapped hydrated, count=${dismantleMaterialList.length}");
+      failureLog("fetchRstFailureData: Materials swapped hydrated, count=${dismantleMaterialList.length}");
       
-      debugPrint("fetchRstFailureData: Populating assignment history...");
+      failureLog("fetchRstFailureData: Populating assignment history...");
       _populateAssignmentHistory(fullData.assignmentHistory);
-      debugPrint("fetchRstFailureData: Assignment history hydrated, count=${assignmentHistoryList.length}");
+      failureLog("fetchRstFailureData: Assignment history hydrated, count=${assignmentHistoryList.length}");
 
-      debugPrint("fetchRstFailureData: Populating documents...");
-      debugPrint("fetchRstFailureData: Raw documents=${fullData.documents}");
+      failureLog("fetchRstFailureData: Populating documents...");
+      failureLog("fetchRstFailureData: Raw documents=${fullData.documents}");
       _populateDocuments(fullData.documents);
-      debugPrint("fetchRstFailureData: Documents hydrated, beforeFiles=${beforeFiles.length}, afterFiles=${afterFiles.length}, uploadRcaFiles=${uploadRcaFiles.length}");
-      debugPrint("fetchRstFailureData: All data hydrated successfully");
+      failureLog("fetchRstFailureData: Documents hydrated, beforeFiles=${beforeFiles.length}, afterFiles=${afterFiles.length}, uploadRcaFiles=${uploadRcaFiles.length}");
+      failureLog("fetchRstFailureData: All data hydrated successfully");
     } catch (e, stackTrace) {
-      debugPrint("fetchRstFailureData: ERROR - $e");
-      debugPrint("fetchRstFailureData: STACK TRACE - $stackTrace");
+      failureLog("fetchRstFailureData: ERROR - $e");
+      failureLog("fetchRstFailureData: STACK TRACE - $stackTrace");
       errorMessage.value = "Error: ${e.toString()}";
     } finally {
       isLoading.value = false;
-      debugPrint("fetchRstFailureData: Loading complete, isLoading=false");
+      failureLog("fetchRstFailureData: Loading complete, isLoading=false");
     }
   }
 
   Future<void> submitPartE() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar(AppStrings.error, "Missing notification Id");
+      FailureToast.show(AppStrings.error, "Missing notification Id");
       return;
     }
     if (!isPersonsWithdrawn.value) {
-      Get.snackbar(AppStrings.error, "Please confirm the declaration");
+      FailureToast.show(AppStrings.error, "Please confirm the declaration");
       return;
     }
     if (actualWorkStart.value == null) {
-      Get.snackbar(AppStrings.error, "Please select Actual Work Start");
+      FailureToast.show(AppStrings.error, "Please select Actual Work Start");
       return;
     }
     if (actualWorkComplete.value == null) {
-      Get.snackbar(AppStrings.error, "Please select Actual Work Complete");
+      FailureToast.show(AppStrings.error, "Please select Actual Work Complete");
       return;
     }
     if (selectedTrainStatus.value == null) {
-      Get.snackbar(AppStrings.error, "Please select Train Status");
+      FailureToast.show(AppStrings.error, "Please select Train Status");
       return;
     }
 
@@ -708,10 +710,10 @@ class RstFailureController extends GetxController {
         rcaImages: rcaMultipart,
       );
 
-      Get.snackbar(AppStrings.success, msg);
+      FailureToast.show(AppStrings.success, msg);
       await fetchRstFailureData(notificationId); // refreshes documents list with real ids/paths from server
     } catch (e) {
-      Get.snackbar(AppStrings.error, e.toString());
+      FailureToast.show(AppStrings.error, e.toString());
     } finally {
       isLoading.value = false;
     }
@@ -799,7 +801,7 @@ class RstFailureController extends GetxController {
       selectedMaintainerName.value = null;
       workAllotedController.clear();
     } else {
-      Get.snackbar(AppStrings.error, "Please select Name and enter Work Alloted");
+      FailureToast.show(AppStrings.error, "Please select Name and enter Work Alloted");
     }
   }
 
@@ -819,7 +821,7 @@ class RstFailureController extends GetxController {
     );
     
     if (isDuplicate && editingMaterialRequiredIndex.value < 0) {
-      Get.snackbar("Duplicate", "Selected material already exists!");
+      FailureToast.show("Duplicate", "Selected material already exists!");
       return;
     }
 
@@ -895,7 +897,7 @@ class RstFailureController extends GetxController {
       final msg = errorIndices.length > 1
           ? 'Used Quantity cannot be greater than Required Quantity for ${errorIndices.length} items.'
           : 'Used Quantity cannot be greater than Required Quantity.';
-      Get.snackbar("Invalid Quantity", msg,
+      FailureToast.show("Invalid Quantity", msg,
           backgroundColor: AppColors.red.withValues(alpha: 0.9), colorText: AppColors.white1);
       return false;
     }
@@ -919,7 +921,7 @@ class RstFailureController extends GetxController {
 
   void saveWorkAlloted() {
     if (selectedMaintainerName.value == null || workAllotedController.text.isEmpty) {
-      Get.snackbar(AppStrings.error, "Please select Name and enter Work Alloted");
+      FailureToast.show(AppStrings.error, "Please select Name and enter Work Alloted");
       return;
     }
 
@@ -960,11 +962,11 @@ class RstFailureController extends GetxController {
   Future<void> submitPartC() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar(AppStrings.error, "Missing notification Id");
+      FailureToast.show(AppStrings.error, "Missing notification Id");
       return;
     }
     if (workAllotedList.isEmpty) {
-      Get.snackbar(AppStrings.error, "Please add at least one work alloted entry");
+      FailureToast.show(AppStrings.error, "Please add at least one work alloted entry");
       return;
     }
 
@@ -985,11 +987,11 @@ class RstFailureController extends GetxController {
         isWorkAllotedAccept: isAcceptResponsibility.value,
         isPowerBlockReq: isPowerBlockRequired.value,
       );
-      Get.snackbar(AppStrings.success, msg);
+      FailureToast.show(AppStrings.success, msg);
       // Refresh to pick up server-assigned Ids for newly added entries
       await fetchRstFailureData(notificationId);
     } catch (e) {
-      Get.snackbar(AppStrings.error, e.toString());
+      FailureToast.show(AppStrings.error, e.toString());
     } finally {
       isLoading.value = false;
     }
@@ -998,7 +1000,7 @@ class RstFailureController extends GetxController {
   Future<void> submitPartD() async {
     final notificationId = rstFailureData.value?.notificationId;
     if (notificationId == null) {
-      Get.snackbar(AppStrings.error, "Missing notification Id");
+      FailureToast.show(AppStrings.error, "Missing notification Id");
       return;
     }
     if (!validateMaterialRequiredUsedQty()) return;
@@ -1105,10 +1107,10 @@ class RstFailureController extends GetxController {
     try {
       isLoading.value = true;
       final msg = await _failureService.updateNotificationRSTRCAMaterialJE(payload);
-      Get.snackbar(AppStrings.success, msg);
+      FailureToast.show(AppStrings.success, msg);
       await fetchRstFailureData(notificationId);
     } catch (e) {
-      Get.snackbar(AppStrings.error, e.toString());
+      FailureToast.show(AppStrings.error, e.toString());
     } finally {
       isLoading.value = false;
     }
@@ -1227,7 +1229,7 @@ class RstFailureController extends GetxController {
       try {
         // await _failureService.fetchRstMasterData();
       } catch (e) {
-        debugPrint('Error refreshing RST master data: $e');
+        failureLog('Error refreshing RST master data: $e');
       }
     }
     // Load RST master data
@@ -1356,7 +1358,7 @@ class RstFailureController extends GetxController {
   //     await _failureService.fetchRstMasterData();
   //     await _loadRstMasterDataFromDb();
   //   } catch (e) {
-  //     debugPrint('Error fetching RST master data: $e');
+  //     failureLog('Error fetching RST master data: $e');
   //   }
   // }
 
@@ -1401,7 +1403,7 @@ class RstFailureController extends GetxController {
     }
 
     selectedDepartment.value=data.deptName;
-  debugPrint("selected dept---${selectedDepartment.value}");
+  failureLog("selected dept---${selectedDepartment.value}");
     // Notification Type - hardcoded based on ID
     selectedFailureType.value = data.notificationType;
 
@@ -1431,7 +1433,7 @@ class RstFailureController extends GetxController {
     }
     selectedNatureOfWork.value=data.workName;
     selectedNatureOfWorkId.value=data.natureOfWorkId.toString();
-    debugPrint("data.workName===${data.workName}");
+    failureLog("data.workName===${data.workName}");
     
     // Do not Report
     selectedDoNotReport.value = data.doNotReport?.toString();
@@ -1453,7 +1455,7 @@ class RstFailureController extends GetxController {
           }
         }
       } catch (e) {
-        debugPrint('Error parsing date: $e');
+        failureLog('Error parsing date: $e');
       }
     }
     mainLineActionTakenByController.text = data.mainLineActionTakenBy ?? '';

@@ -1,3 +1,4 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
 import 'package:om_mobile/feature/failure/view/rst/rst_failure_screen.dart';
 import '../../../../constants/app_constants.dart';
@@ -244,7 +245,7 @@ class _RstListScreenState extends State<RstListScreen> {
       name: buttonText,
       onSelected: (isSelected) {
         // Handle button tap
-        debugPrint('IBL button tapped: $buttonText for item ${rstItem.notificationCode}');
+        failureLog('IBL button tapped: $buttonText for item ${rstItem.notificationCode}');
       },
       borderColor: AppColors.orangeColor,
       textDarkPrimary: AppColors.orangeColor,

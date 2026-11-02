@@ -313,8 +313,8 @@ class _CustomDrawerState extends State<CustomDrawer> {
                   sectionKey: 'inspection_top',
                   icon: TablerIcons.clipboard_list,
                   children: [
-                    _drawerItem('Inspection', 'inspection_layout', const InspectionListScreen()),
-                    _drawerItem('Join Inspection', 'inspection_join', const InspectionListScreen()),
+                    _drawerItem('Inspection', 'inspection_layout', const JEInspectionListScreen()),
+                    _drawerItem('Join Inspection', 'inspection_join', const JEInspectionListScreen()),
                   ],
                 ),
                 divider(),

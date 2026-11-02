@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -154,7 +156,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   bool _validateForm(GlobalKey<FormState> key) {
     final isValid = key.currentState?.validate() ?? false;
     if (!isValid) {
-      debugPrint("Form validation failed for key: $key");
+      failureLog("Form validation failed for key: $key");
       _scrollToFirstError(key);
     }
     return isValid;
@@ -250,16 +252,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       return _validateForm(_depotFormKey);
     }
     if (_isStationCreate || _isStationUpdate) {
-      debugPrint("step1");
+      failureLog("step1");
       return _validateForm(_stationFormKey);
     }
 
     if (controller.replacedMaterialsList.isNotEmpty) {
-      debugPrint("step2");
+      failureLog("step2");
       return _validateForm(_formKey) &&
           _reqQtyFormKeys.values.every((key) => _validateForm(key));
     }
-    debugPrint("step3");
+    failureLog("step3");
     return _validateForm(_formKey);
   }
 
@@ -379,7 +381,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (widget.failureType == "Station") {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!controller.isStationController) {
-          Get.snackbar(
+          FailureToast.show(
             "Access Denied",
             "Only Station Controller can create station failure.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -408,7 +410,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (_isOccCreate) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!controller.isOccController) {
-          Get.snackbar(
+          FailureToast.show(
             "Access Denied",
             "Only Chief Controller can create OCC failure.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -423,7 +425,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (_isDepotCreate) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!controller.isDcc) {
-          Get.snackbar(
+          FailureToast.show(
             "Access Denied",
             "Only DCC can create depot failure.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -1137,10 +1139,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() {
-                    debugPrint(
+                    failureLog(
                         "Station form: departmentId = ${controller.departmentId.value}");
                     if (controller.departmentId.value == 3) {
-                      debugPrint(
+                      failureLog(
                           "Station form: Showing department-specific fields for departmentId 3");
                       return Column(
                         children: [
@@ -1777,7 +1779,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         .where((e) => e.trim().isNotEmpty)
                         .toList();
 
-                    debugPrint(
+                    failureLog(
                         "Maintenance Nature of Work count = ${natureOfWorkItems.length}");
                     return Column(
                       children: [
@@ -3048,7 +3050,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                   controller.isJE &&
                                   !_isJointInspectionFlow,
                               onChanged: (value) {
-                                debugPrint(
+                                failureLog(
                                     'JE view: onFunctionalLocationChanged called with value: $value');
                                 controller
                                     .onFunctionalLocationChanged(value);
@@ -3167,7 +3169,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     if (!_isJointInspectionFlow) ...[
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() {
-                        debugPrint(
+                        failureLog(
                             "JE form: notificationTypeList count = ${controller.notificationTypeList.length}");
                         return CustDropdown(
                             label: 'Notification Type *',
@@ -3201,10 +3203,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() {
-                        debugPrint(
+                        failureLog(
                             "JE form: departmentId = ${controller.departmentId.value}");
                         if (controller.departmentId.value == 3) {
-                          debugPrint(
+                          failureLog(
                               "JE form: Showing department-specific fields for departmentId 3");
                           return Column(
                             children: [
@@ -3925,10 +3927,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               : null,
                           onChanged: (v) {
                             if (controller.isFormDisabled) return;
-                            debugPrint("Selected User Status = $v");
-                            debugPrint(
+                            failureLog("Selected User Status = $v");
+                            failureLog(
                                 "Main Status = ${controller.mainStatusName.value}");
-                            debugPrint(
+                            failureLog(
                                 "Blocked = ${controller.isCloseUserStatusBlocked}");
 
                             if (controller.isCloseUserStatusBlocked &&
@@ -4645,7 +4647,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     FocusScope.of(context).unfocus();
     final errors = controller.occUpdateValidate(kind);
     if (errors.isNotEmpty) {
-      Get.snackbar(
+      FailureToast.show(
         'Validation Error',
         errors.first,
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6366,8 +6368,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           });
                         }
                       } catch (e) {
-                        debugPrint("Error picking image: $e");
-                        Get.snackbar("Error",
+                        failureLog("Error picking image: $e");
+                        FailureToast.show("Error",
                             "Could not capture photo. Please check camera permissions.");
                       }
                     },
@@ -6391,8 +6393,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           }
                         }
                       } catch (e) {
-                        debugPrint("Error picking file: $e");
-                        Get.snackbar("Error", "Could not pick file.");
+                        failureLog("Error picking file: $e");
+                        FailureToast.show("Error", "Could not pick file.");
                       }
                     },
                   ),
@@ -6546,7 +6548,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     if (_jointInspectionOherDeptFormKey.currentState?.validate() ?? false) {
       controller.submitJointInspection();
     } else {
-      Get.snackbar(
+      FailureToast.show(
         AppStrings.validationError,
         "Please fill all compulsory fields marked with *",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6560,7 +6562,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   Future<void> _submitOccCreateAndClose() async {
     FocusScope.of(context).unfocus();
     if (!_validateForm(_occFormKey)) {
-      Get.snackbar(
+      FailureToast.show(
         AppStrings.validationError,
         "Please fill all compulsory fields marked with *",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6594,7 +6596,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             .any((rca) => (rca['isNew'] ?? true) == true);
 
         if (!hasExistingRca && !hasNewRca) {
-          Get.snackbar(
+          FailureToast.show(
             AppStrings.validationError,
             "At least one RCA detail is required.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6606,8 +6608,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       }
       controller.submitFailure(isCreate: widget.failureNo == null);
     } else {
-      debugPrint("this error");
-      Get.snackbar(
+      failureLog("this error");
+      FailureToast.show(
         AppStrings.validationError,
         "Please fill all compulsory fields marked with *",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -7443,7 +7445,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 ['usedQty'] = "";
                                 ctrl.clear();
                                 // Show snackbar
-                                Get.snackbar(
+                                FailureToast.show(
                                   'Invalid Quantity',
                                   'Used Quantity cannot be greater than Required Quantity.',
                                   snackPosition: SnackPosition.BOTTOM,

@@ -228,7 +228,20 @@ class LocalDatabaseService {
 
   Future<Database> _openUserDatabase() async {
     try {
-      final db = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
+      var db = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
+      // A copy without DeptName / numeric RoleId (an earlier bad export) cannot
+      // answer the Junior Engineer / Section Incharge lookups: take the bundled
+      // one again. A healthy copy (with the synced users) is left as it is.
+      if (!await _userTableHealthy(db)) {
+        final path = db.path;
+        await db.close();
+        if (path != inMemoryDatabasePath) {
+          try {
+            await File(path).delete();
+          } catch (_) {}
+        }
+        db = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
+      }
       await _ensureMasterIndexes(db, const [
         'CREATE INDEX IF NOT EXISTS idx_um_role_ba_dept ON {t}(RoleId, BusinessArea, DeptId)',
       ]);
@@ -236,6 +249,19 @@ class LocalDatabaseService {
       return db;
     } finally {
       _userOpening = null;
+    }
+  }
+
+  Future<bool> _userTableHealthy(Database db) async {
+    try {
+      final t = await _firstUserTable(db);
+      if (t == null) return false;
+      final cols = (await db.rawQuery('PRAGMA table_info("$t")'))
+          .map((r) => '${r['name']}'.toLowerCase())
+          .toSet();
+      return cols.contains('deptname') && cols.contains('roleid');
+    } catch (_) {
+      return true;
     }
   }
 

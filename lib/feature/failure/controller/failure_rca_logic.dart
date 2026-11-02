@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:get/get.dart';
 import '../../../core/models/label_value.dart';
 import '../../../core/models/root_cause.dart';
@@ -135,7 +135,7 @@ mixin FailureRcaLogic on GetxController, FailureFormState {
         .value ??
         "0";
 
-    debugPrint("Adding to tempPopupRootCauses - cause: ${selectedPopupCause.value}, rootCause: ${selectedPopupRootCause.value}, rootCauseId: $rootCauseId, causeText: ${popupCauseTextController.text}");
+    failureLog("Adding to tempPopupRootCauses - cause: ${selectedPopupCause.value}, rootCause: ${selectedPopupRootCause.value}, rootCauseId: $rootCauseId, causeText: ${popupCauseTextController.text}");
     
     tempPopupRootCauses.add({
       'causeId': causeId,
@@ -148,7 +148,7 @@ mixin FailureRcaLogic on GetxController, FailureFormState {
           : null,
     });
     
-    debugPrint("tempPopupRootCauses after add: $tempPopupRootCauses");
+    failureLog("tempPopupRootCauses after add: $tempPopupRootCauses");
     
     selectedPopupCause.value = null;
     selectedPopupRootCause.value = null;
@@ -163,8 +163,8 @@ mixin FailureRcaLogic on GetxController, FailureFormState {
         .value ??
         "0";
     
-    debugPrint("Adding to tempPopupActionTakens - action: ${selectedPopupAction.value}, actionText: ${popupActionTextController.text}");
-    debugPrint("actionTakenList: ${actionTakenList.map((e) => e.label).toList()}");
+    failureLog("Adding to tempPopupActionTakens - action: ${selectedPopupAction.value}, actionText: ${popupActionTextController.text}");
+    failureLog("actionTakenList: ${actionTakenList.map((e) => e.label).toList()}");
     
     tempPopupActionTakens.add({
       'actionTakenId': actionTakenId,
@@ -175,7 +175,7 @@ mixin FailureRcaLogic on GetxController, FailureFormState {
           : null,
     });
     
-    debugPrint("tempPopupActionTakens after add: $tempPopupActionTakens");
+    failureLog("tempPopupActionTakens after add: $tempPopupActionTakens");
     
     selectedPopupAction.value = null;
     popupActionTextController.clear();
@@ -188,22 +188,22 @@ mixin FailureRcaLogic on GetxController, FailureFormState {
     final List<Map<String, dynamic>> actionTakens =
     List.from(rcaDetailsList[index]['actionTakens']);
 
-    debugPrint("Before save - tempPopupRootCauses: $tempPopupRootCauses");
-    debugPrint("Before save - tempPopupActionTakens: $tempPopupActionTakens");
-    debugPrint("Before save - existing rootCauses: $rootCauses");
-    debugPrint("Before save - existing actionTakens: $actionTakens");
+    failureLog("Before save - tempPopupRootCauses: $tempPopupRootCauses");
+    failureLog("Before save - tempPopupActionTakens: $tempPopupActionTakens");
+    failureLog("Before save - existing rootCauses: $rootCauses");
+    failureLog("Before save - existing actionTakens: $actionTakens");
 
     rootCauses.addAll(tempPopupRootCauses);
     actionTakens.addAll(tempPopupActionTakens);
 
-    debugPrint("After save - combined rootCauses: $rootCauses");
-    debugPrint("After save - combined actionTakens: $actionTakens");
+    failureLog("After save - combined rootCauses: $rootCauses");
+    failureLog("After save - combined actionTakens: $actionTakens");
 
     rcaDetailsList[index]['rootCauses'] = rootCauses;
     rcaDetailsList[index]['actionTakens'] = actionTakens;
     rcaDetailsList.refresh();
 
-    debugPrint("After save - rcaDetailsList[$index]: ${rcaDetailsList[index]}");
+    failureLog("After save - rcaDetailsList[$index]: ${rcaDetailsList[index]}");
 
     clearPopupState();
   }
@@ -247,7 +247,7 @@ mixin FailureRcaLogic on GetxController, FailureFormState {
         .toList();
 
     popupRootCauseList.assignAll(rootCauses);
-    debugPrint("filterPopupRootCauses: Filtered ${rootCauses.length} root causes for causeId=$causeId");
+    failureLog("filterPopupRootCauses: Filtered ${rootCauses.length} root causes for causeId=$causeId");
   }
 
   void toggleRcaExpansion(int index) {

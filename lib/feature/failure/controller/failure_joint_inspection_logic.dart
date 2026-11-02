@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
@@ -24,7 +26,7 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       // final depts = await _failureService.getDeptMasterData();
       // masterJointInspectionDepartments.assignAll(depts);
     } catch (e) {
-      debugPrint('fetchMasterJointInspectionDepartments error: $e');
+      failureLog('fetchMasterJointInspectionDepartments error: $e');
     }
   }
 
@@ -51,7 +53,7 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
 
     // Fallback to SessionController departments if masterDepartments is empty
     if (sourceList.isEmpty) {
-      debugPrint("jointInspectionDepartments: Using SessionController departments as fallback");
+      failureLog("jointInspectionDepartments: Using SessionController departments as fallback");
       final sessionDepts = Get.find<SessionController>().departments;
       final fallbackList = sessionDepts.map((e) => LabelValue(
         label: e.deptName ?? '',
@@ -81,7 +83,7 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       final list = await _failureService.getJIHistory(notifId);
       jointInspectionHistoryList.assignAll(list);
     } catch (e) {
-      debugPrint('fetchJointInspectionHistory error: $e');
+      failureLog('fetchJointInspectionHistory error: $e');
     }
   }
 
@@ -90,7 +92,7 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
     final item = jointInspectionHistoryList[index];
     if ((item.jiId ?? 0) < 0) {
       // Added offline and waiting to be sent: delete it and add it again.
-      Get.snackbar('Waiting to be sent',
+      FailureToast.show('Waiting to be sent',
           'This joint inspection is not sent yet. Delete it and add it again to change it.',
           backgroundColor: AppColors.orangeColor, colorText: AppColors.white1);
       return;
@@ -123,7 +125,7 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
     item.deptName == selectedJointDept.value ||
         item.deptId?.toString() == dept.value);
     if (alreadyExists) {
-      Get.snackbar('Already Exists', 'Joint inspection for this department already exists',
+      FailureToast.show('Already Exists', 'Joint inspection for this department already exists',
           backgroundColor: AppColors.orangeColor, colorText: AppColors.white1);
       return;
     }
@@ -180,7 +182,7 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
           ),
         );
         _clearJointInspectionInputs();
-        Get.snackbar('Saved Offline',
+        FailureToast.show('Saved Offline',
             'Joint inspection saved. It is sent when the internet is back.',
             backgroundColor: AppColors.orangeColor, colorText: AppColors.white1);
         return;
@@ -188,12 +190,12 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       EasyLoading.dismiss();
       jointInspectionHistoryList.assignAll(updated);
       _clearJointInspectionInputs();
-      Get.snackbar(AppStrings.success, AppStrings.jiAdded,
+      FailureToast.show(AppStrings.success, AppStrings.jiAdded,
           backgroundColor: AppColors.green, colorText: AppColors.white1);
     } catch (e) {
       EasyLoading.dismiss();
-      debugPrint('addJointInspectionHistory error: $e');
-      Get.snackbar(AppStrings.error, 'Failed to add joint inspection');
+      failureLog('addJointInspectionHistory error: $e');
+      FailureToast.show(AppStrings.error, 'Failed to add joint inspection');
     }
   }
 
@@ -230,12 +232,12 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       EasyLoading.dismiss();
       jointInspectionHistoryList.assignAll(updated);
       _clearJointInspectionInputs();
-      Get.snackbar(AppStrings.success, AppStrings.jiUpdated,
+      FailureToast.show(AppStrings.success, AppStrings.jiUpdated,
           backgroundColor: AppColors.green, colorText: AppColors.white1);
     } catch (e) {
       EasyLoading.dismiss();
-      debugPrint('updateJointInspectionHistory error: $e');
-      Get.snackbar(AppStrings.error, 'Failed to update joint inspection');
+      failureLog('updateJointInspectionHistory error: $e');
+      FailureToast.show(AppStrings.error, 'Failed to update joint inspection');
     }
   }
 
@@ -256,8 +258,8 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       
       // Joint Inspection Users API disabled - manage from frontend
       // Load users from local master data
-      debugPrint("fetchJointInspectionUsers: API disabled, loading from local master data for deptId=$deptId");
-      debugPrint("fetchJointInspectionUsers: masterUsers count = ${masterUsers.length}");
+      failureLog("fetchJointInspectionUsers: API disabled, loading from local master data for deptId=$deptId");
+      failureLog("fetchJointInspectionUsers: masterUsers count = ${masterUsers.length}");
       
       // Simple filter by DeptId only
       final filteredUsers = masterUsers.where((user) {
@@ -283,20 +285,20 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       }).toList();
 
       // Print filtered user list for verification
-      debugPrint("fetchJointInspectionUsers: Filtered user list for department $deptId:");
+      failureLog("fetchJointInspectionUsers: Filtered user list for department $deptId:");
       for (int i = 0; i < filteredUsers.length && i < 10; i++) {
         final user = filteredUsers[i];
         final roleDescr = user['RoleDescr']?.toString() ?? '';
         final firstName = user['FirstName']?.toString() ?? '';
         final lastName = user['LastName']?.toString() ?? '';
         final userName = (firstName + ' ' + lastName).trim();
-        debugPrint("  [$i] UserId: ${user['UserId']}, UserName: $userName, DeptId: ${user['DeptId']}, RoleDescr: $roleDescr");
+        failureLog("  [$i] UserId: ${user['UserId']}, UserName: $userName, DeptId: ${user['DeptId']}, RoleDescr: $roleDescr");
       }
       if (filteredUsers.length > 10) {
-        debugPrint("  ... and ${filteredUsers.length - 10} more users");
+        failureLog("  ... and ${filteredUsers.length - 10} more users");
       }
       
-      debugPrint("fetchJointInspectionUsers: Found ${filteredUsers.length} users for department $deptId");
+      failureLog("fetchJointInspectionUsers: Found ${filteredUsers.length} users for department $deptId");
       
       // masterUsers has one row per user/role/department mapping, so the same
       // person can appear several times: keep one entry per UserId.
@@ -319,7 +321,7 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       
       jointUserList.assignAll(labelValueUsers);
     } catch (e) {
-      debugPrint('fetchJointInspectionUsers error: $e');
+      failureLog('fetchJointInspectionUsers error: $e');
     } finally {
       isJointUserLoading.value = false;
     }
@@ -347,12 +349,12 @@ mixin FailureJointInspectionLogic on GetxController, FailureFormState {
       if (editingJointInspectionIndex.value == index) {
         _clearJointInspectionInputs();
       }
-      Get.snackbar(AppStrings.success, AppStrings.jiDeleted,
+      FailureToast.show(AppStrings.success, AppStrings.jiDeleted,
           backgroundColor: AppColors.green, colorText: AppColors.white1);
     } catch (e) {
       EasyLoading.dismiss();
-      debugPrint('removeJointInspectionHistory error: $e');
-      Get.snackbar(AppStrings.error, 'Failed to delete joint inspection');
+      failureLog('removeJointInspectionHistory error: $e');
+      FailureToast.show(AppStrings.error, 'Failed to delete joint inspection');
     }
   }
 }

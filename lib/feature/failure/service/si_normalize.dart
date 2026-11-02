@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:intl/intl.dart';
 
 import '../../../service/local_database_service.dart';
@@ -167,7 +167,7 @@ class SiNormalize {
         if (name != null && name.isNotEmpty) m['assignedUseeName'] = name;
       }
     } catch (e) {
-      debugPrint('SiNormalize error: $e');
+      failureLog('SiNormalize error: $e');
     }
     return m;
   }

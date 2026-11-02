@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:get/get.dart';
 import '../model/rst_list_response.dart';
 import '../service/failure_service.dart';
@@ -30,7 +30,7 @@ class RstListController extends GetxController {
     try {
       final response = await _failureService.getRstList();
       final rstResponse = RstListResponse.fromJson(response);
-      debugPrint("rstResponse===$rstResponse");
+      failureLog("rstResponse===$rstResponse");
       if (rstResponse.responseCode == 200) {
         rstItems.assignAll(rstResponse.responseOutput);
       } else {
