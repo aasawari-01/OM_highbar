@@ -1,6 +1,6 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 
 import '../../../service/auth_manager.dart';
@@ -50,6 +50,11 @@ class SiOfflineService {
         return 'Update';
       case 'create':
         return 'Create';
+      case 'acknowledge':
+        return 'Acknowledge';
+      case 'jiAdd':
+      case 'jiSubmit':
+        return 'Joint Inspection';
       default:
         return action ?? '';
     }
@@ -87,7 +92,7 @@ class SiOfflineService {
       return encryptedIdFor(
           notificationId: notificationId, code: code, retryAfterSync: false);
     }
-    debugPrint('SiOfflineService: no encrypted id for $notificationId '
+    failureLog('SiOfflineService: no encrypted id for $notificationId '
         '(siFailure keys: ${siMap.keys.take(6).toList()}...)');
     throw Exception(
         'The failure id (jobCardNo) is missing in the synced data, so this cannot be sent.');
@@ -107,7 +112,7 @@ class SiOfflineService {
       return ok ? SiOutcome.done : SiOutcome.rejected;
     } catch (e) {
       if (!isNetworkError(e)) rethrow;
-      debugPrint('SiOfflineService: $action saved offline ($e)');
+      failureLog('SiOfflineService: $action saved offline ($e)');
       await _queue(
           action: action, notificationId: notificationId, args: args, patch: patch);
       return SiOutcome.queued;

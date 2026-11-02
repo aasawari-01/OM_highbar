@@ -1,5 +1,5 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:convert';
-import 'package:flutter/foundation.dart';
 import '../../../core/models/label_value.dart';
 
 class FailureDetailResponse {
@@ -479,11 +479,11 @@ class CreateVMModel {
   }
 
   factory CreateVMModel.fromJson(Map<String, dynamic> json) {
-    debugPrint("CreateVMModel.fromJson: JSON keys = ${json.keys.toList()}");
-    debugPrint("CreateVMModel.fromJson: systems=${json['systems']}, subSystems=${json['subSystems']}");
-    debugPrint("CreateVMModel.fromJson: subsystem=${json['subsystem']}, Subsystem=${json['Subsystem']}");
-    debugPrint("CreateVMModel.fromJson: subSystem=${json['subSystem']}, SubSystem=${json['SubSystem']}");
-    debugPrint("CreateVMModel.fromJson: Full JSON sample = ${json.toString().substring(0, json.toString().length > 500 ? 500 : json.toString().length)}");
+    failureLog("CreateVMModel.fromJson: JSON keys = ${json.keys.toList()}");
+    failureLog("CreateVMModel.fromJson: systems=${json['systems']}, subSystems=${json['subSystems']}");
+    failureLog("CreateVMModel.fromJson: subsystem=${json['subsystem']}, Subsystem=${json['Subsystem']}");
+    failureLog("CreateVMModel.fromJson: subSystem=${json['subSystem']}, SubSystem=${json['SubSystem']}");
+    failureLog("CreateVMModel.fromJson: Full JSON sample = ${json.toString().substring(0, json.toString().length > 500 ? 500 : json.toString().length)}");
     return CreateVMModel(
       id: json['Id'] as String?,
       notificationId: CreateVMModel._asInt(json['notificationId']),

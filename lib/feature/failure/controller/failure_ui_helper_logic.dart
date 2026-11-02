@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:file_picker/file_picker.dart';
@@ -88,14 +90,14 @@ mixin FailureUIHelperLogic on GetxController, FailureFormState {
               final hasReading = measurementPoints.any((p) => p['isReadingRequired'] == true);
               if (hasReading) {
                 Get.back();
-                Get.snackbar(
+                FailureToast.show(
                   'Success',
                   'Measurement readings saved successfully',
                   backgroundColor: const Color(0xFF4CAF50),
                   colorText: Colors.white,
                 );
               } else {
-                Get.snackbar(
+                FailureToast.show(
                   'Error',
                   'Please select at least one measurement point',
                   backgroundColor: const Color(0xFFF44336),
@@ -125,7 +127,7 @@ mixin FailureUIHelperLogic on GetxController, FailureFormState {
         for (var file in result.files) {
           final sizeInMb = file.size / (1024 * 1024);
           if (sizeInMb > 1) {
-            Get.snackbar('Error', 'File size must be less than 1MB',
+            FailureToast.show('Error', 'File size must be less than 1MB',
               backgroundColor: const Color(0xFFF44336),
               colorText: Colors.white,
             );
@@ -139,8 +141,8 @@ mixin FailureUIHelperLogic on GetxController, FailureFormState {
         }
       }
     } catch (e) {
-      debugPrint("Error picking file: $e");
-      Get.snackbar('Error', 'Could not pick file',
+      failureLog("Error picking file: $e");
+      FailureToast.show('Error', 'Could not pick file',
         backgroundColor: const Color(0xFFF44336),
         colorText: Colors.white,
       );
@@ -150,9 +152,9 @@ mixin FailureUIHelperLogic on GetxController, FailureFormState {
   String? locationCodeForLabel(String? locationLabel) {
     final loc = locationByName(locationLabel);
     final code = loc['locationTypeCode']?.toString();
-    debugPrint("_locationCodeForLabel: locationLabel=$locationLabel, locationTypeCode=$code");
-    debugPrint("_locationCodeForLabel: full location data=$loc");
-    debugPrint("_locationCodeForLabel: All location fields - locationTypeCode=${loc['locationTypeCode']}, locationTypeId=${loc['locationTypeId']}, locationTypeName=${loc['locationTypeName']}, plantId=${loc['plantId']}");
+    failureLog("_locationCodeForLabel: locationLabel=$locationLabel, locationTypeCode=$code");
+    failureLog("_locationCodeForLabel: full location data=$loc");
+    failureLog("_locationCodeForLabel: All location fields - locationTypeCode=${loc['locationTypeCode']}, locationTypeId=${loc['locationTypeId']}, locationTypeName=${loc['locationTypeName']}, plantId=${loc['plantId']}");
     return (code != null && code.isNotEmpty) ? code : null;
   }
 

@@ -1,3 +1,4 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import '../../../core/controller/global_master_data_controller.dart';
@@ -25,15 +26,15 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
   bool _isLoadingDropdowns = false;
 
   // Future<void> loadDepartments() async {
-  //   debugPrint("_loadDepartments: Starting to load departments");
+  //   failureLog("_loadDepartments: Starting to load departments");
   //   final depts = (await LocalDatabaseService().getDepartments()).map((e) => e.toJson()).toList();
   //   masterDepartments.assignAll(depts);
-  //   debugPrint("_loadDepartments: Loaded ${depts.length} departments from local DB to masterDepartments");
-  //   debugPrint("_loadDepartments: departmentList will have ${depts.length + 1} items (including Select)");
+  //   failureLog("_loadDepartments: Loaded ${depts.length} departments from local DB to masterDepartments");
+  //   failureLog("_loadDepartments: departmentList will have ${depts.length + 1} items (including Select)");
   //
   //   // If masterDepartments is empty, try to fetch departments from API
   //   if (masterDepartments.isEmpty) {
-  //     debugPrint("_loadDepartments: masterDepartments empty, fetching from API");
+  //     failureLog("_loadDepartments: masterDepartments empty, fetching from API");
   //     try {
   //       final apiClient = ApiClient();
   //       final userId = int.tryParse(await AuthManager().getUserId() ?? '0') ?? 0;
@@ -55,7 +56,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
   //               'workCenter': e['workCenter']?.toString() ?? '',
   //             }).toList();
   //             masterDepartments.assignAll(mappedDepts);
-  //             debugPrint("_loadDepartments: Loaded ${mappedDepts.length} departments from API");
+  //             failureLog("_loadDepartments: Loaded ${mappedDepts.length} departments from API");
   //             // Update depts to use API data for departmentList
   //             depts.clear();
   //             depts.addAll(mappedDepts);
@@ -63,7 +64,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
   //         }
   //       }
   //     } catch (e) {
-  //       debugPrint("_loadDepartments: Error fetching departments from API: $e");
+  //       failureLog("_loadDepartments: Error fetching departments from API: $e");
   //     }
   //   }
   //
@@ -74,13 +75,13 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
   //       value: e['deptId']?.toString() ?? '',
   //     )),
   //   ]);
-  //   debugPrint("_loadDepartments: departmentList populated with ${departmentList.length} items");
+  //   failureLog("_loadDepartments: departmentList populated with ${departmentList.length} items");
   // }
 
   bool _isFunctionalLocationsLoaded = false;
 
   Future<void> loadMasterDataFromDb() async {
-    debugPrint('_loadMasterDataFromDb: Syncing small master data from global cache (large tables loaded on-demand)');
+    failureLog('_loadMasterDataFromDb: Syncing small master data from global cache (large tables loaded on-demand)');
     if (_isMasterDataLoaded) return;
 
     final g = GlobalMasterDataController.to;
@@ -175,16 +176,16 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
     await filterRcaFailureCategoriesBySystem();
 
     _isMasterDataLoaded = true;
-    debugPrint('_loadMasterDataFromDb: Small master data synced. Large tables will load on-demand.');
+    failureLog('_loadMasterDataFromDb: Small master data synced. Large tables will load on-demand.');
   }
 
   Future<void> _loadFunctionalLocationsOnDemand({bool forceReload = false}) async {
     if (!forceReload && _isFunctionalLocationsLoaded && masterFunctionalLocations.isNotEmpty) {
-      debugPrint('_loadFunctionalLocationsOnDemand: Already loaded, skipping');
+      failureLog('_loadFunctionalLocationsOnDemand: Already loaded, skipping');
       return;
     }
 
-    debugPrint('_loadFunctionalLocationsOnDemand: Loading functional locations from SQLite');
+    failureLog('_loadFunctionalLocationsOnDemand: Loading functional locations from SQLite');
     final dbService = LocalDatabaseService();
     final businessArea = await AuthManager().getBusinessArea();
     final funcLocs = await dbService.getFunctionalLocationsFiltered(
@@ -201,8 +202,8 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
       )),
     ]);
     _isFunctionalLocationsLoaded = true;
-    debugPrint('_loadFunctionalLocationsOnDemand: Loaded ${funcLocs.length} functional locations');
-    debugPrint('_loadFunctionalLocationsOnDemand: functionalLocationList count = ${functionalLocationList.length}');
+    failureLog('_loadFunctionalLocationsOnDemand: Loaded ${funcLocs.length} functional locations');
+    failureLog('_loadFunctionalLocationsOnDemand: functionalLocationList count = ${functionalLocationList.length}');
     
     // Force UI update
     functionalLocationList.refresh();
@@ -210,31 +211,31 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
 
   Future<void> filterRcaFailureCategoriesBySystem() async {
     final currentSystem = systemController.text.trim();
-    debugPrint('_filterRcaFailureCategoriesBySystem: Current system = "$currentSystem"');
+    failureLog('_filterRcaFailureCategoriesBySystem: Current system = "$currentSystem"');
     
     // Get work center from selected department
     final currentWorkCenter = getCurrentWorkCenterFromDept();
-    debugPrint('_filterRcaFailureCategoriesBySystem: Current workCenter = "$currentWorkCenter"');
+    failureLog('_filterRcaFailureCategoriesBySystem: Current workCenter = "$currentWorkCenter"');
     
     // Get business area from user session (not from department)
     final currentBusinessArea = await getCurrentBusinessArea();
-    debugPrint('_filterRcaFailureCategoriesBySystem: User business area from session = "$currentBusinessArea"');
-    debugPrint('_filterRcaFailureCategoriesBySystem: Current businessArea = "$currentBusinessArea"');
+    failureLog('_filterRcaFailureCategoriesBySystem: User business area from session = "$currentBusinessArea"');
+    failureLog('_filterRcaFailureCategoriesBySystem: Current businessArea = "$currentBusinessArea"');
     
     // Log sample data from masterRcaFailureCategories
     if (masterRcaFailureCategories.isNotEmpty) {
-      debugPrint('_filterRcaFailureCategoriesBySystem: Sample RCA category data:');
+      failureLog('_filterRcaFailureCategoriesBySystem: Sample RCA category data:');
       for (int i = 0; i < masterRcaFailureCategories.length && i < 3; i++) {
         final cat = masterRcaFailureCategories[i];
-        debugPrint('  [$i] failureCategory: ${cat['failureCategory']}, system: ${cat['system']}, workCenter: ${cat['workCenter']}, businessArea: ${cat['businessArea']}');
+        failureLog('  [$i] failureCategory: ${cat['failureCategory']}, system: ${cat['system']}, workCenter: ${cat['workCenter']}, businessArea: ${cat['businessArea']}');
       }
     } else {
-      debugPrint('_filterRcaFailureCategoriesBySystem: masterRcaFailureCategories is EMPTY!');
+      failureLog('_filterRcaFailureCategoriesBySystem: masterRcaFailureCategories is EMPTY!');
     }
     
     if (currentSystem.isEmpty && currentWorkCenter == null && currentBusinessArea == null) {
       // If no filters selected, show all categories
-      debugPrint('_filterRcaFailureCategoriesBySystem: No filters set, showing all categories');
+      failureLog('_filterRcaFailureCategoriesBySystem: No filters set, showing all categories');
       rcaFailureCategoryList.assignAll([
         LabelValue(label: 'Select', value: ''),
         ...masterRcaFailureCategories
@@ -246,7 +247,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
       ]);
     } else {
       // Filter by system, work center, and business area
-      debugPrint('_filterRcaFailureCategoriesBySystem: Applying filters');
+      failureLog('_filterRcaFailureCategoriesBySystem: Applying filters');
       rcaFailureCategoryList.assignAll([
         LabelValue(label: 'Select', value: ''),
         ...masterRcaFailureCategories
@@ -278,7 +279,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
               }
               
               final isValidCategory = failureCategory.isNotEmpty && failureCategory.toLowerCase() != 'select';
-              debugPrint('_filterRcaFailureCategoriesBySystem: Category: "$failureCategory", System: "$categorySystem", WorkCenter: "$categoryWorkCenter", BusinessArea: "$categoryBusinessArea", Matches: $matchesSystem && $matchesWorkCenter && $matchesBusinessArea');
+              failureLog('_filterRcaFailureCategoriesBySystem: Category: "$failureCategory", System: "$categorySystem", WorkCenter: "$categoryWorkCenter", BusinessArea: "$categoryBusinessArea", Matches: $matchesSystem && $matchesWorkCenter && $matchesBusinessArea');
               return matchesSystem && matchesWorkCenter && matchesBusinessArea && isValidCategory;
             })
             .map((e) => LabelValue(
@@ -287,7 +288,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         )),
       ]);
     }
-    debugPrint('_filterRcaFailureCategoriesBySystem: Filtered to ${rcaFailureCategoryList.length} categories');
+    failureLog('_filterRcaFailureCategoriesBySystem: Filtered to ${rcaFailureCategoryList.length} categories');
   }
 
   Future<void> forceReloadMasterData() async {
@@ -298,13 +299,13 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
   Future<void> loadMasterDropdownsFromDb({bool refreshIfEmpty = false}) async {
     // Skip loading if dropdowns are already populated (check for more than just "Select")
     if (!refreshIfEmpty && priorityTypeList.length > 1 && corrNotificationTypeList.length > 1 && userList.length > 1) {
-      debugPrint('_loadMasterDropdownsFromDb: Dropdowns already populated, skipping');
+      failureLog('_loadMasterDropdownsFromDb: Dropdowns already populated, skipping');
       return;
     }
     
     // Prevent concurrent calls
     if (_isLoadingDropdowns) {
-      debugPrint('_loadMasterDropdownsFromDb: Already loading dropdowns, skipping');
+      failureLog('_loadMasterDropdownsFromDb: Already loading dropdowns, skipping');
       return;
     }
     
@@ -320,7 +321,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
           await forceReloadMasterData();
         }
       } catch (e) {
-        debugPrint('_loadMasterDropdownsFromDb sync error: $e');
+        failureLog('_loadMasterDropdownsFromDb sync error: $e');
         await forceReloadMasterData();
       }
     }
@@ -337,15 +338,15 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
     ]);
 
     final categories = (await dbService.getFailureCategories()).map((e) => e.toJson()).toList();
-    debugPrint('loadMasterDropdownsFromDb: Raw categories count = ${categories.length}');
-    debugPrint('loadMasterDropdownsFromDb: Raw categories sample: ${categories.take(3).toList()}');
+    failureLog('loadMasterDropdownsFromDb: Raw categories count = ${categories.length}');
+    failureLog('loadMasterDropdownsFromDb: Raw categories sample: ${categories.take(3).toList()}');
 
     final filteredCategories = categories
         .where((e) {
           final categoryType = e['failureCategoryType']?.toString() ?? '';
           final isNotEmpty = categoryType.isNotEmpty;
           final isNotSelect = categoryType.toLowerCase() != 'select';
-          debugPrint('loadMasterDropdownsFromDb: Filtering category - type="$categoryType", isNotEmpty=$isNotEmpty, isNotSelect=$isNotSelect');
+          failureLog('loadMasterDropdownsFromDb: Filtering category - type="$categoryType", isNotEmpty=$isNotEmpty, isNotSelect=$isNotSelect');
           return isNotEmpty && isNotSelect;
         })
         .map((e) => LabelValue(
@@ -354,19 +355,19 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         ))
         .toList();
 
-    debugPrint('loadMasterDropdownsFromDb: Filtered categories count = ${filteredCategories.length}');
+    failureLog('loadMasterDropdownsFromDb: Filtered categories count = ${filteredCategories.length}');
 
     corrNotificationTypeList.assignAll([
       LabelValue(label: 'Select', value: ''),
       ...filteredCategories,
     ]);
-    debugPrint('loadMasterDropdownsFromDb: corrNotificationTypeList populated with ${corrNotificationTypeList.length} items');
-    debugPrint('loadMasterDropdownsFromDb: corrNotificationTypeList items: ${corrNotificationTypeList.map((e) => e.label).toList()}');
+    failureLog('loadMasterDropdownsFromDb: corrNotificationTypeList populated with ${corrNotificationTypeList.length} items');
+    failureLog('loadMasterDropdownsFromDb: corrNotificationTypeList items: ${corrNotificationTypeList.map((e) => e.label).toList()}');
 
     // Load RCA failure categories from local database
-    debugPrint('loadMasterDataFromDb: Loading RCA failure categories');
+    failureLog('loadMasterDataFromDb: Loading RCA failure categories');
     final rcaCategories = (await dbService.getRcaFailureCategoriesFromLocal()).map((e) => e.toJson()).toList();
-    debugPrint('loadMasterDataFromDb: Retrieved ${rcaCategories.length} RCA failure categories from local DB');
+    failureLog('loadMasterDataFromDb: Retrieved ${rcaCategories.length} RCA failure categories from local DB');
     rcaFailureCategoryList.assignAll([
       LabelValue(label: 'Select', value: ''),
       ...rcaCategories
@@ -376,14 +377,14 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         value: e['FailureCategoryId']?.toString() ?? '',
       )),
     ]);
-    debugPrint('loadMasterDataFromDb: rcaFailureCategoryList populated with ${rcaFailureCategoryList.length} items');
+    failureLog('loadMasterDataFromDb: rcaFailureCategoryList populated with ${rcaFailureCategoryList.length} items');
 
     final users = (await dbService.getMasterUsers()).map((e) => e.toJson()).toList();
-    debugPrint('loadMasterDataFromDb: Total users from DB = ${users.length}');
+    failureLog('loadMasterDataFromDb: Total users from DB = ${users.length}');
     
     // Process users in background isolate to prevent UI blocking
     final uniqueUsersList = await compute(_processUsersInIsolate, users);
-    debugPrint('loadMasterDataFromDb: userList count after deduplication = ${uniqueUsersList.length}');
+    failureLog('loadMasterDataFromDb: userList count after deduplication = ${uniqueUsersList.length}');
     
     // Clear and add "Select" first
     userList.clear();
@@ -407,20 +408,20 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
       await Future.delayed(const Duration(milliseconds: 10));
     }
     
-    debugPrint('loadMasterDataFromDb: Final userList count = ${userList.length}');
+    failureLog('loadMasterDataFromDb: Final userList count = ${userList.length}');
 
     priorityTypeList.refresh();
     corrNotificationTypeList.refresh();
     userList.refresh();
     
     _isLoadingDropdowns = false;
-    debugPrint('loadMasterDropdownsFromDb: Completed loading dropdowns');
-    debugPrint('loadMasterDropdownsFromDb: corrNotificationTypeList final count = ${corrNotificationTypeList.length}');
+    failureLog('loadMasterDropdownsFromDb: Completed loading dropdowns');
+    failureLog('loadMasterDropdownsFromDb: corrNotificationTypeList final count = ${corrNotificationTypeList.length}');
   }
 
   String? getWorkCenterForDept(String? deptId, {String? deptLabel}) {
-    debugPrint("_getWorkCenterForDept: deptId=$deptId, deptLabel=$deptLabel");
-    debugPrint("_getWorkCenterForDept: masterDepartments count=${masterDepartments.length}");
+    failureLog("_getWorkCenterForDept: deptId=$deptId, deptLabel=$deptLabel");
+    failureLog("_getWorkCenterForDept: masterDepartments count=${masterDepartments.length}");
     
     Map<String, dynamic> dept = <String, dynamic>{};
 
@@ -441,12 +442,12 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         orElse: () => <String, dynamic>{},
       );
       if (dept.isNotEmpty) {
-        debugPrint("_getWorkCenterForDept: matched by NAME fallback -> $dept");
+        failureLog("_getWorkCenterForDept: matched by NAME fallback -> $dept");
       }
     }
 
-    debugPrint("_getWorkCenterForDept: Matched Department = $dept");
-    debugPrint("_getWorkCenterForDept: WorkCenter = ${dept['workCenter']}");
+    failureLog("_getWorkCenterForDept: Matched Department = $dept");
+    failureLog("_getWorkCenterForDept: WorkCenter = ${dept['workCenter']}");
 
     return dept['workCenter']?.toString();
   }
@@ -475,7 +476,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
       final businessAreaInt = await AuthManager().getBusinessArea();
       return businessAreaInt?.toString();
     } catch (e) {
-      debugPrint("getCurrentBusinessArea: Error getting business area: $e");
+      failureLog("getCurrentBusinessArea: Error getting business area: $e");
       return null;
     }
   }
@@ -538,10 +539,10 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         await _loadNatureOfWorkData();
       }
 
-      debugPrint('onMaintenanceDepartmentChanged: functionalLocationList count = ${functionalLocationList.length}');
+      failureLog('onMaintenanceDepartmentChanged: functionalLocationList count = ${functionalLocationList.length}');
 
     } catch (e) {
-      debugPrint('Error on department change: $e');
+      failureLog('Error on department change: $e');
     }
   }
 
@@ -568,9 +569,9 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         ]);
       }
 
-      debugPrint('Filtered ${locationList.length} locations for department $departmentId');
+      failureLog('Filtered ${locationList.length} locations for department $departmentId');
     } catch (e) {
-      debugPrint('Error filtering locations: $e');
+      failureLog('Error filtering locations: $e');
     }
   }
 
@@ -599,7 +600,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
 
       if (isSectionIncharge) {
         // For Section Incharge: Load junior engineers from local DB for the selected department
-        debugPrint('_loadPersonResponsible: Section Incharge - loading junior engineers from local DB for deptId=${departmentId.value}');
+        failureLog('_loadPersonResponsible: Section Incharge - loading junior engineers from local DB for deptId=${departmentId.value}');
         
         // Ensure master users are loaded
         if (masterUsers.isEmpty) {
@@ -628,7 +629,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
           return deptMatch && roleMatch && isValidUser;
         }).toList();
 
-        debugPrint('_loadPersonResponsible: Found ${filteredUsers.length} junior engineers in department ${departmentId.value}');
+        failureLog('_loadPersonResponsible: Found ${filteredUsers.length} junior engineers in department ${departmentId.value}');
 
         // Convert to LabelValue
         userList.assignAll([
@@ -656,32 +657,32 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         }
       }
     } catch (e) {
-      debugPrint('Error loading person responsible: $e');
+      failureLog('Error loading person responsible: $e');
     }
   }
 
   Future<void> _loadMasterUsersForPersonResponsible() async {
     // Only load if not already loaded
     if (isUsersLoaded.value && masterUsers.isNotEmpty) {
-      debugPrint('_loadMasterUsersForPersonResponsible: Users already loaded, skipping');
+      failureLog('_loadMasterUsersForPersonResponsible: Users already loaded, skipping');
       return;
     }
 
-    debugPrint('_loadMasterUsersForPersonResponsible: Loading master users from SQLite');
+    failureLog('_loadMasterUsersForPersonResponsible: Loading master users from SQLite');
     final dbService = LocalDatabaseService();
     final users = await dbService.getMasterUsers();
 
     // Convert users to Map with consistent key names (PascalCase as in MasterUserModel.toJson())
     masterUsers.assignAll(users.map((e) => e.toJson()).toList());
     isUsersLoaded.value = true;
-    debugPrint('_loadMasterUsersForPersonResponsible: Loaded ${users.length} master users');
+    failureLog('_loadMasterUsersForPersonResponsible: Loaded ${users.length} master users');
 
     // Show sample data for debugging
     if (masterUsers.isNotEmpty) {
-      debugPrint('_loadMasterUsersForPersonResponsible: Sample user data:');
+      failureLog('_loadMasterUsersForPersonResponsible: Sample user data:');
       for (int i = 0; i < masterUsers.length && i < 3; i++) {
         final user = masterUsers[i];
-        debugPrint(
+        failureLog(
             '  [$i] UserId: ${user['UserId']}, UserName: ${user['UserName']}, DeptId: ${user['DeptId']}, RoleDescr: ${user['RoleDescr']}');
       }
     }
@@ -703,7 +704,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         ]);
       }
     } catch (e) {
-      debugPrint('Error loading nature of work data: $e');
+      failureLog('Error loading nature of work data: $e');
     }
   }
 
@@ -733,7 +734,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
       final locCode = _getLocationCode(selectedLocation.value);
       final workCenter = getCurrentWorkCenterFromDept();
 
-      debugPrint('Filtering functional locations: locCode=$locCode, workCenter=$workCenter');
+      failureLog('Filtering functional locations: locCode=$locCode, workCenter=$workCenter');
 
       final filteredFuncs = masterFunctionalLocations.where((e) {
         bool match = true;
@@ -765,9 +766,9 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         ),
       ]);
 
-      debugPrint('Filtered ${functionalLocationList.length} functional locations');
+      failureLog('Filtered ${functionalLocationList.length} functional locations');
     } catch (e) {
-      debugPrint('Error filtering functional locations: $e');
+      failureLog('Error filtering functional locations: $e');
     }
   }
 
@@ -775,15 +776,15 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
     try {
       final workCenter = getCurrentWorkCenterFromDept();
 
-      debugPrint('Filtering functional locations by work center: workCenter=$workCenter');
-      debugPrint('masterFunctionalLocations count: ${masterFunctionalLocations.length}');
+      failureLog('Filtering functional locations by work center: workCenter=$workCenter');
+      failureLog('masterFunctionalLocations count: ${masterFunctionalLocations.length}');
 
       // Show sample data for debugging
       if (masterFunctionalLocations.isNotEmpty) {
-        debugPrint('Sample masterFunctionalLocations data:');
+        failureLog('Sample masterFunctionalLocations data:');
         for (int i = 0; i < masterFunctionalLocations.length && i < 3; i++) {
           final func = masterFunctionalLocations[i];
-          debugPrint('  [$i] funcLocationName: ${func['funcLocationName']}, workCenter: ${func['workCenter']}, location: ${func['location']}');
+          failureLog('  [$i] funcLocationName: ${func['funcLocationName']}, workCenter: ${func['workCenter']}, location: ${func['location']}');
         }
       }
 
@@ -811,9 +812,9 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         ),
       ]);
 
-      debugPrint('Filtered ${functionalLocationList.length} functional locations by work center');
+      failureLog('Filtered ${functionalLocationList.length} functional locations by work center');
     } catch (e) {
-      debugPrint('Error filtering functional locations by work center: $e');
+      failureLog('Error filtering functional locations by work center: $e');
     }
   }
 
@@ -900,7 +901,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         }
       }
     } catch (e) {
-      debugPrint('Error loading functional location details: $e');
+      failureLog('Error loading functional location details: $e');
     }
   }
 
@@ -932,7 +933,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         fmecaSubsystemController.text = fmecaSubsystemList[1].label ?? '';
       }
     } catch (e) {
-      debugPrint('Error loading subsystems: $e');
+      failureLog('Error loading subsystems: $e');
     }
   }
 
@@ -962,7 +963,7 @@ mixin FailureDataLoadingLogic on GetxController, FailureFormState {
         ]);
       }
     } catch (e) {
-      debugPrint('Error loading joint inspection users: $e');
+      failureLog('Error loading joint inspection users: $e');
     }
   }
 }

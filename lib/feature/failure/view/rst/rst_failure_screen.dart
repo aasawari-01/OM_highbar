@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -40,24 +42,24 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
   @override
   void initState() {
     super.initState();
-    debugPrint("_RstFailureScreenState.initState: CALLED");
-    debugPrint("_RstFailureScreenState.initState: notificationId=${widget.notificationId}");
+    failureLog("_RstFailureScreenState.initState: CALLED");
+    failureLog("_RstFailureScreenState.initState: notificationId=${widget.notificationId}");
     
     if (Get.isRegistered<RstFailureController>()) {
-      debugPrint("_RstFailureScreenState.initState: Deleting existing controller");
+      failureLog("_RstFailureScreenState.initState: Deleting existing controller");
       Get.delete<RstFailureController>();
     }
     controller = Get.put(RstFailureController());
-    debugPrint("_RstFailureScreenState.initState: Controller created");
+    failureLog("_RstFailureScreenState.initState: Controller created");
 
     if (widget.notificationId != null) {
-      debugPrint("_RstFailureScreenState.initState: Scheduling fetchRstFailureData with id=${widget.notificationId}");
+      failureLog("_RstFailureScreenState.initState: Scheduling fetchRstFailureData with id=${widget.notificationId}");
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        debugPrint("_RstFailureScreenState.initState: Calling fetchRstFailureData");
+        failureLog("_RstFailureScreenState.initState: Calling fetchRstFailureData");
         controller.fetchRstFailureData(widget.notificationId!);
       });
     } else {
-      debugPrint("_RstFailureScreenState.initState: notificationId is null, skipping fetch");
+      failureLog("_RstFailureScreenState.initState: notificationId is null, skipping fetch");
     }
   }
 
@@ -106,8 +108,8 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                           });
                         }
                       } catch (e) {
-                        debugPrint("Error picking image: $e");
-                        Get.snackbar("Error",
+                        failureLog("Error picking image: $e");
+                        FailureToast.show("Error",
                             "Could not capture photo. Please check camera permissions.");
                       }
                     },
@@ -133,8 +135,8 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                           }
                         }
                       } catch (e) {
-                        debugPrint("Error picking file: $e");
-                        Get.snackbar("Error", "Could not pick file.");
+                        failureLog("Error picking file: $e");
+                        FailureToast.show("Error", "Could not pick file.");
                       }
                     },
                   ),
@@ -1490,7 +1492,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                                     if (usedQty > requiredQty) {
                                       controller.materialRequiredList[index]['usedQty'] = "";
                                       ctrl.clear();
-                                      Get.snackbar(
+                                      FailureToast.show(
                                         'Invalid Quantity',
                                         'Used Quantity cannot be greater than Required Quantity.',
                                         backgroundColor: AppColors.darkRed,
@@ -1850,7 +1852,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             textDarkPrimary: Colors.white,
             onSelected: (_) {
               if (!controller.isPersonsWithdrawn.value) {
-                Get.snackbar("Error", "Please accept the declaration",backgroundColor: AppColors.red,colorText: AppColors.white1);
+                FailureToast.show("Error", "Please accept the declaration",backgroundColor: AppColors.red,colorText: AppColors.white1);
                 return;
               }
               if (_partEFormKey.currentState?.validate() ?? false) {

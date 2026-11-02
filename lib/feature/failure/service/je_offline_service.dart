@@ -1,7 +1,7 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart';
 import 'package:get/get.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
@@ -12,6 +12,7 @@ import '../../../service/local_database_service.dart';
 import '../../../core/controller/session_controller.dart';
 import '../../../service/master_data_sync_service.dart';
 import 'failure_service.dart';
+import 'je_overlay.dart';
 import 'si_ids.dart';
 
 /// Junior Engineer actions that also work without internet: the failure form
@@ -80,7 +81,7 @@ class JeOfflineService {
         final name = '${DateTime.now().microsecondsSinceEpoch}_${p.basename(e.value)}';
         out[e.key] = (await File(e.value).copy(p.join(dir.path, name))).path;
       } catch (err) {
-        debugPrint('JeOfflineService: could not keep ${e.value}: $err');
+        failureLog('JeOfflineService: could not keep ${e.value}: $err');
       }
     }
     return out;
@@ -101,8 +102,46 @@ class JeOfflineService {
       'payload': payload,
       'files': kept,
     }, queueType);
+    await JeOverlay.save(notificationId, payload);
     await _db.setJeFailurePending(notificationId, 'update');
   }
+
+  /// A joint inspection added offline: [body] is what addUpdateDeleteJointInspection
+  /// takes. The names are kept to show the entry until it is sent. Returns the
+  /// queue id (the entry in the history uses -id).
+  Future<int> queueJointInspectionAdd(Map<String, dynamic> body,
+      {String? deptName, String? assignedUser}) async {
+    return _db.insertPendingSubmission({
+      'action': 'jiAdd',
+      'notificationId': int.tryParse('${body['NotificationId']}') ?? 0,
+      'queuedBy': await AuthManager().getUserId(),
+      'body': body,
+      'deptName': deptName,
+      'assignedUser': assignedUser,
+    }, queueType);
+  }
+
+  /// The joint inspection screen of a failure (what the user entered), saved
+  /// offline. The server's own details of the failure are fetched when it is
+  /// sent, so only the entered values are kept.
+  Future<void> queueJointInspectionSubmit({
+    required int notificationId,
+    required String notificationCode,
+    required Map<String, dynamic> payload,
+  }) async {
+    await _db.insertPendingSubmission({
+      'action': 'jiSubmit',
+      'notificationId': notificationId,
+      'notificationCode': notificationCode,
+      'queuedBy': await AuthManager().getUserId(),
+      'payload': payload,
+    }, queueType);
+    await _db.setJeJointPending(notificationId, 'jiSubmit');
+  }
+
+  /// Removes a joint inspection that was added offline and is not sent yet.
+  Future<void> discardJointInspection(int queueId) =>
+      _db.deletePendingSubmission(queueId);
 
   /// Sends one queued action. true = done. Throws when the server cannot be
   /// reached (network error) or answers with an error.
@@ -110,6 +149,13 @@ class JeOfflineService {
     final action = p0['action']?.toString() ?? '';
     final nid = int.tryParse('${p0['notificationId']}') ?? 0;
     switch (action) {
+      case 'jiSubmit':
+        await _service.submitJIScreenData(
+            Map<String, dynamic>.from(p0['payload'] as Map));
+        return true;
+      case 'jiAdd':
+        await _service.addJIEntry(Map<String, dynamic>.from(p0['body'] as Map));
+        return true;
       case 'update':
         final payload = Map<String, dynamic>.from(p0['payload'] as Map);
         final je = payload['changeNotifictionJE'] is Map

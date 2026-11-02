@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -154,7 +156,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   bool _validateForm(GlobalKey<FormState> key) {
     final isValid = key.currentState?.validate() ?? false;
     if (!isValid) {
-      debugPrint("Form validation failed for key: $key");
+      failureLog("Form validation failed for key: $key");
       _scrollToFirstError(key);
     }
     return isValid;
@@ -250,16 +252,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       return _validateForm(_depotFormKey);
     }
     if (_isStationCreate || _isStationUpdate) {
-      debugPrint("step1");
+      failureLog("step1");
       return _validateForm(_stationFormKey);
     }
 
     if (controller.replacedMaterialsList.isNotEmpty) {
-      debugPrint("step2");
+      failureLog("step2");
       return _validateForm(_formKey) &&
           _reqQtyFormKeys.values.every((key) => _validateForm(key));
     }
-    debugPrint("step3");
+    failureLog("step3");
     return _validateForm(_formKey);
   }
 
@@ -321,7 +323,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     if (_isDepotView) {
       // DCC opening a depot failure from the list: read-only detail.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadDepotFailureDetails(widget.failureNo!);
+        controller.loadDepotFailureDetails(widget.failureNo!,
+            item: widget.failureItem);
       });
     } else if (_isOccUpdate) {
       // FMC user opening an OCC failure that was assigned to them.
@@ -331,7 +334,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (widget.failureNo != null) {
       if (widget.isFromJointInspection) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.loadJointInspectionDetails(widget.failureNo!);
+          controller.loadJointInspectionDetails(widget.failureNo!,
+              item: widget.failureItem);
         });
       } else if (widget.failureType == 'Station' &&
           controller.isStationController &&
@@ -377,7 +381,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (widget.failureType == "Station") {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!controller.isStationController) {
-          Get.snackbar(
+          FailureToast.show(
             "Access Denied",
             "Only Station Controller can create station failure.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -406,7 +410,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (_isOccCreate) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!controller.isOccController) {
-          Get.snackbar(
+          FailureToast.show(
             "Access Denied",
             "Only Chief Controller can create OCC failure.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -421,7 +425,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (_isDepotCreate) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!controller.isDcc) {
-          Get.snackbar(
+          FailureToast.show(
             "Access Denied",
             "Only DCC can create depot failure.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -526,176 +530,159 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           (controller.isSectionIncharge && _isMaintenance);
 
 
-  void _showMeasurementDialog() {
-    Get.dialog(
-      Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        backgroundColor: AppColors.white1,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  CustText.body("Measurement Reading",
-                      fontWeightName: FontWeight.bold),
-                  IconButton(
-                      onPressed: () => Get.back(),
-                      icon: const Icon(Icons.close, size: 20)),
-                ],
-              ),
-            ),
-            const Divider(),
-            Expanded(
-              child: Obx(() => ListView.builder(
-                shrinkWrap: true,
-                itemCount: controller.measurementPointsList.length,
-                itemBuilder: (context, index) {
-                  final item = controller.measurementPointsList[index];
-                  return Container(
-                    margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: AppColors.white1,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.black.withValues(alpha: 0.2),
-                          blurRadius: 8,
-                          offset: const Offset(0, 2),
-                        ),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        CustText.detailLabel("Measurement Point"),
-                        const SizedBox(height: 4),
-                        CustText(
-                          name: item['measPoint']?.toString() ?? '-',
-                          size: 16,
-                          color: AppColors.black,
-                          fontWeightName: FontWeight.bold,
-                        ),
-                        const SizedBox(height: 12),
-                        const Divider(
-                            color: AppColors.dividerColor3, height: 1),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                                children: [
-                                  CustText.detailLabel("Before Readings"),
-                                  const SizedBox(height: 8),
-                                  TextFormField(
-                                    initialValue: item['beforeReading'],
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      hintText: "0",
-                                      hintStyle: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey.shade400),
-                                      isDense: true,
-                                      contentPadding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(
-                                          borderRadius:
-                                          BorderRadius.circular(4),
-                                          borderSide: BorderSide(
-                                              color: Colors.grey.shade300)),
-                                      enabledBorder: OutlineInputBorder(
-                                          borderRadius:
-                                          BorderRadius.circular(4),
-                                          borderSide: BorderSide(
-                                              color: Colors.grey.shade300)),
-                                      focusedBorder: OutlineInputBorder(
-                                          borderRadius:
-                                          BorderRadius.circular(4),
-                                          borderSide: const BorderSide(
-                                              color:
-                                              AppColors.orangeColor)),
-                                    ),
-                                    onChanged: (v) =>
-                                        controller.updateMeasurementReading(
-                                            index, 'beforeReading', v),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment:
-                                CrossAxisAlignment.start,
-                                children: [
-                                  CustText.detailLabel("After Readings"),
-                                  const SizedBox(height: 8),
-                                  TextFormField(
-                                    initialValue: item['afterReading'],
-                                    keyboardType: TextInputType.number,
-                                    decoration: InputDecoration(
-                                      hintText: "0",
-                                      hintStyle: TextStyle(
-                                          fontSize: 14,
-                                          color: Colors.grey.shade400),
-                                      isDense: true,
-                                      contentPadding:
-                                      const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 8),
-                                      border: OutlineInputBorder(
-                                          borderRadius:
-                                          BorderRadius.circular(4),
-                                          borderSide: BorderSide(
-                                              color: Colors.grey.shade300)),
-                                      enabledBorder: OutlineInputBorder(
-                                          borderRadius:
-                                          BorderRadius.circular(4),
-                                          borderSide: BorderSide(
-                                              color: Colors.grey.shade300)),
-                                      focusedBorder: OutlineInputBorder(
-                                          borderRadius:
-                                          BorderRadius.circular(4),
-                                          borderSide: const BorderSide(
-                                              color:
-                                              AppColors.orangeColor)),
-                                    ),
-                                    onChanged: (v) =>
-                                        controller.updateMeasurementReading(
-                                            index, 'afterReading', v),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  );
-                },
-              )),
-            ),
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: CustButton(
-                  name: "Save Changes",
-                  size: 150,
-                  onSelected: (_) => Get.back(),
-                ),
-              ),
-            ),
-          ],
-        ),
+  // ── Measurement Reading (inline, card per measurement point) ─────────────
+
+  Widget _measurementCard({required String point, required String description, required List<Widget> body}) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.white1,
+        borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+        border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.black.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CustText.detailLabel("Measurement Point"),
+          const SizedBox(height: 2),
+          CustText.detailValue(point),
+          const SizedBox(height: 8),
+          CustText.detailLabel("Measurement Description"),
+          const SizedBox(height: 2),
+          CustText.detailValue(description.isEmpty ? '-' : description),
+          const SizedBox(height: 12),
+          const Divider(color: AppColors.dividerColor3, height: 1),
+          const SizedBox(height: 12),
+          ...body,
+        ],
       ),
     );
+  }
+
+  Widget _measurementInfo(String label, String value) => Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustText.detailLabel(label),
+            const SizedBox(height: 2),
+            CustText.detailValue(value.isEmpty ? '-' : value),
+          ],
+        ),
+      );
+
+  Widget _measurementReadingField(int index, String field, String label, bool editable) {
+    final item = controller.measurementPointsList[index];
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CustText.detailLabel(label),
+          const SizedBox(height: 6),
+          TextFormField(
+            key: ValueKey('meas_${item['measId']}_$field'),
+            initialValue: item[field]?.toString(),
+            enabled: editable,
+            keyboardType:
+                const TextInputType.numberWithOptions(decimal: true, signed: true),
+            decoration: InputDecoration(
+              hintText: "0",
+              isDense: true,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: BorderSide(color: Colors.grey.shade300)),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: BorderSide(color: Colors.grey.shade300)),
+              disabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: BorderSide(color: Colors.grey.shade300)),
+              focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(4),
+                  borderSide: const BorderSide(color: AppColors.orangeColor)),
+            ),
+            onChanged: (v) => controller.updateMeasurementReading(index, field, v),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The measurement points chosen for the failure, one card each: unit and range
+  /// limits, and the before / after readings. Only the readings can be edited
+  /// (Junior Engineer); everyone else sees them read-only.
+  Widget _buildMeasurementReadings({required bool editable}) {
+    return Obx(() {
+      final rows = controller.measurementPointsList;
+      return Column(
+        children: [
+          for (var i = 0; i < rows.length; i++)
+            _measurementCard(
+              point: '${rows[i]['measPoint']}',
+              description: '${rows[i]['measPointDesc']}',
+              body: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _measurementInfo("Unit Of Measurement", '${rows[i]['unitOfMeasurement']}'),
+                    _measurementInfo("Lower Range Limit", '${rows[i]['lowerRangeLimit']}'),
+                    _measurementInfo("Upper Range Limit", '${rows[i]['upperRangeLimit']}'),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _measurementReadingField(i, 'beforeReading', "Before Readings", editable),
+                    const SizedBox(width: 12),
+                    _measurementReadingField(i, 'afterReading', "After Readings", editable),
+                  ],
+                ),
+              ],
+            ),
+        ],
+      );
+    });
+  }
+
+  /// Section Incharge: the measurement points of the functional location, one
+  /// card each with an "Is Reading Req" checkbox. The ticked ones are sent as
+  /// MeasurementPointIds when the failure is saved.
+  Widget _buildSiMeasurementSelection({required bool editable}) {
+    return Obx(() {
+      final rows = controller.siMeasurementRows;
+      return Column(
+        children: [
+          for (var i = 0; i < rows.length; i++)
+            _measurementCard(
+              point: '${rows[i]['measPoint']}',
+              description: '${rows[i]['measPointDesc']}',
+              body: [
+                Row(
+                  children: [
+                    Checkbox(
+                      value: rows[i]['checked'] == true,
+                      onChanged: editable
+                          ? (v) => controller.toggleSiMeasurement(i, v ?? false)
+                          : null,
+                    ),
+                    Expanded(child: CustText.detailValue("Is Reading Req")),
+                  ],
+                ),
+              ],
+            ),
+        ],
+      );
+    });
   }
 
   void _showActionByDialog() {
@@ -1152,10 +1139,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   )),
                   const SizedBox(height: AppConstants.elementSpacing),
                   Obx(() {
-                    debugPrint(
+                    failureLog(
                         "Station form: departmentId = ${controller.departmentId.value}");
                     if (controller.departmentId.value == 3) {
-                      debugPrint(
+                      failureLog(
                           "Station form: Showing department-specific fields for departmentId 3");
                       return Column(
                         children: [
@@ -1744,17 +1731,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   },
                 )),
                 const SizedBox(height: AppConstants.elementSpacing),
-                if (!_isExistingMaintenance ||
-                    _maintenanceStatusId == 1 ||
-                    _maintenanceStatusId == 202)
-                  CustomTextField(
-                    label: "Failure Description",
-                    controller: controller.failureDescriptionController,
-                    hintText: "Enter failure description",
-                    maxLines: 4,
-                    maxLength: 500,
-                    enabled: _maintenanceOpenOr202Editable,
-                  ),
+                // Always shown: editable while the failure can be edited (new,
+                // status 1 or 202), read-only once it was assigned or later.
+                CustomTextField(
+                  label: "Failure Description",
+                  controller: controller.failureDescriptionController,
+                  hintText: "Enter failure description",
+                  maxLines: 4,
+                  maxLength: 500,
+                  enabled: _maintenanceOpenOr202Editable,
+                ),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(
                   label: "Notification Type *",
@@ -1793,7 +1779,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         .where((e) => e.trim().isNotEmpty)
                         .toList();
 
-                    debugPrint(
+                    failureLog(
                         "Maintenance Nature of Work count = ${natureOfWorkItems.length}");
                     return Column(
                       children: [
@@ -2652,6 +2638,35 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 ),
               );
             }),
+          // Section Incharge: measurement points. While the failure can be
+          // edited the points of the functional location are ticked here; after
+          // that the chosen ones are shown with the readings the JE entered.
+          if (controller.isSectionIncharge)
+            Obx(() {
+              controller.functionalLocationList.length;
+              WidgetsBinding.instance.addPostFrameCallback(
+                  (_) => controller.refreshSiMeasurementAvailability());
+              final canEdit = !_isExistingMaintenance ||
+                  _maintenanceStatusId == 1 ||
+                  _maintenanceStatusId == 202;
+              if (canEdit) {
+                if ((controller.selectedFunctionalLocation.value ?? '').isEmpty ||
+                    !controller.siHasMeasurement.value) {
+                  return const SizedBox.shrink();
+                }
+                return CustSection(
+                  title: "Measurement Reading",
+                  child: _buildSiMeasurementSelection(editable: true),
+                );
+              }
+              if (controller.measurementPointsList.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              return CustSection(
+                title: "Measurement Reading",
+                child: _buildMeasurementReadings(editable: false),
+              );
+            }),
           Padding(
             padding: const EdgeInsets.all(AppConstants.screenPadding),
             child: Row(
@@ -3035,7 +3050,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                   controller.isJE &&
                                   !_isJointInspectionFlow,
                               onChanged: (value) {
-                                debugPrint(
+                                failureLog(
                                     'JE view: onFunctionalLocationChanged called with value: $value');
                                 controller
                                     .onFunctionalLocationChanged(value);
@@ -3154,7 +3169,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     if (!_isJointInspectionFlow) ...[
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() {
-                        debugPrint(
+                        failureLog(
                             "JE form: notificationTypeList count = ${controller.notificationTypeList.length}");
                         return CustDropdown(
                             label: 'Notification Type *',
@@ -3188,10 +3203,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
                       Obx(() {
-                        debugPrint(
+                        failureLog(
                             "JE form: departmentId = ${controller.departmentId.value}");
                         if (controller.departmentId.value == 3) {
-                          debugPrint(
+                          failureLog(
                               "JE form: Showing department-specific fields for departmentId 3");
                           return Column(
                             children: [
@@ -3585,9 +3600,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 CustDropdown(
                   label: "Failure Type *",
                   hint: "Select Failure Type",
-                  items: controller.corrFailureTypeList
-                      .map((e) => e.label ?? '')
-                      .toList(),
+                  // The bundled failure type list can be empty: the four types
+                  // the server knows (Software, Hardware, Communication, Other).
+                  items: controller.corrFailureTypeList.isNotEmpty
+                      ? controller.corrFailureTypeList
+                          .map((e) => e.label ?? '')
+                          .toList()
+                      : controller.materialTypeList,
                   selectedValue: controller.selectedMaterialType.value,
                   enabled: !controller.isFormDisabled &&
                       (controller.isJE || controller.isTechnician),
@@ -3602,6 +3621,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   onChanged: (v) {
                     if (controller.isFormDisabled) return;
                     controller.selectedMaterialType.value = v!;
+                    if (controller.isJE && v != "Hardware") {
+                      // The section is hidden: nothing of it is sent.
+                      controller.isMaterialDismantle.value = false;
+                      controller.dismantleMaterialsList.clear();
+                    }
                   },
                 ),
                 if (controller.selectedMaterialType.value == "Other") ...[
@@ -3647,8 +3671,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             );
           }),
           Obx(() {
+            // A Junior Engineer sees Material Dismantle only for Hardware.
             if (controller.selectedMaterialType.value != "Hardware" &&
-                controller.replacedMaterialsList.isEmpty) {
+                (controller.isJE || controller.replacedMaterialsList.isEmpty)) {
               return const SizedBox.shrink();
             }
 
@@ -3700,14 +3725,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 () => controller.showMeasurementButton.value
                 ? CustSection(
               title: "Measurement Reading",
-              child: Align(
-                alignment: Alignment.centerRight,
-                child: CustButton(
-                  name: "Measurement Reading",
-                  fontSize: AppConstants.buttonFontSize,
-                  size: 200,
-                  onSelected: (_) => _showMeasurementDialog(),
-                ),
+              child: _buildMeasurementReadings(
+                editable: controller.isJE &&
+                    !controller.isFormDisabled &&
+                    !_isJointInspectionFlow,
               ),
             )
                 : const SizedBox.shrink(),
@@ -3906,10 +3927,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               : null,
                           onChanged: (v) {
                             if (controller.isFormDisabled) return;
-                            debugPrint("Selected User Status = $v");
-                            debugPrint(
+                            failureLog("Selected User Status = $v");
+                            failureLog(
                                 "Main Status = ${controller.mainStatusName.value}");
-                            debugPrint(
+                            failureLog(
                                 "Blocked = ${controller.isCloseUserStatusBlocked}");
 
                             if (controller.isCloseUserStatusBlocked &&
@@ -4626,7 +4647,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     FocusScope.of(context).unfocus();
     final errors = controller.occUpdateValidate(kind);
     if (errors.isNotEmpty) {
-      Get.snackbar(
+      FailureToast.show(
         'Validation Error',
         errors.first,
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6347,8 +6368,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           });
                         }
                       } catch (e) {
-                        debugPrint("Error picking image: $e");
-                        Get.snackbar("Error",
+                        failureLog("Error picking image: $e");
+                        FailureToast.show("Error",
                             "Could not capture photo. Please check camera permissions.");
                       }
                     },
@@ -6372,8 +6393,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           }
                         }
                       } catch (e) {
-                        debugPrint("Error picking file: $e");
-                        Get.snackbar("Error", "Could not pick file.");
+                        failureLog("Error picking file: $e");
+                        FailureToast.show("Error", "Could not pick file.");
                       }
                     },
                   ),
@@ -6527,7 +6548,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     if (_jointInspectionOherDeptFormKey.currentState?.validate() ?? false) {
       controller.submitJointInspection();
     } else {
-      Get.snackbar(
+      FailureToast.show(
         AppStrings.validationError,
         "Please fill all compulsory fields marked with *",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6541,7 +6562,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   Future<void> _submitOccCreateAndClose() async {
     FocusScope.of(context).unfocus();
     if (!_validateForm(_occFormKey)) {
-      Get.snackbar(
+      FailureToast.show(
         AppStrings.validationError,
         "Please fill all compulsory fields marked with *",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6575,7 +6596,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             .any((rca) => (rca['isNew'] ?? true) == true);
 
         if (!hasExistingRca && !hasNewRca) {
-          Get.snackbar(
+          FailureToast.show(
             AppStrings.validationError,
             "At least one RCA detail is required.",
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -6587,8 +6608,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       }
       controller.submitFailure(isCreate: widget.failureNo == null);
     } else {
-      debugPrint("this error");
-      Get.snackbar(
+      failureLog("this error");
+      FailureToast.show(
         AppStrings.validationError,
         "Please fill all compulsory fields marked with *",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -7217,8 +7238,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   onChanged: (v) {
                     if (controller.isFormDisabled) return;
-                    controller.selectedMaterialCode.value = v;
-                    controller.uomController.text = "NO";
+                    controller.onSpareMaterialSelected(v);
                     // Unfocus all used qty fields
                     for (final focusNode
                     in controller.usedQtyFocusNodes.values) {
@@ -7425,7 +7445,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 ['usedQty'] = "";
                                 ctrl.clear();
                                 // Show snackbar
-                                Get.snackbar(
+                                FailureToast.show(
                                   'Invalid Quantity',
                                   'Used Quantity cannot be greater than Required Quantity.',
                                   snackPosition: SnackPosition.BOTTOM,
@@ -7749,7 +7769,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         child: CustDropdown(
                           label: "Department *",
                           hint: "Select...",
-                          items: controller.jointInspectionDepartments
+                          items: controller.jointInspectionDepartmentOptions
                               .map((e) => e.label ?? '')
                               .toList(),
                           selectedValue: controller.selectedJointDept.value,
@@ -7763,7 +7783,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             controller.selectedJointAssignTo.value = null;
                             controller.jointUserList.clear();
                             if (v != null) {
-                              final dept = controller.jointInspectionDepartments
+                              final dept = controller.jointInspectionDepartmentOptions
                                   .firstWhere(
                                     (e) => e.label == v,
                                 orElse: () => LabelValue(value: "0"),

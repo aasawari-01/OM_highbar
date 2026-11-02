@@ -254,7 +254,8 @@ class FailureItem {
         creationType: 'station',
         priority: json['priority'] as String?,
         departmentName: json['departmentName'] as String?,
-        remarks: json['failureRectificationDetails'] as String?,
+        remarks: json['pendingError'] as String? ??
+            json['failureRectificationDetails'] as String?,
         subLocation: json['subLocation'] as String?,
         trainId: json['trainId']?.toString(),
         system: json['system'] as String?,
@@ -307,6 +308,7 @@ class FailureItem {
         syncStatus: json['syncStatus'] as String?,
         lastSyncedAt: json['lastSyncedAt'] as String?,
         createdDate: json['createdDate'] as String?,
+        pendingAction: json['pendingAction'] as String?,
       );
     }
 

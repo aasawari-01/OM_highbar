@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:get/get.dart';
@@ -11,10 +13,12 @@ import '../feature/failure/service/failure_service.dart';
 import '../feature/failure/controller/failure_list_controller.dart';
 import '../core/controller/global_master_data_controller.dart';
 import '../core/controller/session_controller.dart';
+import '../core/models/master_data_response.dart';
 import 'local_database_service.dart';
 import 'network_service/network_errors.dart';
 import '../feature/failure/service/si_offline_service.dart';
 import '../feature/failure/service/je_offline_service.dart';
+import '../feature/failure/service/depot_offline_service.dart';
 import '../feature/failure/service/station_overlay.dart';
 import '../service/auth_manager.dart';
 import 'network_service/app_urls.dart';
@@ -180,6 +184,8 @@ class MasterDataSyncService extends GetxController {
         await _dbService.clearStationFailureCache();
         await _dbService.clearSiFailureCache();
         await _dbService.clearJeFailureCache();
+        await _dbService.clearJeJointCache();
+        await _dbService.clearDepotFailureCache();
         await _dbService.setAppSetting(lastSyncKey, '');
         await _dbService.setAppSetting(userKey, userId);
       }
@@ -194,10 +200,14 @@ class MasterDataSyncService extends GetxController {
         await _dbService.upsertStationFailureCache(res.stationRecords);
         await _dbService.upsertSiFailureCache(res.siRecords);
         await _dbService.upsertJeFailureCache(res.jeRecords);
+        await _dbService.upsertJeJointCache(res.jiRecords);
+        await _dbService.upsertDepotFailureCache(res.depotRecords);
       } else {
         await _dbService.replaceStationFailureCache(res.stationRecords);
         await _dbService.replaceSiFailureCache(res.siRecords);
         await _dbService.replaceJeFailureCache(res.jeRecords);
+        await _dbService.replaceJeJointCache(res.jiRecords);
+        await _dbService.replaceDepotFailureCache(res.depotRecords);
       }
       if (!incremental) await _dbService.setAppSetting(_fullSyncNeededKey, '');
       final downloaded = DateTime.tryParse(res.downloadedAt ?? '')?.toUtc();
@@ -206,7 +216,8 @@ class MasterDataSyncService extends GetxController {
           DateFormat('yyyy-MM-dd').format(downloaded ?? DateTime.now().toUtc()));
       debugPrint('syncFailureTransactions: ${incremental ? 'incremental' : 'full'} '
           'sync done, station=${res.stationRecords.length} '
-          'si=${res.siRecords.length} je=${res.jeRecords.length}');
+          'si=${res.siRecords.length} je=${res.jeRecords.length} '
+          'joint=${res.jiRecords.length} depot=${res.depotRecords.length}');
       return true;
     } catch (e) {
       debugPrint('syncFailureTransactions: failed, keeping the local copy: $e');
@@ -223,202 +234,110 @@ class MasterDataSyncService extends GetxController {
   }
 
   /// Syncs master data from API using lastSyncDate to get only changed data
-  Future<void> syncMasterDataFromAPI() async {
-    debugPrint("syncMasterDataFromAPI: STARTING");
-    await _executeSyncTask('Syncing master data from server...', () async {
-      debugPrint("syncMasterDataFromAPI: Inside sync task");
-      try {
-      final userId = await AuthManager().getUserId() ?? 1;
-      final lastSyncDate = await _getLastSyncDate();
-      
-      final apiUrl = '${AppUrls.baseUrl}${AppUrls.getMasterData}';
-      
-      final requestBody = {
-        "userId": userId,
-        "action": "",
-        "pageNumber": 0,
-        "pageSize": 0,
-        "lastSyncDate": lastSyncDate,
-        "syncType": "all"
-      };
-      
-      debugPrint("syncMasterDataFromAPI: Calling API with lastSyncDate: $lastSyncDate");
-      debugPrint("syncMasterDataFromAPI: API URL: $apiUrl");
-      debugPrint("syncMasterDataFromAPI: Request body: ${jsonEncode(requestBody)}");
-      
-      // Total steps: API call + 6 data types = 7 steps
-      final totalSteps = 7;
-      int completedSteps = 0;
-      
-      // Update status before API call
-      completedSteps++;
-      final percentage = ((completedSteps / totalSteps) * 100).toInt();
-      syncStatus.value = 'Connecting to server... $percentage%';
-      EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-      debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-      
-      final response = await http.post(
-        Uri.parse(apiUrl),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(requestBody),
-      ).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          debugPrint("syncMasterDataFromAPI: API call timed out after 30 seconds");
-          throw Exception('API request timed out');
-        },
-      );
-      
-      debugPrint("syncMasterDataFromAPI: Response status: ${response.statusCode}");
-      
-      if (response.statusCode == 200) {
-        final responseData = jsonDecode(response.body);
-        debugPrint("syncMasterDataFromAPI: Response data: $responseData");
-        
-        if (responseData['success'] == true) {
-          final data = responseData['data'];
-          int totalUpdates = 0;
-          
-          debugPrint("syncMasterDataFromAPI: Starting to sync data types");
-          
-          // Sync functional locations
-          if (data['functionalLocations'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing functional locations... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final funcLocs = data['functionalLocations'] as List;
-            await _dbService.updateFunctionalLocationsFromAPI(funcLocs);
-            // Same table the failure-form dropdowns read from.
-            await _dbService.upsertFunctionalLocationsToMaster(funcLocs,
-                onProgress: (done, total) {
-              syncStatus.value = 'Syncing functional locations... $done/$total';
-              EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
-                  status: syncStatus.value,
-                  maskType: EasyLoadingMaskType.none);
-            });
-            totalUpdates += funcLocs.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${funcLocs.length} functional locations");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No functional locations to sync");
-          }
+  // The version of the master data on this device. MasterDataLogin (a null
+  // version) downloads everything and returns it; getMasterDataSync with it
+  // returns only what changed after it.
+  static const String _rowVersionKey = 'masterDataRowVersion';
+  static const String _deviceIdKey = 'masterDataDeviceId';
 
-          // Sync equipment (dropdown table)
-          if (data['equipments'] != null) {
-            final equipments = data['equipments'] as List;
-            await _dbService.upsertEquipmentsToMaster(equipments,
-                onProgress: (done, total) {
-              syncStatus.value = 'Syncing equipment... $done/$total';
-              EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
-                  status: syncStatus.value,
-                  maskType: EasyLoadingMaskType.none);
-            });
-            totalUpdates += equipments.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${equipments.length} equipments");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No equipments to sync");
+  Future<String> _masterDeviceId() async {
+    var id = await _dbService.getAppSetting(_deviceIdKey);
+    if (id == null || id.isEmpty) {
+      final r = Random.secure();
+      id = 'DEV-${List.generate(8, (_) => r.nextInt(16).toRadixString(16)).join().toUpperCase()}';
+      await _dbService.setAppSetting(_deviceIdKey, id);
+    }
+    return id;
+  }
+
+  /// One call of MasterDataLogin ([login], rowVersion null) or getMasterDataSync.
+  Future<MasterDataResponse> _callMasterData(
+      {required bool login, int? rowVersion}) async {
+    final userId = int.tryParse(await AuthManager().getUserId() ?? '') ?? 0;
+    final body = {
+      'userId': userId,
+      'deviceId': await _masterDeviceId(),
+      'rowVersion': login ? null : rowVersion,
+      'appVersion': '1.0.0',
+    };
+    final token = await AuthManager().getToken();
+    final url =
+        '${AppUrls.baseUrl}${login ? AppUrls.masterDataLogin : AppUrls.masterDataSync}';
+    debugPrint('syncMasterDataFromAPI: POST $url body=${jsonEncode(body)}');
+    final response = await http
+        .post(
+          Uri.parse(url),
+          headers: {
+            'Content-Type': 'application/json',
+            if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+          },
+          body: jsonEncode(body),
+        )
+        .timeout(const Duration(seconds: 120));
+    debugPrint('syncMasterDataFromAPI: status ${response.statusCode}, '
+        '${response.body.length} characters');
+    if (response.statusCode != 200) {
+      throw Exception('Master data: server error ${response.statusCode}');
+    }
+    // A full download is several MB: decode it off the UI thread.
+    final json = await compute(_decodeJsonMap, response.body);
+    return MasterDataResponse.fromJson(json);
+  }
+
+  /// Master data of the server. At login ([isLogin]) it downloads everything
+  /// (MasterDataLogin, version null) and keeps the version it returns; the sync
+  /// button asks only for the changes after the kept version (getMasterDataSync).
+  Future<void> syncMasterDataFromAPI({bool isLogin = false}) async {
+    debugPrint("syncMasterDataFromAPI: STARTING (login=$isLogin)");
+    // Bundled depots for the DCC picker are taken in at login, before the server
+    // is asked, so they are there even when the sync cannot run.
+    await _dbService.ensureDepotMaster();
+    await _executeSyncTask('Syncing master data from server...', () async {
+      try {
+        var stored = int.tryParse(await _dbService.getAppSetting(_rowVersionKey) ?? '');
+        // No version kept yet (first run, or this app version never synced): full.
+        var login = isLogin || stored == null;
+        var askedFull = false;
+        var pages = 0;
+        var totalUpdates = 0;
+
+        while (true) {
+          EasyLoading.showProgress(0.05,
+              status: 'Connecting to server...', maskType: EasyLoadingMaskType.none);
+          final res = await _callMasterData(login: login, rowVersion: stored);
+          if (!res.success) {
+            syncStatus.value = 'Sync failed: ${res.message}';
+            EasyLoading.showError(syncStatus.value);
+            return;
           }
-          
-          // Sync measurement points
-          if (data['measurementPoints'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing measurement points... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final measPoints = data['measurementPoints'] as List;
-            await _dbService.updateMeasurementPointsFromAPI(measPoints);
-            totalUpdates += measPoints.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${measPoints.length} measurement points");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No measurement points to sync");
+          if (res.needFullResync && !login && !askedFull) {
+            // The server cannot give the changes after our version: start over.
+            askedFull = true;
+            login = true;
+            stored = null;
+            continue;
           }
-          
-          // Sync locations
-          if (data['locations'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing locations... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final locations = data['locations'] as List;
-            await _dbService.updateLocationsFromAPI(locations);
-            totalUpdates += locations.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${locations.length} locations");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No locations to sync");
+          if (res.isChanged || login) {
+            totalUpdates += await _applyMasterData(res);
           }
-          
-          // Sync users
-          if (data['users'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing users... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final users = data['users'] as List;
-            // Users are saved in UserMaster.db, the table they are read from.
-            // (The old insert into the small MasterUsers table has columns it
-            // does not have and failed the whole sync.)
-            await _dbService.upsertUsersToMaster(users);
-            totalUpdates += users.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${users.length} users");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No users to sync");
+          if (res.rowVersion != null) {
+            stored = res.rowVersion;
+            await _dbService.setAppSetting(_rowVersionKey, '${res.rowVersion}');
           }
-          
-          // Sync materials
-          if (data['materials'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing materials... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final materials = data['materials'] as List;
-            await _dbService.updateMaterialsFromAPI(materials);
-            totalUpdates += materials.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${materials.length} materials");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No materials to sync");
-          }
-          
-          // Sync priorities
-          if (data['priorities'] != null) {
-            completedSteps++;
-            final percentage = ((completedSteps / totalSteps) * 100).toInt();
-            syncStatus.value = 'Syncing priorities... $percentage%';
-            EasyLoading.showProgress(percentage / 100.0, status: syncStatus.value, maskType: EasyLoadingMaskType.none);
-            debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-            final priorities = data['priorities'] as List;
-            await _dbService.updatePrioritiesFromAPI(priorities);
-            totalUpdates += priorities.length;
-            debugPrint("syncMasterDataFromAPI: Updated ${priorities.length} priorities");
-          } else {
-            debugPrint("syncMasterDataFromAPI: No priorities to sync");
-          }
-          
-          debugPrint("syncMasterDataFromAPI: Updating last sync date");
-          // Update last sync date
-          await _setLastSyncDate(DateTime.now().toIso8601String().split('T')[0]);
-          
-          debugPrint("syncMasterDataFromAPI: Reloading master data controller");
-          // Reload master data controller
-          await Get.find<GlobalMasterDataController>().reloadMasterData();
-          
-          syncStatus.value = 'Synced $totalUpdates records from server';
-          debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-          EasyLoading.showSuccess('Successfully synced $totalUpdates records');
-        } else {
-          syncStatus.value = 'Sync failed: ${responseData['message']}';
-          debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-          EasyLoading.showError(syncStatus.value);
+          pages++;
+          if (!res.hasMore || pages >= 50) break;
+          login = false; // the next pages: after the version just received
         }
-      } else {
-        syncStatus.value = 'Sync failed: ${response.reasonPhrase}';
-        debugPrint("syncMasterDataFromAPI: ${syncStatus.value}");
-        EasyLoading.showError(syncStatus.value);
-      }
+
+        // Reload master data controller
+        await Get.find<GlobalMasterDataController>().reloadMasterData();
+        syncStatus.value = totalUpdates == 0
+            ? 'Master data is up to date'
+            : 'Synced $totalUpdates records from server';
+        debugPrint("syncMasterDataFromAPI: ${syncStatus.value}, rowVersion=$stored");
+        EasyLoading.showSuccess(totalUpdates == 0
+            ? 'Master data is up to date'
+            : 'Successfully synced $totalUpdates records');
       } catch (e) {
         // Never leave the progress popup on screen when the sync fails.
         debugPrint("syncMasterDataFromAPI: failed: $e");
@@ -429,30 +348,85 @@ class MasterDataSyncService extends GetxController {
     debugPrint("syncMasterDataFromAPI: FINISHED");
   }
 
-  Future<String> _getLastSyncDate() async {
-    final db = await _dbService.database;
-    final result = await db.rawQuery(
-      "SELECT value FROM AppSettings WHERE key = 'lastSyncDate'"
-    );
-    if (await _dbService.getAppSetting('usersMasterBackfillV1') != 'done') {
-      await _dbService.setAppSetting('usersMasterBackfillV1', 'done');
-      return await _dbService.getMasterBaselineDate() ?? '2026-08-01';
-    }
-    if (result.isNotEmpty) {
-      final saved = result.first['value']?.toString();
-      if (saved != null && saved.isNotEmpty) return saved;
-    }
-    // First sync: start from the date of the data bundled in the asset
-    // databases so nothing changed after the export is missed.
-    return await _dbService.getMasterBaselineDate() ?? '2026-08-01';
-  }
+  /// Writes the lists of one response into the local master tables; returns
+  /// how many rows it handled. A list that fails does not stop the others.
+  Future<int> _applyMasterData(MasterDataResponse res) async {
+    var total = 0;
+    final steps = <String, Future<void> Function(List<dynamic>)>{
+      MasterDataResponse.functionalLocations: (rows) async {
+        await _dbService.updateFunctionalLocationsFromAPI(rows);
+        // Same table the failure-form dropdowns read from.
+        await _dbService.upsertFunctionalLocationsToMaster(rows,
+            onProgress: (done, total) {
+          syncStatus.value = 'Syncing functional locations... $done/$total';
+          EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
+              status: syncStatus.value, maskType: EasyLoadingMaskType.none);
+        });
+      },
+      MasterDataResponse.equipments: (rows) =>
+          _dbService.upsertEquipmentsToMaster(rows, onProgress: (done, total) {
+            syncStatus.value = 'Syncing equipment... $done/$total';
+            EasyLoading.showProgress(total == 0 ? 1.0 : done / total,
+                status: syncStatus.value, maskType: EasyLoadingMaskType.none);
+          }),
+      MasterDataResponse.measurementPoints: _dbService.updateMeasurementPointsFromAPI,
+      MasterDataResponse.locations: _dbService.updateLocationsFromAPI,
+      MasterDataResponse.materials: _dbService.updateMaterialsFromAPI,
+      MasterDataResponse.priorities: _dbService.updatePrioritiesFromAPI,
+      MasterDataResponse.departments: _dbService.upsertDepartmentsToMaster,
+      MasterDataResponse.plants: _dbService.upsertPlantsToMaster,
+      MasterDataResponse.notificationTypes: _dbService.upsertNotificationTypesToMaster,
+      MasterDataResponse.failureCategories: _dbService.upsertFailureCategoryTypesToMaster,
+      MasterDataResponse.newFailureCategories: _dbService.upsertRcaCategoriesToMaster,
+      MasterDataResponse.newCausesOfFailure: _dbService.upsertRcaCausesToMaster,
+      MasterDataResponse.newRootCauses: _dbService.upsertRcaRootCausesToMaster,
+      MasterDataResponse.actionMasters: _dbService.upsertActionMastersToMaster,
+    };
 
-  Future<void> _setLastSyncDate(String date) async {
-    final db = await _dbService.database;
-    await db.rawInsert(
-      "INSERT OR REPLACE INTO AppSettings (key, value) VALUES ('lastSyncDate', ?)",
-      [date]
-    );
+    final todo = [
+      for (final e in steps.entries)
+        if (res.list(e.key).isNotEmpty) e.key,
+      if (res.users.isNotEmpty) 'users',
+      if (res.userChanges.isNotEmpty) 'userChanges',
+    ];
+    var done = 0;
+    for (final name in todo) {
+      final rows = name == 'users'
+          ? res.users
+          : (name == 'userChanges' ? res.userChanges : res.list(name));
+      // What arrived: the count and the first row of each list.
+      final sample = jsonEncode(rows.first);
+      debugPrint('syncMasterDataFromAPI: received $name: ${rows.length} rows, '
+          'first = ${sample.length > 300 ? '${sample.substring(0, 300)}...' : sample}');
+      syncStatus.value = 'Syncing $name...';
+      EasyLoading.showProgress((done + 1) / (todo.length + 1),
+          status: syncStatus.value, maskType: EasyLoadingMaskType.none);
+      try {
+        if (name == 'users') {
+          // Users are saved in UserMaster.db, the table they are read from.
+          await _dbService.upsertUsersToMaster(rows);
+        } else if (name == 'userChanges') {
+          await _dbService.applyUserChanges(rows);
+        } else {
+          await steps[name]!(rows);
+        }
+        total += rows.length;
+        debugPrint('syncMasterDataFromAPI: $name: ${rows.length} rows');
+      } catch (e) {
+        debugPrint('syncMasterDataFromAPI: $name failed: $e');
+      }
+      done++;
+    }
+    // The rights of the users changed: the logged-in user's roles / departments.
+    if ((res.users.isNotEmpty || res.userChanges.isNotEmpty) &&
+        Get.isRegistered<SessionController>()) {
+      try {
+        await Get.find<SessionController>().refreshRoleDeptFromLocal();
+      } catch (e) {
+        debugPrint('syncMasterDataFromAPI: roles / departments refresh: $e');
+      }
+    }
+    return total;
   }
 
   Future<String?> _getStationFailureLastSyncDate() async {
@@ -549,9 +523,16 @@ class MasterDataSyncService extends GetxController {
       var resync = false; // a queued action was dropped: reload the server state
       final siOffline = SiOfflineService(failureService: _failureService);
       final jeOffline = JeOfflineService(failureService: _failureService);
+      final depotOffline = DepotOfflineService(failureService: _failureService);
+      var depotSynced = 0; // DCC depot failures: sent and failed
+      var depotFailed = 0;
+      final depotNumbers = <String>[];
       final syncedNumbers = <String>[]; // real failure numbers of Station failures
       var stationSynced = 0;
       var stationFailed = 0;
+      var ackSynced = 0; // Station Controller Acknowledge: sent and failed
+      var ackFailed = 0;
+      final ackNumbers = <String>[];
       var siSynced = 0; // Section Incharge: sent and failed
       var siFailed = 0;
       final siCreatedNumbers = <String>[];
@@ -599,6 +580,63 @@ class MasterDataSyncService extends GetxController {
                 DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
             stationFailed++;
             debugPrint('syncPendingSubmissions: station failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
+        // Station Controller: Acknowledge (Accept / Deny) saved offline.
+        if (submission['failureType'] == 'StationAck') {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+
+          Future<void> failIt(String reason) async {
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            _retryAfter[sid] = DateTime.now()
+                .add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            ackFailed++;
+            debugPrint('syncPendingSubmissions: acknowledge $sid failed ($n): $reason');
+          }
+
+          try {
+            final status = payload['submitStatus']?.toString();
+            final response = await _failureService
+                .updateStationAcknowledgeStatus(
+                  id: int.tryParse('${payload['id']}') ?? 0,
+                  action: 'UPDATE_Acknowledge_OCC_Station',
+                  description: payload['remark']?.toString() ?? '',
+                  statusId: status == 'deny' ? 198 : (status == 'accept' ? 197 : 202),
+                  createdBy: int.tryParse(me) ?? 0,
+                  createdByName: (await AuthManager().getFullName()) ?? '',
+                )
+                .timeout(const Duration(seconds: 60));
+            final ok = response['responseCode'] == 200 ||
+                '${response['responseMessage']}'.toLowerCase() == 'success';
+            if (ok) {
+              await _dbService.deletePendingSubmission(sid);
+              _retryAfter.remove(sid);
+              syncedCount++;
+              ackSynced++;
+              final no = payload['failureNo']?.toString() ?? '';
+              if (no.isNotEmpty) ackNumbers.add(no);
+            } else {
+              await failIt('${response['responseMessage'] ?? 'The server did not accept it'}');
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break;
+            }
+            await failIt(e.toString().replaceFirst('Exception: ', ''));
           }
           continue;
         }
@@ -668,6 +706,48 @@ class MasterDataSyncService extends GetxController {
           continue;
         }
 
+        // DCC Depot failure created offline.
+        if (submission['failureType'] == DepotOfflineService.queueType) {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+          try {
+            final no = await depotOffline
+                .replay(payload)
+                .timeout(const Duration(seconds: 90));
+            await _dbService.deletePendingSubmission(sid);
+            // The real failure comes back with the next list sync.
+            await _dbService.deleteDepotOfflineEntries(sid);
+            _retryAfter.remove(sid);
+            syncedCount++;
+            depotSynced++;
+            if ((no ?? '').trim().isNotEmpty) depotNumbers.add(no!.trim());
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break; // still offline: the rest waits
+            }
+            // The server answered with an error: keep it, show why.
+            final reason = e.toString().replaceFirst('Exception: ', '');
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            await _dbService.markDepotOfflineEntries(sid, failed: true, error: reason);
+            _retryAfter[sid] =
+                DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            depotFailed++;
+            debugPrint('syncPendingSubmissions: depot failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
         final isJe = submission['failureType'] == JeOfflineService.queueType;
         if (isJe) {
           // Section Incharge actions (assign, close, update, create, ...)
@@ -679,7 +759,9 @@ class MasterDataSyncService extends GetxController {
           Future<void> dropIt(String reason) async {
             debugPrint('syncPendingSubmissions: giving up $action ($reason)');
             await _dbService.deletePendingSubmission(sid);
-            if (nid > 0) {
+            if (nid > 0 && action == 'jiSubmit') {
+              await _dbService.deleteJeJoint(nid);
+            } else if (nid > 0 && action != 'jiAdd') {
               isJe
                   ? await _dbService.clearJeFailurePending(nid)
                   : await _dbService.clearSiFailurePending(nid);
@@ -705,7 +787,9 @@ class MasterDataSyncService extends GetxController {
                 .timeout(const Duration(seconds: 90));
             if (ok) {
               await _dbService.deletePendingSubmission(sid);
-              if (nid > 0) {
+              if (nid > 0 && action == 'jiSubmit') {
+                await _dbService.deleteJeJoint(nid);
+              } else if (nid > 0 && action != 'jiAdd') {
                 isJe
                     ? await _dbService.clearJeFailurePending(nid)
                     : await _dbService.clearSiFailurePending(nid);
@@ -753,6 +837,38 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
+      if (depotSynced > 0 || depotFailed > 0) {
+        final lines = <String>[
+          if (depotSynced > 0)
+            '$depotSynced offline depot failure${depotSynced == 1 ? '' : 's'} synced'
+                '${depotNumbers.isEmpty ? '' : ': ${depotNumbers.join(', ')}'}',
+          if (depotFailed > 0)
+            '$depotFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          depotFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: depotFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
+      if (ackSynced > 0 || ackFailed > 0) {
+        final lines = <String>[
+          if (ackSynced > 0)
+            '$ackSynced acknowledge${ackSynced == 1 ? '' : 's'} synced'
+                '${ackNumbers.isEmpty ? '' : ': ${ackNumbers.join(', ')}'}',
+          if (ackFailed > 0)
+            '$ackFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          ackFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: ackFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
       if (siSynced > 0 || siFailed > 0) {
         final lines = <String>[
           if (siCreatedNumbers.isNotEmpty)
@@ -770,22 +886,22 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
-      if (syncedCount > stationSynced + siSynced) {
+      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced) {
         Get.snackbar(
           'Sync Complete',
-          'Successfully synced ${syncedCount - stationSynced - siSynced} pending submissions',
+          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced} pending submissions',
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
       }
-      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0) {
+      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0) {
         debugPrint("syncPendingSubmissions: Reloading lists after offline submissions");
         // Bring the server's state of what was just sent (a dropped action gets a
         // full reload so its local change disappears).
         await syncFailureTransactions(forceAll: resync);
         // A list screen that is open shows the new state right away. (The lists
         // are registered by type and tag, so both are needed to find them.)
-        for (final tag in const ['Station', 'Maintenance', 'JE']) {
+        for (final tag in const ['Station', 'Maintenance', 'JE', 'Depot']) {
           try {
             if (Get.isRegistered<FailureListController>(tag: tag)) {
               await Get.find<FailureListController>(tag: tag).fetchFailures();
@@ -822,3 +938,6 @@ class MasterDataSyncService extends GetxController {
     }
   }
 }
+
+Map<String, dynamic> _decodeJsonMap(String body) =>
+    Map<String, dynamic>.from(jsonDecode(body) as Map);

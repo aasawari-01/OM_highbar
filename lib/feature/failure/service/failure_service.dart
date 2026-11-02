@@ -1,3 +1,4 @@
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
 import 'package:intl/intl.dart';
@@ -13,6 +14,8 @@ import '../../../service/network_service/app_urls.dart';
 import '../../../service/local_database_service.dart';
 import '../model/failure_detail_response.dart';
 import 'si_ids.dart';
+import 'je_overlay.dart';
+import 'si_normalize.dart';
 import '../model/joint_inspection_history.dart';
 import '../model/asset_qr_response.dart';
 
@@ -46,7 +49,7 @@ class FailureService {
       }
       return false;
     } catch (e) {
-      debugPrint('Error saving user station details: $e');
+      failureLog('Error saving user station details: $e');
       return false;
     }
   }
@@ -73,16 +76,34 @@ class FailureService {
   /// or has no model for it. [ids] are other ids of the same failure (numeric
   /// id, notification code) used to find the local copy.
   Future<FailureDetailResponse> getFailureDetails(String failureNo,
-      {List<String> ids = const []}) async {
+      {List<String> ids = const [], int deptId = 0}) async {
     final local = await _jeLocalDetails([failureNo, ...ids]);
     if (local != null && local.pending) return local.response;
     if (local == null) return _getFailureDetailsFromServer(failureNo);
+    // The list may carry only the numeric id; the details call needs the
+    // encrypted one, which the local copy knows once it was found.
+    var token = local.token;
+    final numeric = RegExp(r'^\d+$').hasMatch(failureNo.trim());
+    if (numeric && (token ?? '').isEmpty) {
+      // Not known yet: the inbox lists carry it. Failing here (no connection)
+      // just leaves the local copy.
+      try {
+        final nid = int.tryParse(failureNo.trim()) ?? 0;
+        token = await findJeEncryptedId(notificationId: nid, deptId: deptId);
+        if ((token ?? '').isNotEmpty) {
+          await LocalDatabaseService().setJeEncryptedId(nid, token!);
+        }
+      } catch (e) {
+        failureLog('JE details: encrypted id not found ($e)');
+      }
+    }
+    final serverId = numeric && (token ?? '').isNotEmpty ? token! : failureNo;
     try {
-      final r = await _getFailureDetailsFromServer(failureNo)
+      final r = await _getFailureDetailsFromServer(serverId)
           .timeout(const Duration(seconds: 20));
       if (r.responseOutput?.getCreateVMModel != null) return r;
     } catch (e) {
-      debugPrint('JE details: server not used ($e), using the local copy');
+      failureLog('JE details: server not used ($e), using the local copy');
     }
     return local.response;
   }
@@ -143,9 +164,37 @@ class FailureService {
     return best;
   }
 
+  /// The measurement points the Section Incharge chose for a Junior Engineer
+  /// failure: the stored copy from GetAllFailuresTransactionData, with the
+  /// readings the JE saved offline on top. Empty when the failure is not stored.
+  Future<List<Map<String, dynamic>>> jeMeasurementPoints(
+      {int? notificationId, String? code}) async {
+    final row = await LocalDatabaseService()
+        .findJeFailure(notificationId: notificationId, code: code);
+    if (row == null) return [];
+    final rec = row['record'] as Map<String, dynamic>;
+    final nid = int.tryParse('${(rec['jeFailure'] as Map?)?['notificationId']}') ?? 0;
+    final ov = await JeOverlay.load(nid);
+    final readings = {
+      for (final r in (ov?['readings'] as List? ?? const []))
+        if (r is Map) '${r['measId']}': r,
+    };
+    return [
+      for (final m in (rec['measurementPoint'] as List? ?? const []))
+        if (m is Map)
+          {
+            ...Map<String, dynamic>.from(m),
+            if (readings['${m['measId']}'] != null) ...{
+              'beforeReading': readings['${m['measId']}']!['beforeReading'],
+              'afterReading': readings['${m['measId']}']!['afterReading'],
+            },
+          }
+    ];
+  }
+
   /// The Junior Engineer failure from the local copy as a details response.
-  Future<({FailureDetailResponse response, bool pending})?> _jeLocalDetails(
-      List<String> ids) async {
+  Future<({FailureDetailResponse response, bool pending, String? token})?>
+      _jeLocalDetails(List<String> ids) async {
     int? notificationId;
     String? code;
     String? token;
@@ -165,7 +214,8 @@ class FailureService {
         .findJeFailure(notificationId: notificationId, code: code, token: token);
     if (row == null) return null;
     final rec = row['record'] as Map<String, dynamic>;
-    final je = Map<String, dynamic>.from(rec['jeFailure'] as Map);
+    final je = await SiNormalize.normalize(
+        Map<String, dynamic>.from(rec['jeFailure'] as Map), rec);
     List<dynamic> list(String key) => rec[key] is List ? rec[key] as List : const [];
 
     final history = list('correctiveNotificationActionUserHistory');
@@ -176,7 +226,22 @@ class FailureService {
     final model = <String, dynamic>{
       'notificationId': nid,
       'notificationCode': je['notificationCode'],
-      'description': je['failureDescription'] ?? je['description'],
+      'description': je['description'],
+      'locationFailure': je['locationFailure'],
+      // What the JE form shows about the service / passengers.
+      'isServiceAffected': je['isServiceAffected'],
+      'trainDelayInMin': je['trainDelayInMin'],
+      'trainDelayInNo': je['trainDelayInNo'],
+      'noOfTranCancel': je['noOfTranCancel'],
+      'noOfTranWithdrawal': je['noOfTranWithdrawal'],
+      'noOfTrainReplace': je['noOfTrainReplace'],
+      'isPassengerDeboarding': je['isPassengerDeboarding'],
+      'noofTrainDeboarded': je['noofTrainDeboarded'],
+      'isPassengerAffected': je['isPassengerAffected'],
+      'noOfPassengerAffected': je['noOfPassengerAffected'],
+      'trappedDuration': je['trappedDuration'],
+      'rescuedDuration': je['rescuedDuration'],
+      'corr_NotificationTypeId': je['corr_NotificationTypeId'],
       'functionLocationId': je['functionLocationId'],
       'equipmentId': je['equipmentId'],
       'funcLocation': je['functionalLocation'],
@@ -187,7 +252,10 @@ class FailureService {
       'deptId': je['deptId'] ?? je['mainDeptId'],
       'priorityId': je['priorityId'],
       'priorityType': je['priorityType'],
-      'actualFailureOccuranceOn': je['failureOccuranceDateTime'],
+      'actualFailureOccuranceOn':
+          ('${je['failureOccuranceDateTime'] ?? ''}'.trim().isNotEmpty)
+              ? je['failureOccuranceDateTime']
+              : je['actualFailureOccuranceOn'],
       'systems': je['systems'],
       'subSystems': je['subSystems'],
       'frequency': je['freq'],
@@ -200,7 +268,7 @@ class FailureService {
     if ((token2 ?? '').isNotEmpty) model['Id'] = token2;
 
     // RCA rows in the shape the form reads from FailureRectificationJson.
-    final rca = [
+    var rca = [
       for (final r in list('newRca'))
         if (r is Map)
           {
@@ -210,6 +278,73 @@ class FailureService {
           }
     ];
 
+    // What the JE already filled in (user status, rectification details, dates,
+    // RCA, materials) when the synced data does not carry it.
+    final ov = await JeOverlay.load(nid);
+    var materials = <dynamic>[];
+    var dismantle = <dynamic>[];
+    var measurementPoints = list('measurementPoint');
+    if (ov != null) {
+      void fill(String k) {
+        final cur = model[k];
+        final v = ov[k];
+        if (v != null && (cur == null || (cur is String && cur.trim().isEmpty))) {
+          model[k] = v;
+        }
+      }
+
+      for (final k in const [
+        'userStatus', 'failureRectificationDetails', 'failureAttendedDate',
+        'actualFailureRectifiedDate', 'underObservationDate', 'failureType',
+        'failureTypeId', 'ptwNo', 'isPTWReq', 'isHardwareReplaced',
+      ]) {
+        fill(k);
+      }
+      if (rca.isEmpty && ov['rca'] is List) {
+        rca = [for (final r in ov['rca'] as List) if (r is Map) Map<String, dynamic>.from(r)];
+      }
+      // The update body names them differently from the details lists.
+      materials = [
+        for (final m in (ov['materials'] as List? ?? const []))
+          if (m is Map)
+            {
+              'id': m['Id'],
+              'materialid': m['Materialid'],
+              'materialValue': m['MaterialValue'],
+              'quantity': m['Quantity'],
+              'issuedQty': m['IssuedQty'],
+              'usedQty': m['UsedQty'],
+              'balanceQty': m['BalanceQty'],
+              'remainingBalanceQTY': m['RemainingBalanceQTY'],
+              'storageLocation': m['StorageLocation'],
+              'unitOfMeasurement': m['UnitMeasurement'],
+            }
+      ];
+      dismantle = [
+        for (final m in (ov['dismantle'] as List? ?? const []))
+          if (m is Map && '${m['InsertUpdateStatusId']}' != '3')
+            {...Map<String, dynamic>.from(m), 'id': m['Id']}
+      ];
+      // The readings the JE saved offline are newer than the synced ones.
+      final readings = {
+        for (final r in (ov['readings'] as List? ?? const []))
+          if (r is Map) '${r['measId']}': r,
+      };
+      if (readings.isNotEmpty) {
+        measurementPoints = [
+          for (final m in measurementPoints)
+            if (m is Map)
+              {
+                ...Map<String, dynamic>.from(m),
+                if (readings['${m['measId']}'] != null) ...{
+                  'beforeReading': readings['${m['measId']}']!['beforeReading'],
+                  'afterReading': readings['${m['measId']}']!['afterReading'],
+                },
+              }
+        ];
+      }
+    }
+
     final response = FailureDetailResponse.fromJson({
       'responseCode': 200,
       'responseMessage': 'Success',
@@ -217,9 +352,14 @@ class FailureService {
         'getCreateVMModel': model,
         'getNotificationActionUserHistory': history,
         'getNotificationHistory': const [],
-        'getMaterialReqDetails': const [],
-        'measurementPoint': list('measurementPoint'),
-        'getJoinInspectionHistory': list('joinInspectionHistory'),
+        'getMaterialReqDetails': materials,
+        'getMaterialDismantleDetails': dismantle,
+        'measurementPoint': measurementPoints,
+        'getJoinInspectionHistory': [
+          ...list('joinInspectionHistory'),
+          // Added offline and not sent yet.
+          ...await LocalDatabaseService().getPendingJiEntries(nid),
+        ],
       },
     });
     return (
@@ -230,6 +370,7 @@ class FailureService {
       failureRectificationJson: rca.isEmpty ? null : jsonEncode(rca),
     ),
     pending: row['pendingAction'] != null,
+    token: token2,
     );
   }
 
@@ -238,29 +379,29 @@ class FailureService {
     final userId = await _userId();
     final body = {'AssignedUserId': userId, 'Id': failureNo};
 
-    debugPrint("========================================");
-    debugPrint("JE CHANGE NOTIFICATION API CALL");
-    debugPrint("========================================");
-    debugPrint("API URL: ${AppUrls.jeChangeNotification}");
-    debugPrint("Request Body: $body");
-    debugPrint("UserId: $userId");
-    debugPrint("FailureNo: $failureNo");
+    failureLog("========================================");
+    failureLog("JE CHANGE NOTIFICATION API CALL");
+    failureLog("========================================");
+    failureLog("API URL: ${AppUrls.jeChangeNotification}");
+    failureLog("Request Body: $body");
+    failureLog("UserId: $userId");
+    failureLog("FailureNo: $failureNo");
 
     final response = await _apiClient.post(
       AppUrls.jeChangeNotification,
       body: body,
     );
 
-    debugPrint("Response Status Code: ${response.statusCode}");
-    debugPrint("Response Body: ${response.body}");
+    failureLog("Response Status Code: ${response.statusCode}");
+    failureLog("Response Body: ${response.body}");
 
     if (response.statusCode != 200) {
-      debugPrint("API Error: Server returned status ${response.statusCode}");
+      failureLog("API Error: Server returned status ${response.statusCode}");
       throw Exception('Server error: ${response.statusCode}');
     }
 
     final parsedResponse = jsonDecode(response.body) as Map<String, dynamic>;
-    debugPrint("Parsed Response: $parsedResponse");
+    failureLog("Parsed Response: $parsedResponse");
 
     // Check inside responseOutput.getCreateVMModel first
     final responseOutput =
@@ -271,13 +412,13 @@ class FailureService {
       final createVMModel =
       responseOutput['getCreateVMModel'] as Map<String, dynamic>?;
       if (createVMModel != null) {
-        debugPrint("=== getCreateVMModel keys ===");
-        debugPrint(createVMModel.keys.toString());
-        debugPrint("=== getCreateVMModel subsystem field ===");
-        debugPrint("subSystems: ${createVMModel['subSystems']}");
-        debugPrint("subsystem: ${createVMModel['subsystem']}");
-        debugPrint("SubSystems: ${createVMModel['SubSystems']}");
-        debugPrint("SubSystem: ${createVMModel['SubSystem']}");
+        failureLog("=== getCreateVMModel keys ===");
+        failureLog(createVMModel.keys.toString());
+        failureLog("=== getCreateVMModel subsystem field ===");
+        failureLog("subSystems: ${createVMModel['subSystems']}");
+        failureLog("subsystem: ${createVMModel['subsystem']}");
+        failureLog("SubSystems: ${createVMModel['SubSystems']}");
+        failureLog("SubSystem: ${createVMModel['SubSystem']}");
       }
     }
 
@@ -292,11 +433,11 @@ class FailureService {
         if (rcaValue != null) {
           if (rcaValue is String) {
             failureRectificationJson = rcaValue;
-            debugPrint(
+            failureLog(
                 "Service - Found failureRectificationJson inside getCreateVMModel (String): ${failureRectificationJson?.length ?? 0} chars");
           } else if (rcaValue is List) {
             failureRectificationJson = jsonEncode(rcaValue);
-            debugPrint(
+            failureLog(
                 "Service - Found failureRectificationJson inside getCreateVMModel (List converted to String): ${failureRectificationJson?.length ?? 0} chars");
           }
         }
@@ -309,17 +450,17 @@ class FailureService {
       if (rcaValue != null) {
         if (rcaValue is String) {
           failureRectificationJson = rcaValue;
-          debugPrint(
+          failureLog(
               "Service - Found failureRectificationJson at top-level (String): ${failureRectificationJson?.length ?? 0} chars");
         } else if (rcaValue is List) {
           failureRectificationJson = jsonEncode(rcaValue);
-          debugPrint(
+          failureLog(
               "Service - Found failureRectificationJson at top-level (List converted to String): ${failureRectificationJson?.length ?? 0} chars");
         }
       }
     }
 
-    debugPrint(
+    failureLog(
         "Service - Final FailureRectificationJson: ${failureRectificationJson?.length ?? 0} chars");
 
     // Create response with the extracted FailureRectificationJson
@@ -334,48 +475,48 @@ class FailureService {
       failureRectificationJson: failureRectificationJson,
     );
 
-    debugPrint(
+    failureLog(
         "FailureDetailResponse - responseCode: ${updatedResponse.responseCode}");
-    debugPrint(
+    failureLog(
         "FailureDetailResponse - responseMessage: ${updatedResponse.responseMessage}");
-    debugPrint(
+    failureLog(
         "FailureDetailResponse - responseOutput available: ${updatedResponse.responseOutput != null}");
-    debugPrint(
+    failureLog(
         "FailureDetailResponse - failureRectificationJson available: ${updatedResponse.failureRectificationJson != null}");
 
     if (updatedResponse.responseOutput != null) {
       final output = updatedResponse.responseOutput!;
-      debugPrint("Response Output Details:");
-      debugPrint("  - CreateVMModel: ${output.getCreateVMModel != null}");
-      debugPrint(
+      failureLog("Response Output Details:");
+      failureLog("  - CreateVMModel: ${output.getCreateVMModel != null}");
+      failureLog(
           "  - DepartmentList: ${output.getDepartmentList?.length ?? 0} items");
-      debugPrint("  - UserList: ${output.getUserList?.length ?? 0} items");
-      debugPrint("  - ObjectData: ${output.getObjectData?.length ?? 0} items");
-      debugPrint(
+      failureLog("  - UserList: ${output.getUserList?.length ?? 0} items");
+      failureLog("  - ObjectData: ${output.getObjectData?.length ?? 0} items");
+      failureLog(
           "  - MaterialData: ${output.getMaterialData?.length ?? 0} items");
-      debugPrint(
+      failureLog(
           "  - NotificationHistory: ${output.getNotificationHistory?.length ?? 0} items");
-      debugPrint(
+      failureLog(
           "  - JoinInspectionHistory: ${output.getJoinInspectionHistory?.length ?? 0} items");
     }
 
     if (failureDetailResponse.responseOutput != null) {
       final output = failureDetailResponse.responseOutput!;
-      debugPrint("Response Output Details:");
-      debugPrint("  - CreateVMModel: ${output.getCreateVMModel != null}");
-      debugPrint(
+      failureLog("Response Output Details:");
+      failureLog("  - CreateVMModel: ${output.getCreateVMModel != null}");
+      failureLog(
           "  - DepartmentList: ${output.getDepartmentList?.length ?? 0} items");
-      debugPrint("  - UserList: ${output.getUserList?.length ?? 0} items");
-      debugPrint("  - ObjectData: ${output.getObjectData?.length ?? 0} items");
-      debugPrint(
+      failureLog("  - UserList: ${output.getUserList?.length ?? 0} items");
+      failureLog("  - ObjectData: ${output.getObjectData?.length ?? 0} items");
+      failureLog(
           "  - MaterialData: ${output.getMaterialData?.length ?? 0} items");
-      debugPrint(
+      failureLog(
           "  - NotificationHistory: ${output.getNotificationHistory?.length ?? 0} items");
-      debugPrint(
+      failureLog(
           "  - JoinInspectionHistory: ${output.getJoinInspectionHistory?.length ?? 0} items");
     }
 
-    debugPrint("========================================");
+    failureLog("========================================");
 
     return updatedResponse;
   }
@@ -435,7 +576,7 @@ class FailureService {
   /// Gets functional location details for maintenance form
   Future<FunctionalLocationDetailsResponse> getFunctionalLocationDetails(
       String functionLocationId) async {
-    print("functionLocationId==+$functionLocationId");
+    failureLog("functionLocationId==+$functionLocationId");
     final response = await _apiClient.post(
       AppUrls.getFunctionEqDetailsById,
       body: {'FunctionLocationId': functionLocationId},
@@ -519,7 +660,7 @@ class FailureService {
   /// Returns getNatureOfWorkList and getNotificationTypeList for dropdowns
   Future<FailureDetailResponse> getLookupCreateCorrNotification() async {
     final userId = await _userId();
-    debugPrint(
+    failureLog(
         "getLookupCreateCorrNotification: Starting API call with userId=$userId");
 
     try {
@@ -530,15 +671,15 @@ class FailureService {
           .timeout(
         const Duration(seconds: 60),
         onTimeout: () {
-          debugPrint(
+          failureLog(
               "getLookupCreateCorrNotification: Request timed out after 60 seconds");
           throw Exception('Request timed out after 60 seconds');
         },
       );
 
-      debugPrint(
+      failureLog(
           "getLookupCreateCorrNotification: Response status: ${response.statusCode}");
-      debugPrint(
+      failureLog(
           "getLookupCreateCorrNotification: Response body: ${response.body}");
 
       if (response.statusCode != 200) {
@@ -549,7 +690,7 @@ class FailureService {
         jsonDecode(response.body) as Map<String, dynamic>,
       );
     } catch (e) {
-      debugPrint("getLookupCreateCorrNotification: Error occurred: $e");
+      failureLog("getLookupCreateCorrNotification: Error occurred: $e");
       rethrow;
     }
   }
@@ -557,22 +698,21 @@ class FailureService {
   /// Creates a new station failure. Returns the created failure number.
   Future<String?> createStationFailure(Map<String, dynamic> payload) async {
     final headers = await _authHeaders();
-    debugPrint(
+    failureLog(
         "createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
-    debugPrint("createStationFailure: Request headers: $headers");
-    debugPrint("createStationFailure: Request payload: $payload");
+    failureLog("createStationFailure: Request payload: $payload");
     final response = await _apiClient.postMultipart(
       AppUrls.createStationFailure,
       headers: headers,
       fields: {'StationFailureCreationDetails': jsonEncode(payload)},
     );
-    debugPrint("createStationFailure: Response status: ${response.statusCode}");
-    debugPrint("createStationFailure: Response body: ${response.body}");
+    failureLog("createStationFailure: Response status: ${response.statusCode}");
+    failureLog("createStationFailure: Response body: ${response.body}");
     if (response.statusCode != 200) {
       throw Exception('Failed to create station failure: ${response.body}');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    debugPrint("createStationFailure: Parsed response: $body");
+    failureLog("createStationFailure: Parsed response: $body");
     if (body['responseCode'] != 200) {
       throw Exception(
           body['responseMessage'] ?? 'Failed to create station failure');
@@ -1045,7 +1185,7 @@ class FailureService {
       headers: headers,
       fields: {'StationFailureCreationDetails': jsonEncode(payload)},
     );
-    debugPrint("response---${jsonDecode(response.body)}");
+    failureLog("response---${jsonDecode(response.body)}");
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
     }
@@ -1062,7 +1202,7 @@ class FailureService {
       final dbService = LocalDatabaseService();
       final localStations = await dbService.getStations();
       if (localStations.isNotEmpty) {
-        debugPrint(
+        failureLog(
             "getStationNames: Loaded ${localStations.length} stations from local DB");
         return localStations
             .map((e) => LabelValue(
@@ -1072,11 +1212,11 @@ class FailureService {
             .toList();
       }
     } catch (e) {
-      debugPrint("getStationNames: Error loading from local DB: $e");
+      failureLog("getStationNames: Error loading from local DB: $e");
     }
 
     // Fallback to API if local data is not available
-    debugPrint("getStationNames: No local data, fetching from API");
+    failureLog("getStationNames: No local data, fetching from API");
     final userId = await AuthManager().getUserId() ?? '1';
     final response =
     await _apiClient.get('${AppUrls.getStationName}?AssgineUserId=$userId');
@@ -1100,10 +1240,10 @@ class FailureService {
         })
             .toList();
         await dbService.insertStations(stationMaps);
-        debugPrint(
+        failureLog(
             "getStationNames: Saved ${stations.length} stations to local DB");
       } catch (e) {
-        debugPrint("getStationNames: Error saving to local DB: $e");
+        failureLog("getStationNames: Error saving to local DB: $e");
       }
 
       return stations;
@@ -1325,19 +1465,33 @@ class FailureService {
   List<Map<String, dynamic>> stationRecords,
   List<Map<String, dynamic>> siRecords,
   List<Map<String, dynamic>> jeRecords,
+  List<Map<String, dynamic>> jiRecords,
+  List<Map<String, dynamic>> depotRecords,
   String? downloadedAt
   })> getFailureTransactions({String? lastSyncDate}) async {
     final userId = await _userId();
     final headers = await _authHeaders();
-    final response = await _apiClient.getWithBody(
+    final requestBody = <String, dynamic>{
+      'userId': userId,
+      if (lastSyncDate != null) 'lastSyncDate': lastSyncDate,
+      'syncType': lastSyncDate == null ? 'ALL' : 'Incremental',
+    };
+    // The server answers a POST (as in Postman). A server that only knows the
+    // old GET-with-a-body form says 405 / 404: then that form is used.
+    var response = await _apiClient.post(
       AppUrls.getAllFailuresTransactionData,
       headers: headers,
-      body: <String, dynamic>{
-        'userId': userId,
-        if (lastSyncDate != null) 'lastSyncDate': lastSyncDate,
-        'syncType': lastSyncDate == null ? 'ALL' : 'Incremental',
-      },
+      body: requestBody,
     );
+    if (response.statusCode == 405 || response.statusCode == 404) {
+      failureLog('getFailureTransactions: POST gave ${response.statusCode}, '
+          'trying GET with a body');
+      response = await _apiClient.getWithBody(
+        AppUrls.getAllFailuresTransactionData,
+        headers: headers,
+        body: requestBody,
+      );
+    }
     // 204 / an empty body: the server had nothing to send (no changes).
     if (response.statusCode == 204 ||
         (response.statusCode == 200 && response.body.trim().isEmpty)) {
@@ -1345,6 +1499,8 @@ class FailureService {
       stationRecords: <Map<String, dynamic>>[],
       siRecords: <Map<String, dynamic>>[],
       jeRecords: <Map<String, dynamic>>[],
+      jiRecords: <Map<String, dynamic>>[],
+      depotRecords: <Map<String, dynamic>>[],
       downloadedAt: null
       );
     }
@@ -1370,10 +1526,113 @@ class FailureService {
       return out;
     }
 
+    // jeJointInspectionList: each item holds the failure under "jEjointInspection"
+    // (the JE screen model: notificationID, failureDescriptions, personResponsible
+    // ...). It is kept as jeFailure, with the names the app reads added.
+    Future<List<Map<String, dynamic>>> jointRecords() async {
+      final list = data is Map ? data['jeJointInspectionList'] : null;
+      final out = <Map<String, dynamic>>[];
+      if (list is! List) return out;
+      final db = LocalDatabaseService();
+      String? iso(dynamic v) {
+        final t = '${v ?? ''}'.trim();
+        final m = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?').firstMatch(t);
+        if (m == null) return t.isEmpty ? null : t;
+        String two(String? x) => (x ?? '0').padLeft(2, '0');
+        return '${m[3]}-${two(m[1])}-${two(m[2])}T${two(m[4])}:${two(m[5])}:00';
+      }
+
+      for (final e in list) {
+        if (e is! Map) continue;
+        Map? failure;
+        for (final v in e.values) {
+          if (v is Map && v.keys.any((k) => '$k'.toLowerCase() == 'notificationid')) {
+            failure = v;
+            break;
+          }
+        }
+        if (failure == null) continue;
+        final f = Map<String, dynamic>.from(failure);
+        dynamic any(List<String> keys) {
+          for (final k in keys) {
+            for (final entry in f.entries) {
+              if (entry.key.toLowerCase() == k.toLowerCase() && entry.value != null) {
+                return entry.value;
+              }
+            }
+          }
+          return null;
+        }
+
+        void alias(String key, dynamic value) {
+          if (f[key] == null && value != null) f[key] = value;
+        }
+
+        final nid = int.tryParse('${any(['notificationId', 'id'])}');
+        if (nid == null) continue;
+        alias('notificationId', nid);
+        alias('failureDescription', any(['failureDescriptions', 'failureDescription', 'description']));
+        alias('description', f['failureDescription']);
+        alias('assignedUserId', int.tryParse('${any(['personResponsible'])}'));
+        alias('actualFailureOccuranceOn', iso(any(['actualFailureOccuranceOn'])));
+        f['actualFailureOccuranceOn'] = iso(f['actualFailureOccuranceOn']);
+        alias('failureAttendedDate', iso(any(['failureAttendedOn', 'failureAttendedDate'])));
+        alias('actualFailureRectifiedDate', iso(any(['actualFailureRectifiedOn'])));
+        alias('functionalLocation', any(['functionalLocationName']));
+        alias('equipmentDescription', any(['equipmentName']));
+        alias('locationName', any(['locationTypeName']));
+        alias('systems', any(['system']));
+        alias('subSystems', any(['subSystem']));
+        alias('freq', any(['frequency']));
+        if (f['status'] is String) alias('statusName', f['status']);
+        final deptId = int.tryParse('${any(['deptId'])}') ?? 0;
+        final flId = int.tryParse('${any(['functionLocationId'])}') ?? 0;
+        try {
+          if (deptId > 0) alias('deptName', await db.getDeptNameById(deptId));
+          if (flId > 0) {
+            final fl = await db.getFailureFunctionalLocationRow(flId);
+            final code = fl?['FuncLocation']?.toString().trim() ?? '';
+            if (code.isNotEmpty) alias('functionalLocation', code);
+          }
+        } catch (_) {}
+        // The joint inspection asked (department, user, remark) is on the failure.
+        final jiDept = int.tryParse('${any(['deptId_JI'])}') ?? 0;
+        final jiUser = int.tryParse('${any(['assignedUserId_JI'])}') ?? 0;
+        String? jiDeptName;
+        String? jiUserName;
+        try {
+          if (jiDept > 0) jiDeptName = await db.getDeptNameById(jiDept);
+          if (jiUser > 0) jiUserName = await db.getUserNameById(jiUser);
+          final person = int.tryParse('${any(['personResponsible'])}') ?? 0;
+          if (person > 0) alias('assignedUserName', await db.getUserNameById(person));
+        } catch (_) {}
+        final item = Map<String, dynamic>.from(e);
+        if (item['joinInspectionHistory'] is! List && jiDept > 0) {
+          item['joinInspectionHistory'] = [
+            {
+              'deptId': jiDept,
+              'assignedTo': jiUser,
+              'remark': any(['remark_JI']),
+              'userRemark': any(['userRemark_JI']),
+              'deptName': jiDeptName,
+              'assginedUser': jiUserName,
+            }
+          ];
+        }
+        if (item['jeNotificationHistory'] is! List && item['jiNotificationHistory'] is List) {
+          item['jeNotificationHistory'] = item['jiNotificationHistory'];
+        }
+        out.add({...item, 'jeFailure': f});
+      }
+      return out;
+    }
+
     return (
     stationRecords: records('stationFailures', 'failure'),
     siRecords: records('siFailureList', 'siFailure'),
     jeRecords: records('jeInboxFailureList', 'jeFailure'),
+    jiRecords: await jointRecords(),
+    depotRecords: records('depotFailuresList', 'depotFailures'),
     downloadedAt: data is Map ? data['downloadedAt']?.toString() : null,
     );
   }
@@ -1383,9 +1642,9 @@ class FailureService {
   Future<List<Map<String, dynamic>>> getStationFailureListWithData(
       {String? lastSyncDate}) async {
     final userId = await _userId();
-    debugPrint(
+    failureLog(
         "getStationFailureListWithData: Calling API with UserId=$userId, lastSyncDate=$lastSyncDate");
-    debugPrint(
+    failureLog(
         "getStationFailureListWithData: API endpoint: ${AppUrls.getStationFailureListWithData}");
 
     final body = <String, dynamic>{'UserId': userId};
@@ -1394,7 +1653,7 @@ class FailureService {
     // }
 
     try {
-      debugPrint(
+      failureLog(
           "getStationFailureListWithData: About to call _apiClient.post() with 10 second timeout");
       final response = await _apiClient
           .post(
@@ -1402,46 +1661,46 @@ class FailureService {
         body: body,
       )
           .timeout(const Duration(seconds: 10), onTimeout: () {
-        debugPrint("getStationFailureListWithData: TIMEOUT after 10 seconds");
+        failureLog("getStationFailureListWithData: TIMEOUT after 10 seconds");
         throw Exception('Request timed out after 10 seconds');
       });
-      debugPrint("getStationFailureListWithData: API call completed");
+      failureLog("getStationFailureListWithData: API call completed");
 
-      debugPrint(
+      failureLog(
           "getStationFailureListWithData: Response status: ${response.statusCode}");
-      debugPrint(
+      failureLog(
           "getStationFailureListWithData: Response body: ${response.body}");
 
       if (response.statusCode != 200) {
-        debugPrint(
+        failureLog(
             "getStationFailureListWithData: API call failed with status ${response.statusCode}");
         throw Exception('Server error: ${response.statusCode}');
       }
 
       final bodyJson = jsonDecode(response.body) as Map<String, dynamic>;
-      debugPrint(
+      failureLog(
           "getStationFailureListWithData: Parsed response: success=${bodyJson['success']}, message=${bodyJson['message']}");
 
       // Handle the actual response structure: {success: true, message: "...", data: {stationFailureList: []}}
       if (bodyJson['success'] == true && bodyJson['data'] != null) {
         final data = bodyJson['data'] as Map<String, dynamic>;
         final failureList = data['stationFailureList'];
-        debugPrint(
+        failureLog(
             "getStationFailureListWithData: stationFailureList type: ${failureList.runtimeType}");
 
         if (failureList is List) {
-          debugPrint(
+          failureLog(
               "getStationFailureListWithData: Returning list with ${failureList.length} items");
           return failureList.cast<Map<String, dynamic>>();
         }
       }
 
-      debugPrint(
+      failureLog(
           "getStationFailureListWithData: No valid data found in response");
       return [];
     } catch (e) {
-      debugPrint("getStationFailureListWithData: Exception occurred: $e");
-      debugPrint(
+      failureLog("getStationFailureListWithData: Exception occurred: $e");
+      failureLog(
           "getStationFailureListWithData: Exception type: ${e.runtimeType}");
       rethrow;
     }
@@ -1606,18 +1865,18 @@ class FailureService {
   //     AppUrls.getMasterData,
   //     body: {'action': 'GetDeptMasterData'},
   //   );
-  //   debugPrint("getDeptMasterData statusCode: ${response.statusCode}");
+  //   failureLog("getDeptMasterData statusCode: ${response.statusCode}");
   //   if (response.statusCode != 200) return [];
   //
   //   final body = jsonDecode(response.body) as Map<String, dynamic>;
-  //   debugPrint("getDeptMasterData response keys: ${body.keys.toList()}");
-  //   debugPrint("getDeptMasterData full response: $body");
+  //   failureLog("getDeptMasterData response keys: ${body.keys.toList()}");
+  //   failureLog("getDeptMasterData full response: $body");
   //
   //   // Try different response structures
   //   if (body['responseCode'] == 200 && body['responseOutput'] != null) {
   //     final departments = body['responseOutput'] as List?;
   //     if (departments != null) {
-  //       debugPrint("getDeptMasterData found departments in responseOutput: ${departments.length} items");
+  //       failureLog("getDeptMasterData found departments in responseOutput: ${departments.length} items");
   //       return departments
   //           .map((e) => LabelValue(
   //                 label: e['deptName']?.toString() ?? e['label']?.toString() ?? '',
@@ -1630,7 +1889,7 @@ class FailureService {
   //   if (body['success'] == true && body['data'] != null) {
   //     final departments = body['data']['departments'] as List?;
   //     if (departments != null) {
-  //       debugPrint("getDeptMasterData found departments in data.departments: ${departments.length} items");
+  //       failureLog("getDeptMasterData found departments in data.departments: ${departments.length} items");
   //       return departments
   //           .map((e) => LabelValue(
   //                 label: e['deptName']?.toString() ?? '',
@@ -1640,7 +1899,7 @@ class FailureService {
   //     }
   //   }
   //
-  //   debugPrint("getDeptMasterData: No departments found in response");
+  //   failureLog("getDeptMasterData: No departments found in response");
   //   return [];
   // }
 
@@ -1678,8 +1937,8 @@ class FailureService {
       throw Exception('Server error: ${response.statusCode}');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    debugPrint("body===$body");
-    debugPrint("documnents====${body['data']['documents']}");
+    failureLog("body===$body");
+    failureLog("documnents====${body['data']['documents']}");
     if (body['success'] != true || body['data'] == null) {
       throw Exception(body['message'] ?? 'Failed to load RST failure data');
     }
@@ -1853,7 +2112,7 @@ class FailureService {
       throw Exception('Server error: ${response.statusCode}');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    debugPrint("body---$body");
+    failureLog("body---$body");
     if (body['responseCode'] == 200 || body['success'] == true) {
       return (body['responseMessage'] ??
           body['message'] ??
@@ -1878,7 +2137,7 @@ class FailureService {
       throw Exception('Server error: ${response.statusCode}');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    debugPrint("updateNotificationRSTRCAMaterialJE response---$body");
+    failureLog("updateNotificationRSTRCAMaterialJE response---$body");
     if (body['responseCode'] == 200 || body['success'] == true) {
       return (body['responseMessage'] ??
           body['message'] ??
@@ -1927,7 +2186,7 @@ class FailureService {
       throw Exception('Server error: ${response.statusCode}');
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    debugPrint("updateRstNotificationCompletion response---$body");
+    failureLog("updateRstNotificationCompletion response---$body");
     if (body['responseCode'] == 200 || body['success'] == true) {
       return (body['responseMessage'] ??
           body['message'] ??
@@ -1952,7 +2211,7 @@ class FailureService {
   /// Fetches asset data by functional location ID for QR scan
   Future<AssetQrResponse> getAssetDataByFuncLocId(String funcLocId) async {
     final userId = await _userId();
-    debugPrint(
+    failureLog(
         "getAssetDataByFuncLocId: Calling API with funcLocId=$funcLocId, userId=$userId");
 
     final response = await _apiClient.post(
@@ -1960,9 +2219,9 @@ class FailureService {
       body: {"CreatedBy": userId, "FuncLocId": funcLocId, "IsSearchFilter": 0},
     );
 
-    debugPrint(
+    failureLog(
         "getAssetDataByFuncLocId: Response status: ${response.statusCode}");
-    debugPrint("getAssetDataByFuncLocId: Response body: ${response.body}");
+    failureLog("getAssetDataByFuncLocId: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
@@ -1993,16 +2252,16 @@ class FailureService {
       'CreatedByName': userName,
     };
 
-    debugPrint("assignUserNotification: Request body: $body");
+    failureLog("assignUserNotification: Request body: $body");
 
     final response = await _apiClient.post(
       AppUrls.updateAssignUserNotification,
       body: body,
     );
 
-    debugPrint(
+    failureLog(
         "assignUserNotification: Response status: ${response.statusCode}");
-    debugPrint("assignUserNotification: Response body: ${response.body}");
+    failureLog("assignUserNotification: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
@@ -2028,15 +2287,15 @@ class FailureService {
       'Description': description,
     };
 
-    debugPrint("rejectNotification: Request body: $body");
+    failureLog("rejectNotification: Request body: $body");
 
     final response = await _apiClient.post(
       AppUrls.updateStatusNotificationReject,
       body: body,
     );
 
-    debugPrint("rejectNotification: Response status: ${response.statusCode}");
-    debugPrint("rejectNotification: Response body: ${response.body}");
+    failureLog("rejectNotification: Response status: ${response.statusCode}");
+    failureLog("rejectNotification: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
@@ -2062,15 +2321,15 @@ class FailureService {
       'Description': description,
     };
 
-    debugPrint("deleteNotification: Request body: $body");
+    failureLog("deleteNotification: Request body: $body");
 
     final response = await _apiClient.post(
       AppUrls.updateStatusNotificationDelete,
       body: body,
     );
 
-    debugPrint("deleteNotification: Response status: ${response.statusCode}");
-    debugPrint("deleteNotification: Response body: ${response.body}");
+    failureLog("deleteNotification: Response status: ${response.statusCode}");
+    failureLog("deleteNotification: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
@@ -2098,15 +2357,15 @@ class FailureService {
       'Description': description,
     };
 
-    debugPrint("sendForCorrection: Request body: $body");
+    failureLog("sendForCorrection: Request body: $body");
 
     final response = await _apiClient.post(
       AppUrls.updateAssignUserNotificationCorrection,
       body: body,
     );
 
-    debugPrint("sendForCorrection: Response status: ${response.statusCode}");
-    debugPrint("sendForCorrection: Response body: ${response.body}");
+    failureLog("sendForCorrection: Response status: ${response.statusCode}");
+    failureLog("sendForCorrection: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');
@@ -2125,12 +2384,12 @@ class FailureService {
     final userId = await _userId();
     final userName = await _userName();
 
-    debugPrint("========================================");
-    debugPrint("MAINTENANCE FORM SUBMISSION API CALL");
-    debugPrint("========================================");
-    debugPrint("API URL: ${AppUrls.createNotificationDetails}");
-    debugPrint("Request Body: $formData");
-    debugPrint("UserId: $userId, UserName: $userName");
+    failureLog("========================================");
+    failureLog("MAINTENANCE FORM SUBMISSION API CALL");
+    failureLog("========================================");
+    failureLog("API URL: ${AppUrls.createNotificationDetails}");
+    failureLog("Request Body: $formData");
+    failureLog("UserId: $userId, UserName: $userName");
 
     final requestBody = {
       'Description': formData['failureDescription'] ?? '',
@@ -2193,12 +2452,12 @@ class FailureService {
       formData['frequency'] ?? 0,
     };
 
-    debugPrint("Formatted Request Body: $requestBody");
+    failureLog("Formatted Request Body: $requestBody");
 
     // ACTUAL API CALL
     final failureNo = await createMaintenanceFailure(requestBody);
 
-    debugPrint("Created Maintenance Failure No: $failureNo");
+    failureLog("Created Maintenance Failure No: $failureNo");
 
     return {
       'responseCode': 200,
@@ -2223,7 +2482,7 @@ class FailureService {
       for (final id in ids.where((e) => e.trim().isNotEmpty).toSet()) {
         for (final uid in {userId, 0}) {
           final body = {'AssignedUserId': uid, 'Id': id};
-          debugPrint('SI details try: $body');
+          failureLog('SI details try: $body');
           final response =
           await _apiClient.post(AppUrls.jeChangeNotification, body: body);
           if (response.statusCode != 200) continue;
@@ -2231,14 +2490,14 @@ class FailureService {
               jsonDecode(response.body) as Map<String, dynamic>);
           last = parsed;
           if (parsed.responseOutput?.getCreateVMModel != null) {
-            debugPrint('SI details: model found with $body');
+            failureLog('SI details: model found with $body');
             return parsed;
           }
         }
       }
     } catch (e) {
       if (local != null && isNetworkError(e)) {
-        debugPrint('SI details: server not reached, using the local copy');
+        failureLog('SI details: server not reached, using the local copy');
         return local.response;
       }
       rethrow;
@@ -2314,12 +2573,17 @@ class FailureService {
           'getNotificationActionUserHistory': const [],
           'getNotificationHistory': const [],
           'getMaterialReqDetails': const [],
-          'measurementPoint': const [],
+          // The measurement points chosen on the form.
+          'measurementPoint': [
+            for (final id in '${form['measurementPointIds'] ?? ''}'.split(','))
+              if ((int.tryParse(id.trim()) ?? 0) > 0)
+                {'measId': int.parse(id.trim()), 'isRequired': true},
+          ],
         },
       });
       return (response: response, labels: labels);
     } catch (e) {
-      debugPrint('offlineCreatedDetails: could not read the saved form: $e');
+      failureLog('offlineCreatedDetails: could not read the saved form: $e');
       return null;
     }
   }
@@ -2344,7 +2608,8 @@ class FailureService {
         .findSiFailure(notificationId: notificationId, code: code);
     if (row == null) return null;
     final rec = row['record'] as Map<String, dynamic>;
-    final si = Map<String, dynamic>.from(rec['siFailure'] as Map);
+    final si = await SiNormalize.normalize(
+        Map<String, dynamic>.from(rec['siFailure'] as Map), rec);
     // The encrypted id (details model "Id"): from the sync's siFailure, or
     // the one kept with the local copy.
     final token = encryptedIdFromSiFailure(
@@ -2359,6 +2624,17 @@ class FailureService {
               (num.tryParse('${m['quantity']}') ?? 0) > 0);
     }).toList();
 
+    // RCA rows in the shape the form reads from FailureRectificationJson.
+    final rca = [
+      for (final r in list('siNewRca'))
+        if (r is Map)
+          {
+            ...Map<String, dynamic>.from(r),
+            'system': si['systems'] ?? si['system'],
+            'subsystem': si['subSystems'] ?? si['subSystem'],
+          }
+    ];
+
     final response = FailureDetailResponse.fromJson({
       'responseCode': 200,
       'responseMessage': 'Success',
@@ -2366,12 +2642,23 @@ class FailureService {
         'getCreateVMModel': si,
         'getNotificationActionUserHistory':
         list('correctiveNotificationActionUserHistory'),
-        'getNotificationHistory': const [],
+        'getNotificationHistory': list('siNotificationHistory'),
         'getMaterialReqDetails': materials,
+        'getMaterialDismantleDetails': list('siMaterialDismentle').isNotEmpty
+            ? list('siMaterialDismentle')
+            : list('siMaterialDismantle'),
         'measurementPoint': list('siMeasurementPoint'),
       },
     });
-    return (response: response, pending: row['pendingAction'] != null);
+    return (
+    response: FailureDetailResponse(
+      responseCode: response.responseCode,
+      responseMessage: response.responseMessage,
+      responseOutput: response.responseOutput,
+      failureRectificationJson: rca.isEmpty ? null : jsonEncode(rca),
+    ),
+    pending: row['pendingAction'] != null,
+    );
   }
 
 
@@ -2379,8 +2666,8 @@ class FailureService {
       Map<String, dynamic> payload) async {
     final headers = await _authHeaders();
 
-    debugPrint("updateMaintenanceFailure: API endpoint: ${AppUrls.editNotificationDetails}");
-    debugPrint("updateMaintenanceFailure: Request payload: $payload");
+    failureLog("updateMaintenanceFailure: API endpoint: ${AppUrls.editNotificationDetails}");
+    failureLog("updateMaintenanceFailure: Request payload: $payload");
 
     final response = await _apiClient.postMultipart(
       AppUrls.editNotificationDetails,
@@ -2390,8 +2677,8 @@ class FailureService {
       },
     );
 
-    debugPrint("updateMaintenanceFailure: Response status: ${response.statusCode}");
-    debugPrint("updateMaintenanceFailure: Response body: ${response.body}");
+    failureLog("updateMaintenanceFailure: Response status: ${response.statusCode}");
+    failureLog("updateMaintenanceFailure: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception('Failed to update maintenance failure: ${response.body}');
@@ -2410,10 +2697,9 @@ class FailureService {
       Map<String, dynamic> payload) async {
     final headers = await _authHeaders();
 
-    debugPrint(
+    failureLog(
         "createMaintenanceFailure: API endpoint: ${AppUrls.createNotificationDetails}");
-    debugPrint("createMaintenanceFailure: Request headers: $headers");
-    debugPrint("createMaintenanceFailure: Request payload: $payload");
+    failureLog("createMaintenanceFailure: Request payload: $payload");
 
     final response = await _apiClient.postMultipart(
       AppUrls.createNotificationDetails,
@@ -2423,9 +2709,9 @@ class FailureService {
       },
     );
 
-    debugPrint(
+    failureLog(
         "createMaintenanceFailure: Response status: ${response.statusCode}");
-    debugPrint(
+    failureLog(
         "createMaintenanceFailure: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
@@ -2467,7 +2753,7 @@ class FailureService {
       },
     );
 
-    debugPrint(
+    failureLog(
         "updateStationAcknowledgeStatus: Status ${response.statusCode}, Body: ${response.body}");
 
     if (response.statusCode == 200) {
@@ -2489,15 +2775,15 @@ class FailureService {
       'CreatedBy': userId,
     };
 
-    debugPrint("closeNotification: Request body: $body");
+    failureLog("closeNotification: Request body: $body");
 
     final response = await _apiClient.post(
       AppUrls.updateCloseStatusNotification,
       body: body,
     );
 
-    debugPrint("closeNotification: Response status: ${response.statusCode}");
-    debugPrint("closeNotification: Response body: ${response.body}");
+    failureLog("closeNotification: Response status: ${response.statusCode}");
+    failureLog("closeNotification: Response body: ${response.body}");
 
     if (response.statusCode != 200) {
       throw Exception('Server error: ${response.statusCode}');

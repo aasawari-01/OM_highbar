@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
@@ -19,6 +21,7 @@ import '../service/failure_service.dart';
 import '../service/si_offline_service.dart';
 import '../service/je_offline_service.dart';
 import '../service/station_overlay.dart';
+import '../service/je_overlay.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/network_errors.dart';
 import '../view/failure_list_screen.dart';
@@ -60,7 +63,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
       return '$deptCode/$monthYear/${nextSequence.toString().padLeft(4, '0')}';
     } catch (e) {
-      debugPrint("Error generating offline failure number: $e");
+      failureLog("Error generating offline failure number: $e");
       // Fallback to timestamp-based approach if database query fails
       final sequence = DateTime.now().millisecondsSinceEpoch % 10000;
       return '$deptCode/$monthYear/${sequence.toString().padLeft(4, '0')}';
@@ -70,6 +73,8 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
   List<Map<String, dynamic>> _jointInspectionHistoryForSubmit() {
     final notifId = resolveNotificationId();
     return jointInspectionHistoryList
+        // Added offline: sent by its own queued call, not with the update.
+        .where((item) => (item.jiId ?? 0) >= 0)
         .map((item) => {
       "JIId": item.jiId ?? 0,
       "Remark": item.remark ?? "",
@@ -101,7 +106,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
   Future<void> createStationFailure() async {
     if (!isStationController) {
-      Get.snackbar(
+      FailureToast.show(
         "Access Denied",
         "Only Station Controller can create station failure.",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -199,7 +204,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
     }
 
     if (errors.isNotEmpty) {
-      Get.snackbar(
+      FailureToast.show(
         'Validation Error',
         errors.first,
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -237,7 +242,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       // Get locationTypeId instead of locationTypeCode
       final locationId =
       lookupLocationId(locationTypeList, selectedLocation.value);
-      debugPrint("locationId===$locationId");
+      failureLog("locationId===$locationId");
       final funcLocId =
       lookupValue(functionalLocationList, selectedFunctionalLocation.value);
       // Failure Category Type picked on the form (Safety, Security, ...).
@@ -331,14 +336,14 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
       // Try to submit to API, if fails save locally for offline sync
       try {
-        debugPrint("createStationFailure: Attempting API submission");
-        debugPrint(
+        failureLog("createStationFailure: Attempting API submission");
+        failureLog(
             "createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
-        debugPrint("createStationFailure: Request payload: $body");
+        failureLog("createStationFailure: Request payload: $body");
         final failureNo = await _failureService
             .createStationFailure(body)
             .timeout(const Duration(seconds: 45));
-        debugPrint("createStationFailure: API success, failureNo: $failureNo");
+        failureLog("createStationFailure: API success, failureNo: $failureNo");
 
         // Keep what was typed: the server's list does not return all of it.
         await StationOverlay.save(failureNo, await StationOverlay.build(body));
@@ -377,10 +382,10 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
             'failureType': 'Station',
           };
           await dbService.insertFailureList([failureItem], 'Station');
-          debugPrint(
+          failureLog(
               "createStationFailure: Added successfully created failure to local DB");
         } catch (dbError) {
-          debugPrint("Error saving successful failure to local DB: $dbError");
+          failureLog("Error saving successful failure to local DB: $dbError");
         }
 
         refreshFailureListAfterSubmission(isStation, expectNo: failureNo);
@@ -393,13 +398,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         Get.back();
         showFailureCreatedPopup(type: 'Station', failureNo: failureNo);
       } catch (apiError) {
-        debugPrint("API submission failed: $apiError");
+        failureLog("API submission failed: $apiError");
         if (!isNetworkError(apiError)) {
           // The server refused the failure (validation, permission, ...):
           // stay on the form so it can be corrected; nothing is queued.
           EasyLoading.dismiss();
           isSubmitting.value = false;
-          Get.snackbar(
+          FailureToast.show(
             AppStrings.error,
             apiError.toString().replaceFirst('Exception: ', ''),
             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -408,16 +413,16 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
           );
           return;
         }
-        debugPrint("No connection, saving locally");
+        failureLog("No connection, saving locally");
         // Save to local database for later sync
         try {
           final dbService = LocalDatabaseService();
           final id = await dbService.insertPendingSubmission(body, 'Station');
-          debugPrint("createStationFailure: Saved locally with id: $id");
+          failureLog("createStationFailure: Saved locally with id: $id");
 
           // Verify it was saved
           final pending = await dbService.getPendingSubmissions();
-          debugPrint(
+          failureLog(
               "createStationFailure: Total pending submissions: ${pending.length}");
 
           // Add to FailureList table so it shows in the list immediately
@@ -487,13 +492,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
               ...typed,
             };
             await dbService.insertFailureList([failureItem], 'Station');
-            debugPrint(
+            failureLog(
                 "createStationFailure: Added offline entry for '$label' with failureNo: $offlineFailureNo");
           }
 
           refreshFailureListAfterSubmission(isStation);
         } catch (dbError) {
-          debugPrint("Error saving to local database: $dbError");
+          failureLog("Error saving to local database: $dbError");
         }
 
         EasyLoading.dismiss();
@@ -509,14 +514,14 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
     } catch (e) {
       EasyLoading.dismiss();
       isSubmitting.value = false;
-      debugPrint("Create Station Failure Error: $e");
-      Get.snackbar(AppStrings.error, "An unexpected error occurred");
+      failureLog("Create Station Failure Error: $e");
+      FailureToast.show(AppStrings.error, "An unexpected error occurred");
     }
   }
 
   Future<void> createMaintenanceFailure() async {
     if (!isSectionIncharge) {
-      Get.snackbar(
+      FailureToast.show(
         "Access Denied",
         "Only Section Incharge can create maintenance failure.",
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -528,7 +533,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
     // Prevent multiple submissions
     if (isSubmitting.value) {
-      debugPrint("createMaintenanceFailure: Already submitting, ignoring duplicate request");
+      failureLog("createMaintenanceFailure: Already submitting, ignoring duplicate request");
       return;
     }
 
@@ -633,7 +638,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
     }
 
     if (errors.isNotEmpty) {
-      Get.snackbar(
+      FailureToast.show(
         'Validation Error',
         errors.first,
         backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -671,13 +676,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       final notificationTypeId = departmentId.value == 3
           ? lookupValue(failureTypes, selectedFailureCategoryType.value)
           : "0";
-      // Assign to the selected Person Responsible; fall back to the
-      // logged-in user when none is selected.
+      // Assigned to the selected Person Responsible. Without one the failure
+      // stays unassigned (0): the Section Incharge can open it later and choose
+      // the person (it is never given to the logged-in user).
       final selectedPersonId =
           int.tryParse(lookupValue(userList, selectedPersonResponsible.value));
-      final assignedUserId = (selectedPersonId != null && selectedPersonId > 0)
-          ? selectedPersonId
-          : createdBy;
+      final assignedUserId =
+          (selectedPersonId != null && selectedPersonId > 0) ? selectedPersonId : 0;
       // Look up in the same list the Nature of Work dropdown shows.
       final natureOfWorkId = lookupValue(
           apiNatureOfWorkList.isNotEmpty ? apiNatureOfWorkList : natureOfWorkList,
@@ -703,7 +708,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         'functionLocationId': int.tryParse(functionLocationId) ?? 0,
         'equipmentId': int.tryParse(equipmentId) ?? 0,
         'actualFailureOccuranceOn': actualFailureOccuranceOn,
-        'assignedUserId': int.tryParse(assignedUserId.toString()) ?? createdBy,
+        'assignedUserId': assignedUserId,
         'isServiceAffected': isServiceAffected.value,
         'trainDelayInMin':
         int.tryParse(trainDelayMinController.text.trim()) ?? 0,
@@ -739,7 +744,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         'systemDowntime': systemDowntime,
         'measurementPointIds': measurementPointIdsController.text.trim(),
         'priorityId': int.tryParse(priorityId) ?? 0,
-        'assignedUseeName': userName,
+        'assignedUseeName': assignedUserId > 0 ? (selectedPersonResponsible.value ?? '') : '',
         'locationFailure': subLocationController.text.trim(),
         'corrNotificationTypeId': int.tryParse(corrNotificationTypeId) ?? 0,
         // The Section Incharge form fills the FMECA fields (from the API).
@@ -749,7 +754,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         'frequency': fmecaFrequency.value ?? frequencyValue.value ?? 0,
       };
 
-      debugPrint("Maintenance Form Submission Request: $requestBody");
+      failureLog("Maintenance Form Submission Request: $requestBody");
 
       Map<String, dynamic> response;
       try {
@@ -786,7 +791,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         Get.offAll(() => const FailureListScreen(failureType: 'Maintenance'));
         showFailureCreatedPopup(type: 'Maintenance', failureNo: failureNo);
       } else {
-        Get.snackbar(
+        FailureToast.show(
           "Error",
           response['responseMessage'] ?? "Failed to create maintenance failure",
           backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -797,8 +802,8 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
     } catch (e) {
       EasyLoading.dismiss();
       isSubmitting.value = false;
-      debugPrint("Create Maintenance Failure Error: $e");
-      Get.snackbar(AppStrings.error, e.toString().replaceFirst('Exception: ', ''),
+      failureLog("Create Maintenance Failure Error: $e");
+      FailureToast.show(AppStrings.error, e.toString().replaceFirst('Exception: ', ''),
           backgroundColor: AppColors.red.withValues(alpha: 0.9),
           colorText: AppColors.white1,
           duration: const Duration(seconds: 5));
@@ -847,7 +852,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
   Future<void> updateMaintenanceFailure() async {
     // Prevent multiple submissions
     if (isSubmitting.value) {
-      debugPrint("updateMaintenanceFailure: Already submitting, ignoring duplicate request");
+      failureLog("updateMaintenanceFailure: Already submitting, ignoring duplicate request");
       return;
     }
 
@@ -910,7 +915,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
     }
 
     if (errors.isNotEmpty) {
-      Get.snackbar('Validation Error', errors.first,
+      FailureToast.show('Validation Error', errors.first,
           backgroundColor: AppColors.red.withValues(alpha: 0.9),
           colorText: AppColors.white1,
           snackPosition: SnackPosition.BOTTOM);
@@ -1008,7 +1013,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         'SubSystem': subsystemController.text.trim(),
       };
 
-      debugPrint('Maintenance update payload: $payload');
+      failureLog('Maintenance update payload: $payload');
       Map<String, dynamic> response;
       var savedOffline = false;
       try {
@@ -1032,15 +1037,15 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       // Leave the form first: Get.back() after a snackbar would only pop the
       // snackbar and leave the user on this page.
       Get.back(result: true);
-      Get.snackbar(savedOffline ? 'Saved Offline' : 'Success',
+      FailureToast.show(savedOffline ? 'Saved Offline' : 'Success',
           response['responseMessage']?.toString() ?? 'Data Edit Successfully',
           backgroundColor: savedOffline ? AppColors.orangeColor : AppColors.green,
           colorText: AppColors.white1);
     } catch (e) {
       EasyLoading.dismiss();
       isSubmitting.value = false;
-      debugPrint('Update Maintenance Failure Error: $e');
-      Get.snackbar(AppStrings.error, e.toString().replaceFirst('Exception: ', ''),
+      failureLog('Update Maintenance Failure Error: $e');
+      FailureToast.show(AppStrings.error, e.toString().replaceFirst('Exception: ', ''),
           backgroundColor: AppColors.red.withValues(alpha: 0.9),
           colorText: AppColors.white1);
     }
@@ -1048,7 +1053,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
   Future<void> updateFailure() async {
     try {
-      debugPrint("updateFailure");
+      failureLog("updateFailure");
       List<String> errors = [];
 
       // Get current logged-in user for assigned user
@@ -1119,6 +1124,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
                   .add("Used Quantity is required for all replaced materials.");
               break;
             }
+            final used = int.tryParse(usedQtyStr) ?? 0;
+            final required = int.tryParse('${mat['requiredQty'] ?? 0}') ?? 0;
+            if (used > required) {
+              errors.add(
+                  "Used Quantity cannot be greater than Required Quantity (${mat['materialCode']}).");
+              break;
+            }
           }
         }
       }
@@ -1187,7 +1199,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       }
 
       if (errors.isNotEmpty) {
-        Get.snackbar(
+        FailureToast.show(
           'Validation Error',
           errors.first,
           backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -1254,7 +1266,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         } catch (e) {
           if (!isNetworkError(e)) {
             EasyLoading.dismiss();
-            Get.snackbar(
+            FailureToast.show(
               AppStrings.error,
               e.toString().replaceFirst('Exception: ', ''),
               backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -1430,7 +1442,14 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         "IsFailureRectifiDetails": isRcaRequired.value,
         "IsFmecaFailureRectificationDetails": true,
         "FailureType": selectedActualFailureRectified.value ?? "No",
-        "FailureTypeId": "1",
+        "FailureTypeId": (const {
+          'software': 1,
+          'hardware': 2,
+          'communication': 3,
+          'other': 4,
+        }[(selectedMaterialType.value ?? '').trim().toLowerCase()] ??
+            1)
+            .toString(),
         "IsHardwareReplaced": isSparePartReplaced.value,
         "IsJointInspectionReq": isJointInspection.value,
         "FunctionLocation_JI": isJointInspection.value ? 0 : null,
@@ -1610,20 +1629,36 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
             "ActionText": actionFormatted,
           };
         }).toList(),
-        "getMeasurementPoints": measurementPointsList
-            .map((e) => {
-          "measId": e['measId'],
-          "measPoint": e['measPoint'],
-          "measPointDesc": e['measPointDesc'],
-          "unitOfMeasurement": e['unitOfMeasurement'],
-          "isRequired": false,
-          "beforeReading":
-          num.tryParse(e['beforeReading']?.toString() ?? "") ?? 0,
-          "finalConfirmation": true,
-          "afterReading":
-          num.tryParse(e['afterReading']?.toString() ?? "") ?? 0
-        })
-            .toList(),
+        // The same entry the web sends: the stored row (id / measurementId) is
+        // named, otherwise the readings are not saved on it.
+        "getMeasurementPoints": measurementPointsList.map((e) {
+          final unit = e['unitOfMeasurement']?.toString().trim() ?? '';
+          return {
+            "notificationId": 0,
+            "actionType": "",
+            "id": int.tryParse('${e['id'] ?? ''}') ?? 0,
+            "measurementId":
+                int.tryParse('${e['measurementId'] ?? e['measId'] ?? ''}') ?? 0,
+            "finalConfirmation": true,
+            "beforeReading":
+                num.tryParse(e['beforeReading']?.toString() ?? "") ?? 0,
+            "afterReading":
+                num.tryParse(e['afterReading']?.toString() ?? "") ?? 0,
+            "lowerRangeLimit":
+                num.tryParse(e['lowerRangeLimit']?.toString() ?? "") ?? 0,
+            "upperRangeLimit":
+                num.tryParse(e['upperRangeLimit']?.toString() ?? "") ?? 0,
+            "measPoint": int.tryParse('${e['measPoint'] ?? ''}') ?? e['measPoint'],
+            "measPointDesc": e['measPointDesc'],
+            "operationText": "",
+            "measuringPoint": "",
+            "description": "",
+            "measurementPosition": e['measurementPosition'] ?? "",
+            "measId": int.tryParse('${e['measId'] ?? ''}') ?? e['measId'],
+            "isRequired": true,
+            "unitOfMeasurement": unit.isEmpty ? null : unit,
+          };
+        }).toList(),
         "joinInspectionHistory": isJointInspection.value
             ? _jointInspectionHistoryForSubmit()
             : <Map<String, dynamic>>[],
@@ -1697,7 +1732,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         ]
             : <Map<String, dynamic>>[]
       };
-      debugPrint("payload===${payload["materialDismantleDetails"]}");
+      failureLog("payload===${payload["materialDismantleDetails"]}");
       // Build files list from local (non-network) selections
       final List<http.MultipartFile> files = [];
       if (beforeFiles.isNotEmpty &&
@@ -1719,7 +1754,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
             'rcaImage', rcaFiles.first['path']));
       }
       const encoder = JsonEncoder.withIndent('  ');
-      debugPrint(
+      failureLog(
         encoder.convert(payload),
         wrapWidth: 1024,
       );
@@ -1752,12 +1787,15 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         EasyLoading.dismiss();
         refreshFailureListAfterSubmission(isStation);
         Get.back(result: true);
-        Get.snackbar('Saved Offline',
+        FailureToast.show('Saved Offline',
             'Failure saved locally. Will sync when internet is available.',
             backgroundColor: AppColors.orangeColor, colorText: AppColors.white1);
         return;
       }
       EasyLoading.dismiss();
+      // Keep what the JE filled (Under Observation / In-Process, RCA, ...): the
+      // failure opens with it again.
+      if (isJE) await JeOverlay.save(resolveNotificationId(), payload);
       // The server decides what stays in the JE inbox (a closed failure leaves
       // it): the next list load downloads the lists again to show exactly that.
       if (isJE && Get.isRegistered<MasterDataSyncService>()) {
@@ -1766,12 +1804,12 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       // Reload the JE inbox list(s) so the closed/updated failure shows.
       refreshFailureListAfterSubmission(isStation);
       Get.back(result: true);
-      Get.snackbar(AppStrings.success, AppStrings.failureUpdated,
+      FailureToast.show(AppStrings.success, AppStrings.failureUpdated,
           backgroundColor: AppColors.green, colorText: AppColors.white1);
     } catch (e) {
       EasyLoading.dismiss();
-      debugPrint('updateFailure error: $e');
-      Get.snackbar(AppStrings.error, 'An unexpected error occurred');
+      failureLog('updateFailure error: $e');
+      FailureToast.show(AppStrings.error, 'An unexpected error occurred');
     }
   }
 }

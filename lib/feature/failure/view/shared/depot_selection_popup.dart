@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
+import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import 'package:get/get.dart';
@@ -11,6 +13,8 @@ import '../../../../utils/widgets/cust_dropdown.dart';
 import '../../../../utils/widgets/cust_loader.dart';
 import '../../../../utils/widgets/cust_text.dart';
 import '../../service/failure_service.dart';
+import '../../../../service/auth_manager.dart';
+import '../../../../service/local_database_service.dart';
 
 /// Depot picker for the DCC role. Loads depots from the lookup API, saves the
 /// choice with the insert API on OK and stores it in [SessionController].
@@ -24,10 +28,20 @@ Future<bool> showDepotSelectionPopup() async {
   final selectedName = Rxn<String>(session.selectedDepotName.value);
   final selectedId = Rxn<String>(session.selectedDepotId.value);
 
-  service.getDepotNames().then((list) {
+  // Depots of the user's business area from the bundled DepotMaster.db (works
+  // offline).
+  () async {
+    final ba = await AuthManager().getBusinessArea() ?? 0;
+    final rows = await LocalDatabaseService().getDepotsByBusinessArea(ba);
+    return [
+      for (final r in rows)
+        LabelValue(
+            label: '${r['DepotName'] ?? ''}'.trim(), value: '${r['DepotId']}')
+    ];
+  }().then((list) {
     depots.assignAll(list);
   }).catchError((e) {
-    debugPrint('showDepotSelectionPopup: error fetching depots: $e');
+    failureLog('showDepotSelectionPopup: error fetching depots: $e');
   }).whenComplete(() => isLoading.value = false);
 
   final result = await Get.dialog<bool>(
@@ -55,7 +69,7 @@ Future<bool> showDepotSelectionPopup() async {
               children: [
                 const CustLoader(),
                 const SizedBox(height: 16),
-                Text(isSaving.value ? 'Saving depot...' : 'Fetching depots...',
+                Text(isSaving.value ? 'Saving depot...' : 'Loading depots...',
                     style: const TextStyle(color: AppColors.textDarkSecondary)),
               ],
             );
@@ -112,7 +126,7 @@ Future<bool> showDepotSelectionPopup() async {
                       onSelected: (_) async {
                         final depotId = int.tryParse(selectedId.value ?? '') ?? 0;
                         if (depotId == 0) {
-                          Get.snackbar(
+                          FailureToast.show(
                             'Error',
                             'Please select a depot',
                             backgroundColor: AppColors.red.withValues(alpha: 0.9),
@@ -122,23 +136,17 @@ Future<bool> showDepotSelectionPopup() async {
                           return;
                         }
                         isSaving.value = true;
-                        bool saved = false;
+                        // Remembered on the server when it can be reached; the
+                        // list is filtered by the depot here, so the choice works
+                        // offline too.
                         try {
-                          saved = await service.saveUserDepot(depotId);
+                          await service
+                              .saveUserDepot(depotId)
+                              .timeout(const Duration(seconds: 8));
                         } catch (e) {
-                          debugPrint('showDepotSelectionPopup: save failed: $e');
+                          failureLog('showDepotSelectionPopup: save skipped: $e');
                         }
                         isSaving.value = false;
-                        if (!saved) {
-                          Get.snackbar(
-                            'Error',
-                            'Failed to save depot. Please try again.',
-                            backgroundColor: AppColors.red.withValues(alpha: 0.9),
-                            colorText: AppColors.white1,
-                            snackPosition: SnackPosition.BOTTOM,
-                          );
-                          return;
-                        }
                         session.selectedDepotId.value = selectedId.value;
                         session.selectedDepotName.value = selectedName.value;
                         Get.back(result: true);

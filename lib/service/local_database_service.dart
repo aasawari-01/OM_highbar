@@ -228,7 +228,20 @@ class LocalDatabaseService {
 
   Future<Database> _openUserDatabase() async {
     try {
-      final db = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
+      var db = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
+      // A copy without DeptName / numeric RoleId (an earlier bad export) cannot
+      // answer the Junior Engineer / Section Incharge lookups: take the bundled
+      // one again. A healthy copy (with the synced users) is left as it is.
+      if (!await _userTableHealthy(db)) {
+        final path = db.path;
+        await db.close();
+        if (path != inMemoryDatabasePath) {
+          try {
+            await File(path).delete();
+          } catch (_) {}
+        }
+        db = await _openAssetDatabase('user_data.db', _copyUserDatabaseFromAssets);
+      }
       await _ensureMasterIndexes(db, const [
         'CREATE INDEX IF NOT EXISTS idx_um_role_ba_dept ON {t}(RoleId, BusinessArea, DeptId)',
       ]);
@@ -236,6 +249,19 @@ class LocalDatabaseService {
       return db;
     } finally {
       _userOpening = null;
+    }
+  }
+
+  Future<bool> _userTableHealthy(Database db) async {
+    try {
+      final t = await _firstUserTable(db);
+      if (t == null) return false;
+      final cols = (await db.rawQuery('PRAGMA table_info("$t")'))
+          .map((r) => '${r['name']}'.toLowerCase())
+          .toSet();
+      return cols.contains('deptname') && cols.contains('roleid');
+    } catch (_) {
+      return true;
     }
   }
 
@@ -327,6 +353,73 @@ class LocalDatabaseService {
     return _rstOldRootCauseDatabase!;
   }
 
+  /// Copies the bundled DepotMaster.db into the app database (once, when the
+  /// table is empty), so the DCC depot picker works offline. Called at login /
+  /// sync and before the picker reads.
+  Future<void> ensureDepotMaster() async {
+    try {
+      final db = await database;
+      final count = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM DepotMaster')) ??
+          0;
+      if (count > 0) return;
+      final byteData = await rootBundle.load('assets/DepotMaster.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      final temp = join(await getDatabasesPath(), 'depotmaster_import.db');
+      await File(temp).writeAsBytes(bytes, flush: true);
+      final src = await openDatabase(temp, readOnly: true);
+      try {
+        final table = await _firstUserTable(src);
+        if (table == null) {
+          debugPrint('ensureDepotMaster: no table in DepotMaster.db');
+          return;
+        }
+        final rows = await src.query(table);
+        final batch = db.batch();
+        for (final r in rows) {
+          batch.insert(
+            'DepotMaster',
+            {
+              'DepotId': r['DepotId'],
+              'BusinessArea': r['BusinessArea'],
+              'DepotName': r['DepotName'],
+              'DepotCode': r['DepotCode'],
+              'PlantId': r['PlantId'],
+              'IsActive': r['IsActive'],
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+        debugPrint('ensureDepotMaster: ${rows.length} depots imported');
+      } finally {
+        await src.close();
+        try {
+          await File(temp).delete();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('ensureDepotMaster error: $e');
+    }
+  }
+
+  /// Active depots of a business area, for the DCC depot picker:
+  /// [{DepotId, DepotName}].
+  Future<List<Map<String, Object?>>> getDepotsByBusinessArea(int businessArea) async {
+    try {
+      await ensureDepotMaster();
+      final db = await database;
+      return await db.query('DepotMaster',
+          columns: ['DepotId', 'DepotName'],
+          where: 'BusinessArea = ? AND IsActive = 1',
+          whereArgs: [businessArea],
+          orderBy: 'DepotName');
+    } catch (e) {
+      debugPrint('getDepotsByBusinessArea error: $e');
+      return [];
+    }
+  }
+
   Future<Database> get rstStoreLocationDatabase async {
     if (_rstStoreLocationDatabase != null) return _rstStoreLocationDatabase!;
     _rstStoreLocationDatabase = await _openAssetDatabase('storelocation_data.db', _copyRstStoreLocationDatabaseFromAssets);
@@ -356,7 +449,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 22,
+      version: 25,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -975,6 +1068,18 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 25) {
+      // DepotMaster table (DCC depot picker)
+      await _createFailureTables(db);
+    }
+    if (oldVersion < 24) {
+      // DCC depot failure list
+      await _createFailureTables(db);
+    }
+    if (oldVersion < 23) {
+      // Junior Engineer joint inspection list
+      await _createFailureTables(db);
+    }
     if (oldVersion < 22) {
       // Why a queued Section Incharge action could not be sent
       try {
@@ -1120,6 +1225,35 @@ class LocalDatabaseService {
         pendingJson TEXT,
         lastSyncedAt TEXT,
         pendingError TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS DepotMaster (
+        DepotId INTEGER PRIMARY KEY,
+        BusinessArea INTEGER,
+        DepotName TEXT,
+        DepotCode TEXT,
+        PlantId INTEGER,
+        IsActive INTEGER
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS DepotFailureCache (
+        id INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        depotId INTEGER,
+        payload TEXT NOT NULL,
+        lastSyncedAt TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS JeJointCache (
+        notificationId INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        pendingAction TEXT,
+        pendingJson TEXT,
+        lastSyncedAt TEXT
       )
     ''');
     await db.execute('''
@@ -1753,6 +1887,52 @@ class LocalDatabaseService {
 
     final results = await db.rawQuery(query, args);
     return results;
+  }
+
+  /// Measurement points of a functional location: the object number of the
+  /// functional location (fun_loc ObjectNumber) is matched with the ObjectNo of
+  /// the measurement point master - the copy kept by the master data sync and
+  /// the bundled measurementPointMaster.db. Works offline.
+  Future<List<Map<String, dynamic>>> getMeasurementPointsForFunctionalLocation(
+      int funcLocId) async {
+    try {
+      final fl = await funLocDatabase;
+      final t = await _firstUserTable(fl);
+      if (t == null) return [];
+      final rows = await fl.rawQuery(
+          'SELECT ObjectNumber, ObjectKey FROM "$t" WHERE FuncLocId = ? LIMIT 1',
+          [funcLocId]);
+      if (rows.isEmpty) return [];
+      final candidates = <String>{
+        for (final k in ['ObjectNumber', 'ObjectKey'])
+          if ('${rows.first[k] ?? ''}'.trim().isNotEmpty &&
+              '${rows.first[k]}'.trim().toUpperCase() != 'NULL')
+            '${rows.first[k]}'.trim(),
+      };
+      final byId = <String, Map<String, dynamic>>{};
+      for (final objectNo in candidates) {
+        final found = <MeasurementPointModel>[
+          ...await getMeasurementPointsFromLocal(objectNumber: objectNo),
+          ...await getMeasurementPointsFromAssetsFiltered(objectNo),
+        ];
+        for (final m in found) {
+          final key = '${m.measId ?? m.measPoint}';
+          byId.putIfAbsent(key, () => {
+                'measId': m.measId,
+                'measPoint': m.measPoint,
+                'measPointDesc': m.measPointDesc,
+                'measRangeUnit': m.measRangeUnit,
+              });
+        }
+        if (byId.isNotEmpty) break; // the object number matched
+      }
+      final out = byId.values.toList()
+        ..sort((a, b) => '${a['measPoint']}'.compareTo('${b['measPoint']}'));
+      return out;
+    } catch (e) {
+      debugPrint('getMeasurementPointsForFunctionalLocation error: $e');
+      return [];
+    }
   }
 
   Future<List<MeasurementPointModel>> getMeasurementPoints() async {
@@ -3182,6 +3362,37 @@ class LocalDatabaseService {
         where: _stationEntryWhere, whereArgs: _stationEntryArgs(sid));
   }
 
+  /// Joint inspections added offline for a failure and not sent yet, as rows of
+  /// the joint inspection history ({jiId: -queue id, ...}).
+  Future<List<Map<String, dynamic>>> getPendingJiEntries(int notificationId) async {
+    final db = await database;
+    final rows = await db.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0', whereArgs: ['JE']);
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        if (p['action'] != 'jiAdd') continue;
+        if (int.tryParse('${p['notificationId']}') != notificationId) continue;
+        final body = Map<String, dynamic>.from(p['body'] as Map);
+        out.add({
+          'jiId': -(r['id'] as int),
+          'notificationId': notificationId,
+          'deptId': int.tryParse('${body['DeptId']}'),
+          'assignedTo': int.tryParse('${body['AssignedTo']}'),
+          'remark': body['Remark'],
+          'assginedUser': p['assignedUser'],
+          'deptName': p['deptName'],
+          'statusName': 'Pending Sync',
+          'type': body['Type'],
+          'createdBy': body['CreatedBy'],
+          'createdByName': body['CreatedByName'],
+        });
+      } catch (_) {}
+    }
+    return out;
+  }
+
   Future<void> deletePendingSubmission(int id) async {
     final db = await database;
     await db.delete('PendingFailureSubmissions', where: 'id = ?', whereArgs: [id]);
@@ -3685,6 +3896,24 @@ class LocalDatabaseService {
     }
   }
 
+  /// Unit of measurement of a material (materialMaster.db); "N/A" when the
+  /// master has none.
+  Future<String> getMaterialUnit(int materialId) async {
+    try {
+      final db = await materialMasterDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return 'N/A';
+      final rows = await db.rawQuery(
+          'SELECT UnitOfMeasurement FROM "$t" WHERE MaterialId = ? LIMIT 1',
+          [materialId]);
+      final unit = rows.isEmpty ? '' : '${rows.first['UnitOfMeasurement'] ?? ''}'.trim();
+      return (unit.isEmpty || unit.toUpperCase() == 'NULL') ? 'N/A' : unit;
+    } catch (e) {
+      debugPrint('getMaterialUnit error: $e');
+      return 'N/A';
+    }
+  }
+
   Future<List<MaterialMaster>> getMaterialMasters() async {
     try {
       final db = await materialMasterDatabase;
@@ -3962,6 +4191,46 @@ class LocalDatabaseService {
     return plants;
   }
 
+  Future<int?> getDeptIdByName(String name) async {
+    try {
+      final db = await deptDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DeptId FROM deptMaster WHERE lower(trim(DeptName)) = ? LIMIT 1',
+          [name.trim().toLowerCase()]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['DeptId']}');
+    } catch (e) {
+      debugPrint('getDeptIdByName error: $e');
+      return null;
+    }
+  }
+
+  Future<int?> getDeptIdByCode(String code) async {
+    try {
+      final db = await deptDatabase;
+      final rows = await db.rawQuery(
+          'SELECT DeptId FROM deptMaster WHERE upper(trim(DeptCode)) = ? LIMIT 1',
+          [code.trim().toUpperCase()]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['DeptId']}');
+    } catch (e) {
+      debugPrint('getDeptIdByCode error: $e');
+      return null;
+    }
+  }
+
+  Future<String?> getUserNameById(int userId) async {
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return null;
+      final rows = await db.rawQuery(
+          'SELECT UserName FROM "$t" WHERE UserId = ? LIMIT 1', [userId]);
+      return rows.isEmpty ? null : rows.first['UserName']?.toString();
+    } catch (e) {
+      debugPrint('getUserNameById error: $e');
+      return null;
+    }
+  }
+
   Future<String?> getDeptCodeById(int deptId) async {
     try {
       final db = await deptDatabase;
@@ -4156,8 +4425,8 @@ class LocalDatabaseService {
       final t = await _firstUserTable(db);
       if (t == null) return [];
       return await db.rawQuery(
-          'SELECT ID, FailureCategoryType FROM "$t" '
-          'WHERE IsActive = 1 ORDER BY OrderNo, ID');
+          'SELECT ID, FailureCategoryType, MIN(OrderNo) AS OrderNo FROM "$t" '
+          'WHERE IsActive = 1 GROUP BY ID, FailureCategoryType ORDER BY OrderNo, ID');
     } catch (e) {
       debugPrint('getFailureCategoryTypeOptions error: $e');
       return [];
@@ -4389,6 +4658,166 @@ class LocalDatabaseService {
     }
   }
 
+  // ===========================================================================
+  // Master data of MasterDataLogin / getMasterDataSync written into the bundled
+  // databases the dropdowns read: rows that exist are updated with the values
+  // the server sent, new rows are added (see _mergeMasterRows).
+  // ===========================================================================
+
+  Object? _masterValue(Object? v) => v is bool ? (v ? 1 : 0) : v;
+
+  Future<void> _upsertAssetRows(
+    Database db,
+    String keyColumn,
+    List<dynamic> apiRows,
+    Map<String, String> columns, // local column -> name in the API row
+    Map<String, Object?> insertDefaults,
+  ) async {
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    // The bundled tables have no key, so "insert if new" would add the same row
+    // again at every sync: drop the copies made so far (keep the first row of
+    // each key) and make the key unique.
+    try {
+      await db.execute(
+          'DELETE FROM "$t" WHERE rowid NOT IN (SELECT MIN(rowid) FROM "$t" GROUP BY $keyColumn)');
+      await db.execute(
+          'CREATE UNIQUE INDEX IF NOT EXISTS idx_key_${keyColumn.toLowerCase()} ON "$t"($keyColumn)');
+    } catch (e) {
+      debugPrint('_upsertAssetRows: key of $t: $e');
+    }
+    final inserts = <Map<String, Object?>>[];
+    final updates = <Map<String, Object?>>[];
+    for (final r in apiRows) {
+      if (r is! Map) continue;
+      final sent = <String, Object?>{
+        for (final e in columns.entries) e.key: _masterValue(r[e.value]),
+      };
+      updates.add(sent);
+      inserts.add({
+        ...insertDefaults,
+        ...Map<String, Object?>.from(sent)..removeWhere((k, v) => v == null),
+      });
+    }
+    await _mergeMasterRows(db, t, keyColumn, inserts, updates);
+  }
+
+  Future<void> upsertDepartmentsToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await deptDatabase,
+          'DeptId',
+          rows,
+          {'DeptId': 'deptId', 'DeptName': 'deptName', 'DeptCode': 'workCenter'},
+          {'IsActive': 1, 'IsONM': 1});
+
+  Future<void> upsertNotificationTypesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await notificationTypeDatabase,
+          'ID',
+          rows,
+          {
+            'ID': 'notificationTypeId',
+            'NotificationType': 'notificationType',
+            'Description': 'notificationType',
+            'CreatedOn': 'createdOn',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertFailureCategoryTypesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await failureCategoryDatabase,
+          'ID',
+          rows,
+          {
+            'ID': 'id',
+            'FailureCategoryType': 'failureCategoryType',
+            'Description': 'failureCategoryType',
+            'OrderNo': 'orderNo',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertPlantsToMaster(List<dynamic> rows) async {
+    await _upsertAssetRows(
+        await plantDatabase,
+        'Plant',
+        rows,
+        {
+          'Plant': 'plant',
+          'Name1': 'name1',
+          'Name2': 'name2',
+          'BusinessArea': 'businessArea',
+        },
+        {});
+    _plantsByBusinessArea.clear();
+  }
+
+  Future<void> upsertActionMastersToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await actionTakenDatabase,
+          'ID',
+          rows,
+          {
+            'ID': 'id',
+            'SystemGroup': 'systemGroup',
+            'ActionCode': 'actionCode',
+            'ActionDescr': 'actionDescr',
+            'IsActive': 'isActive',
+          },
+          {'IsActive': 1, 'ObjectCode': 'NULL', 'FaultCode': 'NULL'});
+
+  Future<void> upsertRcaCategoriesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await rcaFailureCategoryDatabase,
+          'FailureCategoryId',
+          rows,
+          {
+            'FailureCategoryId': 'failureCategoryId',
+            'Systems': 'systems',
+            'FailureCategory': 'failureCategory',
+            'WorkCenter': 'workCenter',
+            'BusinessArea': 'businessArea',
+            'CreatedOn': 'createdOn',
+            'CreatedBy': 'createdBy',
+            'IsActive': 'isActive',
+            'SubSystem': 'subSystem',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertRcaCausesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await causeOfFailureDatabase,
+          'CauseOfFailureId',
+          rows,
+          {
+            'CauseOfFailureId': 'causeOfFailureId',
+            'Cause': 'cause',
+            'FailureCategoryId': 'failureCategoryId',
+            'Systems': 'systems',
+            'WorkCenter': 'workCenter',
+            'BusinessArea': 'businessArea',
+            'IsActive': 'isActive',
+            'subSystem': 'subSystem',
+          },
+          {'IsActive': 1});
+
+  Future<void> upsertRcaRootCausesToMaster(List<dynamic> rows) async =>
+      _upsertAssetRows(
+          await rootCauseDatabase,
+          'RootCauseId',
+          rows,
+          {
+            'RootCauseId': 'rootCauseId',
+            'RootCause': 'rootCause',
+            'CauseOfFailureId': 'causeOfFailureId',
+            'FailureCategoryId': 'failureCategoryId',
+            'Systems': 'systems',
+            'WorkCenter': 'workCenter',
+            'BusinessArea': 'businessArea',
+            'IsActive': 'isActive',
+            'subSystems': 'subSystems',
+          },
+          {'IsActive': 1});
+
   /// Merges functional locations from the API sync into the table the
   /// dropdowns read. New rows get status 'Created' when the API sends none
   /// (a NULL status is filtered out by the Deletion Flag check); existing
@@ -4465,6 +4894,96 @@ class LocalDatabaseService {
             } catch (_) {}
             _userDatabase = null;
           });
+
+  /// Applies the user changes of MasterDataLogin / getMasterDataSync, one entry
+  /// per user {userId, action, addedRights, removedRights}:
+  ///  DELETE     the user is gone or inactive: all their rows are removed
+  ///  NO_RIGHTS  the user keeps no right: all their rows are removed
+  ///  NEW        a new user: the added rights are stored (none yet = nothing)
+  ///  UPSERT     profile or role / department / designation names changed: the
+  ///             removed rights go, the added rights are stored, and the profile
+  ///             (name, email, code, area, designation) is updated on every row
+  ///  RIGHTS     only rights added / removed
+  /// A right without a role is the user alone (no right): it is not stored,
+  /// so the user does not appear in any user list.
+  Future<void> applyUserChanges(List<dynamic> changes) =>
+      _retryIfDbMoved(() => _applyUserChangesOnce(changes), () async {
+        try {
+          await _userDatabase?.close();
+        } catch (_) {}
+        _userDatabase = null;
+      });
+
+  Future<void> _applyUserChangesOnce(List<dynamic> changes) async {
+    final db = await userDatabase;
+    final t = await _firstUserTable(db);
+    if (t == null) return;
+    for (final c in changes) {
+      if (c is! Map) continue;
+      final userId = int.tryParse('${c['userId']}');
+      if (userId == null || userId <= 0) continue;
+      final action = '${c['action'] ?? ''}'.trim().toUpperCase();
+      List<Map> rights(String key) => [
+            for (final r in (c[key] as List? ?? const []))
+              if (r is Map) r
+          ];
+      final added = rights('addedRights');
+      final removed = rights('removedRights');
+      String right(Map r) =>
+          'role=${r['roleId']}(${r['roleDescr']}) dept=${r['deptId']} area=${r['businessArea']}';
+      debugPrint('applyUserChanges: user $userId $action '
+          'added=[${added.map(right).join('; ')}] '
+          'removed=[${removed.map(right).join('; ')}]');
+
+      if (action == 'DELETE' || action == 'NO_RIGHTS') {
+        final n = await db.delete('"$t"', where: 'UserId = ?', whereArgs: [userId]);
+        debugPrint('applyUserChanges: user $userId: $n rows removed');
+        continue;
+      }
+
+      for (final r in removed) {
+        await db.delete('"$t"',
+            where: 'UserId = ? AND RoleId IS ? AND DeptId IS ?',
+            whereArgs: [userId, r['roleId'], r['deptId']]);
+      }
+      final withRole = [
+        for (final r in added)
+          if (r['roleId'] != null) {...r, 'userId': userId}
+      ];
+      if (withRole.isNotEmpty) await _upsertUsersToMasterOnce(withRole);
+
+      // The profile is the same on every row of the user.
+      if (added.isNotEmpty) {
+        final p = added.first;
+        var userName = _cleanMasterText(p['userName']);
+        if (userName.isEmpty) {
+          userName = '${_cleanMasterText(p['firstName'])} ${_cleanMasterText(p['lastName'])}'
+              .trim();
+        }
+        await db.update(
+          '"$t"',
+          {
+            'Initial': p['initial'],
+            'FirstName': p['firstName'],
+            'LastName': p['lastName'],
+            'EmailId': p['emailId'],
+            'EmpCode': p['empCode'],
+            if (userName.isNotEmpty) 'UserName': userName,
+            'BusinessArea': p['businessArea'],
+            'DesignationID': p['designationID'],
+            'DesignationName': p['designationName'],
+          },
+          where: 'UserId = ?',
+          whereArgs: [userId],
+        );
+      }
+      final now = await db.rawQuery(
+          'SELECT DISTINCT RoleId, DeptId, BusinessArea FROM "$t" WHERE UserId = ?',
+          [userId]);
+      debugPrint('applyUserChanges: user $userId now has '
+          '${now.map((r) => 'role=${r['RoleId']} dept=${r['DeptId']} area=${r['BusinessArea']}').toList()}');
+    }
+  }
 
   Future<void> _upsertUsersToMasterOnce(List<dynamic> rows,
       {void Function(int done, int total)? onProgress}) async {
@@ -4614,14 +5133,43 @@ class LocalDatabaseService {
     });
   }
 
+  /// Station failures with an Acknowledge waiting to be sent: {failure id:
+  /// {sid, error, status}}.
+  Future<Map<int, Map<String, dynamic>>> getStationAckPending() async {
+    final db = await database;
+    return _stationAckPending(db);
+  }
+
+  Future<Map<int, Map<String, dynamic>>> _stationAckPending(DatabaseExecutor ex) async {
+    final out = <int, Map<String, dynamic>>{};
+    final rows = await ex.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0', whereArgs: ['StationAck']);
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        final id = int.tryParse('${p['id']}');
+        if (id == null) continue;
+        out[id] = {
+          'sid': r['id'],
+          'error': r['syncError'],
+          'status': p['submitStatus'],
+        };
+      } catch (_) {}
+    }
+    return out;
+  }
+
   Future<void> _insertStationRecords(
       DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
     final now = DateTime.now().toIso8601String();
+    // The server does not know about an Acknowledge waiting to be sent yet: its
+    // state must not replace the local one.
+    final pendingAck = (await _stationAckPending(txn)).keys.toSet();
     final batch = txn.batch();
     for (final r in records) {
       final f = r['failure'];
       final id = f is Map ? int.tryParse('${f['id']}') : null;
-      if (id == null) continue;
+      if (id == null || pendingAck.contains(id)) continue;
       batch.insert(
         'StationFailureCache',
         {
@@ -4989,6 +5537,214 @@ class LocalDatabaseService {
     await db.delete('JeFailureCache');
   }
 
+  // ===========================================================================
+  // Junior Engineer joint inspection list (GetAllFailuresTransactionData,
+  // jeJointInspectionList): failures a joint inspection was asked of this user
+  // for. Same rules as the other failure caches: a row with an action waiting
+  // to be sent is not overwritten by the sync.
+  // ===========================================================================
+
+  Future<void> replaceJeJointCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('JeJointCache', where: 'pendingAction IS NULL');
+      await _insertJointRecords(txn, records);
+    });
+  }
+
+  Future<void> upsertJeJointCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertJointRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertJointRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final pending = <int>{
+      for (final r in await txn.query('JeJointCache',
+          columns: ['notificationId'], where: 'pendingAction IS NOT NULL'))
+        int.parse('${r['notificationId']}'),
+    };
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['jeFailure'];
+      final id = f is Map ? int.tryParse('${f['notificationId']}') : null;
+      if (id == null || pending.contains(id)) continue;
+      batch.insert(
+        'JeJointCache',
+        {
+          'notificationId': id,
+          'notificationCode': f['notificationCode']?.toString(),
+          'payload': jsonEncode(r),
+          'lastSyncedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Map<String, dynamic>? _jointRow(Map<String, Object?> r) {
+    try {
+      return {
+        'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
+        'pendingAction': r['pendingAction'],
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getJeJointCache() async {
+    final db = await database;
+    final rows = await db.query('JeJointCache', orderBy: 'notificationId DESC');
+    return [for (final r in rows) if (_jointRow(r) != null) _jointRow(r)!];
+  }
+
+  Future<Map<String, dynamic>?> findJeJoint({int? notificationId, String? code}) async {
+    final db = await database;
+    List<Map<String, Object?>> rows = const [];
+    if (notificationId != null && notificationId > 0) {
+      rows = await db.query('JeJointCache',
+          where: 'notificationId = ?', whereArgs: [notificationId], limit: 1);
+    }
+    if (rows.isEmpty && (code ?? '').trim().isNotEmpty) {
+      rows = await db.query('JeJointCache',
+          where: 'notificationCode = ?', whereArgs: [code!.trim()], limit: 1);
+    }
+    return rows.isEmpty ? null : _jointRow(rows.first);
+  }
+
+  Future<void> setJeJointPending(int notificationId, String action) async {
+    final db = await database;
+    await db.update('JeJointCache', {'pendingAction': action},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  Future<void> clearJeJointPending(int notificationId) async {
+    final db = await database;
+    await db.update('JeJointCache', {'pendingAction': null},
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  /// A joint inspection that was submitted leaves the list (the server no
+  /// longer sends it).
+  Future<void> deleteJeJoint(int notificationId) async {
+    final db = await database;
+    await db.delete('JeJointCache',
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  Future<void> clearJeJointCache() async {
+    final db = await database;
+    await db.delete('JeJointCache');
+  }
+
+  // ===========================================================================
+  // DCC depot failure list (GetAllFailuresTransactionData, depotFailuresList).
+  // Each row keeps the whole record: {depotFailures, documents, history, ...}.
+  // ===========================================================================
+
+  Future<void> replaceDepotFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('DepotFailureCache');
+      await _insertDepotRecords(txn, records);
+    });
+  }
+
+  Future<void> upsertDepotFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertDepotRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertDepotRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['depotFailures'];
+      final id = f is Map ? int.tryParse('${f['id']}') : null;
+      if (id == null) continue;
+      batch.insert(
+        'DepotFailureCache',
+        {
+          'id': id,
+          'notificationCode': f['failureId']?.toString(),
+          'depotId': int.tryParse('${f['depotId']}'),
+          'payload': jsonEncode(r),
+          'lastSyncedAt': now,
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// The depot failures of one depot.
+  Future<List<Map<String, dynamic>>> getDepotFailureCache(int depotId) async {
+    final db = await database;
+    final rows = await db.query('DepotFailureCache',
+        where: 'depotId = ?', whereArgs: [depotId], orderBy: 'id DESC');
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        out.add(Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map));
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> getDepotFailureCacheRow(int id) async {
+    final db = await database;
+    final rows = await db.query('DepotFailureCache',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearDepotFailureCache() async {
+    final db = await database;
+    await db.delete('DepotFailureCache');
+  }
+
+  // Offline depot entries are in FailureList (failureType DepotOffline_<depot>)
+  // with ids -(submissionId * 10 + index).
+  static const String _depotEntryWhere =
+      'failureType LIKE ? AND id <= ? AND id > ?';
+  List<Object?> _depotEntryArgs(int sid) =>
+      ['DepotOffline_%', -(sid * 10), -(sid * 10 + 10)];
+
+  Future<void> markDepotOfflineEntries(int sid,
+      {required bool failed, String? error}) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'statusName': failed ? 'Sync Failed' : 'Pending Sync',
+        'syncStatus': failed ? 'failed' : 'offline',
+        'remarks': failed ? (error ?? '') : '',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: _depotEntryWhere,
+      whereArgs: _depotEntryArgs(sid),
+    );
+  }
+
+  Future<void> deleteDepotOfflineEntries(int sid) async {
+    final db = await database;
+    await db.delete('FailureList',
+        where: _depotEntryWhere, whereArgs: _depotEntryArgs(sid));
+  }
+
   Future<void> clearSiFailureCache() async {
     final db = await database;
     await db.delete('SiFailureCache');
@@ -5022,6 +5778,31 @@ class LocalDatabaseService {
   /// Junior Engineers of several departments (role id 4) in the user's business
   /// area, from UserMaster.db: the staff a Section Incharge can assign to.
   /// Rows: {UserId, UserName, DeptId, DeptName}.
+  /// The roles and departments a user holds (UserMaster.db, kept up to date by
+  /// the master data sync), within a business area when given.
+  Future<List<Map<String, dynamic>>> getUserRoleDeptRows(int userId,
+      {int? businessArea}) async {
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final args = <Object?>[userId];
+      var area = '';
+      if (businessArea != null) {
+        area = ' AND BusinessArea = ?';
+        args.add(businessArea);
+      }
+      return await db.rawQuery(
+          'SELECT DISTINCT RoleId, RoleDescr, DeptId, DeptName FROM "$t" '
+          'WHERE UserId = ? AND RoleId IS NOT NULL AND DeptId IS NOT NULL$area '
+          'ORDER BY DeptName, RoleDescr',
+          args);
+    } catch (e) {
+      debugPrint('getUserRoleDeptRows error: $e');
+      return [];
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getJuniorEngineersForDepartments(
       Iterable<int> deptIds, {int? businessArea}) async {
     final ids = deptIds.where((e) => e > 0).toSet().toList();
