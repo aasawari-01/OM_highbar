@@ -1,3 +1,5 @@
+import 'package:om_mobile/feature/failure/view/shared/attachment_cropper.dart';
+import 'package:path/path.dart' as p;
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:io';
@@ -97,12 +99,12 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                         final XFile? image =
                         await picker.pickImage(source: ImageSource.camera);
                         if (image != null) {
-                          final bytes = await image.readAsBytes();
-                          final sizeInMb = bytes.length / (1024 * 1024);
+                          final path = await AttachmentCropper.crop(image.path);
+                          final sizeInMb = await File(path).length() / (1024 * 1024);
                           targetList.add({
-                            'name': image.name,
+                            'name': path == image.path ? image.name : p.basename(path),
                             'size': '${sizeInMb.toStringAsFixed(1)} MB',
-                            'path': image.path,
+                            'path': path,
                             'url': '',
                             'isNetwork': false,
                           });
@@ -124,11 +126,21 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                         await FilePicker.platform.pickFiles();
                         if (result != null) {
                           for (var file in result.files) {
-                            final sizeInMb = file.size / (1024 * 1024);
+                            // Images can be cropped; other files are kept as they are.
+                            final picked = file.path;
+                            final path = picked == null
+                                ? null
+                                : await AttachmentCropper.crop(picked);
+                            final bytes = path == null || path == picked
+                                ? file.size
+                                : await File(path).length();
+                            final sizeInMb = bytes / (1024 * 1024);
                             targetList.add({
-                              'name': file.name,
+                              'name': path == null || path == picked
+                                  ? file.name
+                                  : p.basename(path),
                               'size': '${sizeInMb.toStringAsFixed(1)} MB',
-                              'path': file.path,
+                              'path': path,
                               'url': '',
                               'isNetwork': false,
                             });
@@ -144,7 +156,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               ),
               const SizedBox(height: 20),
               CustText.body(
-                "Upload Files or Take Photos",
+                "Take Photos or Upload Files",
                 size: 16,
                 color: AppColors.textMutedLight,
                 fontWeightName: FontWeight.w600,
