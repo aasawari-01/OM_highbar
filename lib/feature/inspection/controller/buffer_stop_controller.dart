@@ -221,11 +221,12 @@ class BufferStopController extends GetxController {
   JsonMap _header() => {
         'InspectionId': wireId(_inspectionId),
         'Date': inspectionDate.value,
-        'KMPH': selectedKmph.value,
+        'KMPH': wireId(selectedKmph.value!),
         'Month': selectedMonth.value,
         'Time': formatTimeValue(time.value!),
-        'LineUpDown': wireId(selectedLineType.value!),
-        'Chainage': wireId(selectedChainage.value!),
+        // A saved name (no id from the server) is left out, as the web does.
+        if (int.tryParse(selectedLineType.value!) != null) 'LineUpDown': wireId(selectedLineType.value!),
+        if (int.tryParse(selectedChainage.value!) != null) 'Chainage': wireId(selectedChainage.value!),
         'PersonResponsibleId': wireId(_personId),
         'Remark': remark.text.trim(),
       };

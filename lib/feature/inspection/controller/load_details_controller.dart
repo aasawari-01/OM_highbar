@@ -63,7 +63,9 @@ class LoadDetailsController extends GetxController {
   void markDirty() => dirty.value = true;
 
   void selectMdbType(String? value) {
-    selectedMdbType.value = (value == '0' || value == '') ? null : value;
+    // TEMP: remove once the MDB type problem is found.
+    debugPrint('[LoadDetails] picked MDB value="$value"; options=${mdbTypes.map((o) => '"${o.value}=${o.label}"').toList()}');
+    selectedMdbType.value = (value == null || value.isEmpty) ? null : value;
     markDirty();
   }
 

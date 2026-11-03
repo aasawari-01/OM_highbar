@@ -7,6 +7,7 @@ import '../../../utils/widgets/cust_button.dart';
 import '../../../utils/widgets/cust_dropdown.dart';
 import '../../../utils/widgets/cust_loader.dart';
 import '../../../utils/widgets/cust_section.dart';
+import '../../../utils/widgets/cust_text.dart';
 import '../../../utils/widgets/cust_textfield.dart';
 import '../../../utils/widgets/custom_app_bar.dart';
 import '../controller/load_details_controller.dart';
@@ -188,7 +189,10 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
 
   Widget _addRowSection() {
     final type = c.selectedMdbType.value;
-    final options = c.mdbTypes;
+    // Drop only a bare "Select" placeholder, and only when real types remain.
+    final all = c.mdbTypes.toList();
+    final real = all.where((o) => o.label.trim().toLowerCase() != 'select').toList();
+    final options = real.isEmpty ? all : real;
     final selectedLabel = options.where((o) => o.value == type).map((o) => o.label).firstOrNull;
     // Like the web: MD and Demand readings in one card, Line Current and the
     // other readings (pf, kWH, kVAh) in a second card that holds the Add button.
@@ -208,6 +212,14 @@ class _LoadDetailsScreenState extends State<LoadDetailsScreen> {
                 onChanged: (label) => c.selectMdbType(
                     options.where((o) => o.label == label).map((o) => o.value).firstOrNull),
               ),
+              if (options.isEmpty) ...[
+                const SizedBox(height: AppConstants.subElementSpacing),
+                CustText(
+                  name: 'No MDB types were returned by the server.',
+                  size: AppConstants.detailLabelSize,
+                  color: AppColors.red,
+                ),
+              ],
               if (type != null)
                 for (final f in loadReadingFields.take(_split)) ...[
                   const SizedBox(height: AppConstants.elementSpacing),

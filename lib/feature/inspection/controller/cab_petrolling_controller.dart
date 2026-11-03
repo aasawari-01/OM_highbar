@@ -97,6 +97,12 @@ class CabPetrollingController extends GetxController {
   /// The API lists a "Select" placeholder (value 0) first; it is not a choice.
   String? _real(String? v) => (v == null || v.isEmpty || v == '0') ? null : v;
 
+  /// Drops the API's "Select ..." entry (e.g. "Select Line"), which is not a choice.
+  List<T> _withoutPlaceholder<T>(List<T> items, String Function(T) label) {
+    final real = items.where((e) => !label(e).trim().toLowerCase().startsWith('select')).toList();
+    return real.isEmpty ? items : real;
+  }
+
   void selectLineType(String? v) {
     selectedLineType.value = _real(v);
     markDirty();
@@ -141,8 +147,8 @@ class CabPetrollingController extends GetxController {
           data.date.isNotEmpty ? data.date : (basic['inspectionScheduledDate'] ?? '').toString();
       inspectionName.value = (basic['inspectionName'] ?? '').toString();
       _inspectionId = data.inspectionId;
-      lines.assignAll(data.lines);
-      lineTypes.assignAll(data.lineTypes);
+      lines.assignAll(_withoutPlaceholder(data.lines, (l) => l.label));
+      lineTypes.assignAll(_withoutPlaceholder(data.lineTypes, (o) => o.label));
       headerFields.assignAll(fields);
 
       for (final r in cabChecklistRows) {
@@ -189,7 +195,8 @@ class CabPetrollingController extends GetxController {
   Future<bool> _loadLocations(String planningPlantId) async {
     locationsLoading.value = true;
     try {
-      locations.assignAll(await _service.getLocations(planningPlantId));
+      locations.assignAll(_withoutPlaceholder(
+          await _service.getLocations(planningPlantId), (o) => o.label));
       return true;
     } catch (e) {
       debugPrint('Error loading locations: $e');

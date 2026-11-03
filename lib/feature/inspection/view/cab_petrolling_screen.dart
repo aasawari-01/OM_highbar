@@ -95,7 +95,7 @@ class _CabPetrollingScreenState extends State<CabPetrollingScreen> {
     final scaffold = Scaffold(
       backgroundColor: AppColors.appBarColor,
       appBar: CustomAppBar(
-        title: 'Cab Petrolling Action',
+        title: 'Cab Inspection',
         showDrawer: false,
         onLeadingPressed: _onBack,
         actions: const [SizedBox(width: 16)],
