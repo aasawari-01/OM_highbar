@@ -449,7 +449,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 25,
+      version: 26,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -1068,6 +1068,10 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 26) {
+      // OCC / FMC failure list, OCC lookups and the train set master
+      await _createFailureTables(db);
+    }
     if (oldVersion < 25) {
       // DepotMaster table (DCC depot picker)
       await _createFailureTables(db);
@@ -1233,6 +1237,34 @@ class LocalDatabaseService {
         BusinessArea INTEGER,
         DepotName TEXT,
         DepotCode TEXT,
+        PlantId INTEGER,
+        IsActive INTEGER
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS OccFailureCache (
+        id INTEGER NOT NULL,
+        listType TEXT NOT NULL,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        pendingAction TEXT,
+        pendingError TEXT,
+        lastSyncedAt TEXT,
+        PRIMARY KEY (id, listType)
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS OccLookupCache (
+        cacheKey TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        savedAt TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS TrainSetMaster (
+        TrainSetId INTEGER PRIMARY KEY,
+        TrainSetName TEXT,
+        TrainSetCode TEXT,
         PlantId INTEGER,
         IsActive INTEGER
       )
@@ -4362,6 +4394,22 @@ class LocalDatabaseService {
     }
   }
 
+  /// Id of a functional location from its code (the OCC lists send the code
+  /// only); null when it is not in the local master data.
+  Future<int?> getFailureFunctionalLocationIdByCode(String code) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return null;
+      final rows = await db.rawQuery(
+          'SELECT FuncLocId FROM "$t" WHERE FuncLocation = ? LIMIT 1', [code.trim()]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['FuncLocId']}');
+    } catch (e) {
+      debugPrint('getFailureFunctionalLocationIdByCode error: $e');
+      return null;
+    }
+  }
+
   /// Equipment for the failure form. With [funcLocCode] the list is that
   /// functional location's equipment; otherwise it follows the same
   /// department / location rules as the functional location list.
@@ -5743,6 +5791,232 @@ class LocalDatabaseService {
     final db = await database;
     await db.delete('FailureList',
         where: _depotEntryWhere, whereArgs: _depotEntryArgs(sid));
+  }
+
+  // ===========================================================================
+  // OCC failure lists (GetAllFailuresTransactionData: occFailures for the Chief
+  // Controller, fmcFailures for FMC / TPC / CSS / RSC). Each row keeps the whole
+  // record: {failure, documents, histories, assignHistories}. An update waiting
+  // to be sent is marked in pendingAction.
+  // ===========================================================================
+
+  Future<void> replaceOccFailureCache(
+      String listType, List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('OccFailureCache',
+          where: 'listType = ? AND pendingAction IS NULL', whereArgs: [listType]);
+      await _insertOccRecords(txn, listType, records);
+    });
+  }
+
+  Future<void> upsertOccFailureCache(
+      String listType, List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertOccRecords(txn, listType, records);
+    });
+  }
+
+  Future<void> _insertOccRecords(DatabaseExecutor txn, String listType,
+      List<Map<String, dynamic>> records) async {
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['failure'];
+      final id = f is Map ? int.tryParse('${f['id']}') : null;
+      if (id == null) continue;
+      // Insert when new, then refresh the record: the pending marker of a
+      // queued update survives (and no UPSERT syntax, older Android SQLite).
+      final payload = jsonEncode(r);
+      final code = f['failureId']?.toString();
+      batch.rawInsert(
+        'INSERT OR IGNORE INTO OccFailureCache '
+        '(id, listType, notificationCode, payload, lastSyncedAt) VALUES (?, ?, ?, ?, ?)',
+        [id, listType, code, payload, now],
+      );
+      batch.rawUpdate(
+        'UPDATE OccFailureCache SET notificationCode = ?, payload = ?, lastSyncedAt = ? '
+        'WHERE id = ? AND listType = ?',
+        [code, payload, now, id, listType],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Rows of one list: {record, pendingAction, pendingError}.
+  Future<List<Map<String, dynamic>>> getOccFailureCache(String listType) async {
+    final db = await database;
+    final rows = await db.query('OccFailureCache',
+        where: 'listType = ?', whereArgs: [listType], orderBy: 'id DESC');
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        out.add({
+          'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
+          'pendingAction': r['pendingAction'],
+          'pendingError': r['pendingError'],
+        });
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> getOccFailureCacheRow(int id) async {
+    final db = await database;
+    final rows = await db.query('OccFailureCache',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setOccPending(int id, String action, {String? error}) async {
+    final db = await database;
+    await db.update('OccFailureCache',
+        {'pendingAction': action, 'pendingError': error ?? ''},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearOccPending(int id) async {
+    final db = await database;
+    await db.update('OccFailureCache', {'pendingAction': null, 'pendingError': null},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearOccFailureCache() async {
+    final db = await database;
+    await db.delete('OccFailureCache');
+  }
+
+  // Offline OCC creates are in FailureList (failureType OccOffline) with ids
+  // -(submissionId * 10).
+  static const String _occEntryWhere = 'failureType = ? AND id <= ? AND id > ?';
+  List<Object?> _occEntryArgs(int sid) =>
+      ['OccOffline', -(sid * 10), -(sid * 10 + 10)];
+
+  Future<void> markOccOfflineEntries(int sid,
+      {required bool failed, String? error}) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'statusName': failed ? 'Sync Failed' : 'Pending Sync',
+        'syncStatus': failed ? 'failed' : 'offline',
+        'remarks': failed ? (error ?? '') : '',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: _occEntryWhere,
+      whereArgs: _occEntryArgs(sid),
+    );
+  }
+
+  Future<void> deleteOccOfflineEntries(int sid) async {
+    final db = await database;
+    await db.delete('FailureList',
+        where: _occEntryWhere, whereArgs: _occEntryArgs(sid));
+  }
+
+  /// A saved server answer the OCC forms need offline (Reported To, Line,
+  /// Reported By, Train Operator lists), per key.
+  Future<void> saveOccLookup(String key, Map<String, dynamic> value) async {
+    final db = await database;
+    await db.insert(
+      'OccLookupCache',
+      {
+        'cacheKey': key,
+        'payload': jsonEncode(value),
+        'savedAt': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getOccLookup(String key) async {
+    final db = await database;
+    final rows = await db.query('OccLookupCache',
+        where: 'cacheKey = ?', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> clearOccLookups() async {
+    final db = await database;
+    await db.delete('OccLookupCache');
+  }
+
+  /// Copies the bundled trainMaster.db into the app database (once, when the
+  /// table is empty), so the Train Set list works offline. Called at login /
+  /// sync and before the list is read.
+  Future<void> ensureTrainSetMaster() async {
+    try {
+      final db = await database;
+      final count = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM TrainSetMaster')) ??
+          0;
+      if (count > 0) return;
+      final byteData = await rootBundle.load('assets/trainMaster.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      final temp = join(await getDatabasesPath(), 'trainmaster_import.db');
+      await File(temp).writeAsBytes(bytes, flush: true);
+      final src = await openDatabase(temp, readOnly: true);
+      try {
+        final table = await _firstUserTable(src);
+        if (table == null) {
+          debugPrint('ensureTrainSetMaster: no table in trainMaster.db');
+          return;
+        }
+        final rows = await src.query(table);
+        final batch = db.batch();
+        for (final r in rows) {
+          batch.insert(
+            'TrainSetMaster',
+            {
+              'TrainSetId': r['TrainSetId'],
+              'TrainSetName': r['TrainSetName'],
+              'TrainSetCode': r['TrainSetCode'],
+              'PlantId': r['PlantId'],
+              'IsActive': r['IsActive'],
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+        debugPrint('ensureTrainSetMaster: ${rows.length} train sets imported');
+      } finally {
+        await src.close();
+        try {
+          await File(temp).delete();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('ensureTrainSetMaster error: $e');
+    }
+  }
+
+  /// Active train sets of a business area (plants 1201, 1202 belong to business
+  /// area 1200): [{TrainSetId, TrainSetName}].
+  Future<List<Map<String, Object?>>> getTrainSetsByBusinessArea(int businessArea) async {
+    try {
+      await ensureTrainSetMaster();
+      final db = await database;
+      final area = (businessArea ~/ 100) * 100;
+      return await db.query('TrainSetMaster',
+          columns: ['TrainSetId', 'TrainSetName'],
+          where: '(PlantId / 100) * 100 = ? AND IsActive = 1',
+          whereArgs: [area],
+          orderBy: 'TrainSetId');
+    } catch (e) {
+      debugPrint('getTrainSetsByBusinessArea error: $e');
+      return [];
+    }
   }
 
   Future<void> clearSiFailureCache() async {

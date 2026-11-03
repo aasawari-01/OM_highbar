@@ -55,6 +55,10 @@ class SiOfflineService {
       case 'jiAdd':
       case 'jiSubmit':
         return 'Joint Inspection';
+      case 'occCreate':
+        return 'OCC Failure';
+      case 'occUpdate':
+        return 'OCC Update';
       default:
         return action ?? '';
     }

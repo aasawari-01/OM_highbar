@@ -404,7 +404,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                 ],
               ),
               if (failure.syncStatus == 'failed' &&
-                  (_isStationController || _isDccDepot)) ...[
+                  (_isStationController || _isDccDepot || _isOccList)) ...[
                 const SizedBox(height: 12),
                 const Divider(color: AppColors.dividerColor3, height: 1),
                 const SizedBox(height: 8),
@@ -536,6 +536,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
   bool get _isDccDepot =>
       widget.failureType == 'Depot' && controller.isDcc;
+
+  /// OCC list of the Chief Controller / FMC / TPC / CSS / RSC.
+  bool get _isOccList => widget.failureType == 'OCC';
 
   /// Re-Open / Close when statusId is 195 or 175. There is no acknowledge
   /// step for the DCC: the JE closes the failure and the Section Incharge

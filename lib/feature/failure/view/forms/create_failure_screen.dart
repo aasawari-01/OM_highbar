@@ -331,7 +331,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (_isOccUpdate) {
       // FMC user opening an OCC failure that was assigned to them.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadOccFailureForUpdate(widget.failureNo!);
+        controller.loadOccFailureForUpdate(widget.failureNo!,
+            item: widget.failureItem);
       });
     } else if (widget.failureNo != null) {
       if (widget.isFromJointInspection) {
@@ -5181,10 +5182,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       onChanged: (v) => controller.selectedPriority.value = v,
                       requiredName: "Priority",
                     ),
-                    controller.isOccRoleUser
-                        ? _departmentMultiField((v) =>
-                        controller.onOccCreateDepartmentsChanged(v))
-                        : _occDropdown(
+                    _occDropdown(
                       label: "Department *",
                       options: controller.departmentList,
                       selected: controller.selectedDepartment,
@@ -6300,7 +6298,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Image.network(
-          "${AppUrls.baseUrl.replaceAll('/api/', '/')}$path",
+          path.startsWith('http')
+              ? path
+              : "${AppUrls.baseUrl.replaceAll('/api/', '/')}${path.replaceFirst(RegExp(r'^/+'), '')}",
           fit: BoxFit.cover,
           errorBuilder: (context, error, stackTrace) =>
           const Icon(Icons.broken_image, color: Colors.grey),

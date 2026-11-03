@@ -1,5 +1,6 @@
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
+import 'package:om_mobile/feature/failure/service/occ_offline_service.dart';
 import 'package:dart_des/dart_des.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -4783,6 +4784,7 @@ class CreateFailureController extends GetxController
   Future<void> onApiDepartmentChanged(String? label,
       {bool keepSystem = false}) async {
     final none = label == null || label.isEmpty || label == 'Select';
+    selectedDepartments.clear(); // single choice: no leftover multi-pick
     selectedDepartment.value = none ? null : label;
     departmentId.value = none ? null : _apiIdFor(departmentList, label);
     selectedFunctionalLocation.value = null;
@@ -6863,7 +6865,7 @@ class CreateFailureController extends GetxController
       // Category Type all come from this one API.
       Map<String, dynamic> deptLoc = <String, dynamic>{};
       try {
-        deptLoc = await _failureService.getOccDeptLocationLookups();
+        deptLoc = await _occLookups();
       } catch (e) {
         failureLog('loadOccCreateDropdowns: dept/location lookup failed: $e');
       }
@@ -6875,6 +6877,7 @@ class CreateFailureController extends GetxController
       }
       occLineList.assignAll(pick(deptLoc, ['getLineList']));
       occTrainSetList.assignAll(pick(deptLoc, ['getTrainSetList']));
+      await _occUseLocalTrainSets();
       occReportedToList.assignAll(pick(deptLoc, ['getRoleList']));
       occTrainOperatorList.assignAll(
           pick(deptLoc, ['getTrainOpeartorList', 'getTrainOperatorList']));
@@ -7364,7 +7367,25 @@ class CreateFailureController extends GetxController
           : '';
 
       failureLog('createOccFailure: payload $body, files=${files.length}');
-      final failureNo = await _failureService.createOccFailure(body, files: files);
+      String? failureNo;
+      try {
+        failureNo = await _failureService
+            .createOccFailure(body, files: files)
+            .timeout(const Duration(seconds: 60));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: kept and sent when internet returns.
+        await _saveOccOffline(
+          action: OccOfflineService.actionCreate,
+          body: body,
+          filePaths: _occLocalFilePaths(),
+        );
+        _refreshOccList();
+        EasyLoading.dismiss();
+        Get.back();
+        _occSavedOfflinePopup();
+        return;
+      }
 
       if (Get.isRegistered<FailureListController>(tag: 'OCC')) {
         Future.microtask(() async {
@@ -7764,8 +7785,219 @@ class CreateFailureController extends GetxController
     return list.firstWhereOrNull((e) => e.value == v)?.label;
   }
 
+  // ── OCC: saved lookups, stored details and offline save ───────────────────
+
+  /// Reported To, Line, Train Set, Reported By and Train Operator lists: from
+  /// the server when it can be reached (and kept), otherwise the copy kept the
+  /// last time.
+  Future<Map<String, dynamic>> _occLookups() async {
+    final db = LocalDatabaseService();
+    try {
+      final fresh = await _failureService
+          .getOccDeptLocationLookups()
+          .timeout(const Duration(seconds: 10));
+      await db.saveOccLookup(OccOfflineService.lookupKey, fresh);
+      return fresh;
+    } catch (e) {
+      failureLog('_occLookups: server not reached, using the saved lists: $e');
+      return await db.getOccLookup(OccOfflineService.lookupKey) ??
+          <String, dynamic>{};
+    }
+  }
+
+  /// Train Set list from the bundled trainMaster.db (imported at login), for
+  /// the user's business area. Kept as it is when nothing is stored.
+  Future<void> _occUseLocalTrainSets() async {
+    final ba = await AuthManager().getBusinessArea() ?? 0;
+    final rows = await LocalDatabaseService().getTrainSetsByBusinessArea(ba);
+    if (rows.isEmpty) return;
+    occTrainSetList.assignAll([
+      for (final r in rows)
+        LabelValue(label: '${r['TrainSetName']}'.trim(), value: '${r['TrainSetId']}'),
+    ]);
+  }
+
+  /// Details of an OCC failure: the server's answer when it can be reached,
+  /// otherwise the stored copy (list sync) or, for a failure still waiting to
+  /// be sent, what was typed on the form.
+  Future<Map<String, dynamic>> _occDetailsOutput(String id, FailureItem? item) async {
+    final listId = item?.id ?? int.tryParse(id) ?? 0;
+    if (listId < 0) {
+      final pending = await _occPendingCreateOutput(listId, item);
+      if (pending != null) return pending;
+      throw Exception('Failure details not found');
+    }
+    try {
+      return await _failureService
+          .getOccFailureById(id)
+          .timeout(const Duration(seconds: 12));
+    } catch (e) {
+      failureLog('_occDetailsOutput: server did not answer, using the stored copy: $e');
+      final stored = await _occStoredOutput(listId);
+      if (stored != null) return stored;
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _occStoredOutput(int listId) async {
+    final db = LocalDatabaseService();
+    final rec = await db.getOccFailureCacheRow(listId);
+    if (rec == null || rec['failure'] is! Map) return null;
+    return {
+      ...(await db.getOccLookup(OccOfflineService.lookupKey) ?? <String, dynamic>{}),
+      'getFailureCreationDetails':
+          await _occNormalizeStored(Map<String, dynamic>.from(rec['failure'] as Map)),
+      'getNotificationHistory': rec['histories'] ?? const [],
+      'getNotificationActionUserHistory': rec['assignHistories'] ?? const [],
+      'getImageBefor': rec['documents'] ?? const [],
+    };
+  }
+
+  /// An OCC failure created offline: the form values that were queued.
+  Future<Map<String, dynamic>?> _occPendingCreateOutput(
+      int listId, FailureItem? item) async {
+    final db = LocalDatabaseService();
+    final queued = await db.getPendingSubmissionPayload((-listId) ~/ 10);
+    if (queued == null || queued['body'] is! Map) return null;
+    final body = Map<String, dynamic>.from(queued['body'] as Map);
+    final d = <String, dynamic>{
+      for (final e in body.entries)
+        '${e.key[0].toLowerCase()}${e.key.substring(1)}': e.value,
+      'id': listId,
+      'failureId': item?.notificationCode ?? item?.failureNo ?? '',
+      'statusName': 'Pending Sync',
+      'roleId': body['RoleId'],
+      'departmentId_1': body['DepartmentId_1'],
+      'funcationLocationId': body['FuncationLocationId_1'],
+      'funcationLocation': item?.functionalLocation ?? '',
+      'departmentName': item?.departmentName ?? '',
+    };
+    return {
+      ...(await db.getOccLookup(OccOfflineService.lookupKey) ?? <String, dynamic>{}),
+      'getFailureCreationDetails': await _occNormalizeStored(d),
+    };
+  }
+
+  /// The list sync sends yes/no as "Yes" / "False" text for some fields and
+  /// names the same value differently for OCC and FMC rows; the form reads one
+  /// shape (the details API's).
+  Future<Map<String, dynamic>> _occNormalizeStored(Map<String, dynamic> f) async {
+    final d = Map<String, dynamic>.from(f);
+    bool? flag(dynamic v) {
+      if (v is bool) return v;
+      switch ('$v'.trim().toLowerCase()) {
+        case 'true':
+        case 'yes':
+        case '1':
+          return true;
+        case 'false':
+        case 'no':
+        case '0':
+          return false;
+      }
+      return null;
+    }
+
+    for (final k in const [
+      'isTripAffected',
+      'isTrainReplace',
+      'isPassengerAffected',
+      'isTrainDeboarded'
+    ]) {
+      final b = flag(d[k]);
+      if (b != null) d[k] = b;
+    }
+    d['failureReportedbyId'] ??= d['failureReportedById'];
+    d['system'] ??= d['systems'];
+    d['subSystem'] ??= d['subSystems'] ?? d['subsystem'];
+    if (_occToInt(d['funcationLocationId']) == 0) {
+      final code = _occStr(d['funcationLocation']);
+      if (code.isNotEmpty) {
+        final id = await LocalDatabaseService().getFailureFunctionalLocationIdByCode(code);
+        if (id != null) d['funcationLocationId'] = id;
+      }
+    }
+    return d;
+  }
+
+  /// Picked files that are on this device (not the ones loaded from the server).
+  List<String> _occLocalFilePaths() => [
+        for (final f in beforeFiles)
+          if ((f['path']?.toString() ?? '').isNotEmpty && f['isNetwork'] != true)
+            f['path'].toString()
+      ];
+
+  void _refreshOccList() {
+    if (!Get.isRegistered<FailureListController>(tag: 'OCC')) return;
+    Future.microtask(() async {
+      try {
+        await Get.find<FailureListController>(tag: 'OCC').fetchFailures();
+      } catch (e) {
+        failureLog('OCC list refresh failed: $e');
+      }
+    });
+  }
+
+  void _occSavedOfflinePopup() {
+    showResultPopup(
+      title: 'Saved Offline',
+      message:
+          'Failure saved on this device. It is sent automatically when the internet is back, and you will be told when it is done.',
+      icon: Icons.cloud_off_outlined,
+      iconColor: AppColors.orangeColor,
+    );
+  }
+
+  /// Keeps an OCC create / update (and its images) until the internet is back.
+  /// A create also gets a "Pending Sync" entry in the list; an update marks the
+  /// failure it belongs to.
+  Future<void> _saveOccOffline({
+    required String action,
+    required Map<String, dynamic> body,
+    required List<String> filePaths,
+    int failureId = 0,
+  }) async {
+    final db = LocalDatabaseService();
+    final me = await AuthManager().getUserId() ?? '';
+    final kept = await OccOfflineService.keepFiles(filePaths);
+    final sid = await db.insertPendingSubmission({
+      'action': action,
+      'queuedBy': me,
+      'failureId': failureId,
+      'body': body,
+      'files': kept,
+    }, OccOfflineService.queueType);
+
+    if (action == OccOfflineService.actionUpdate) {
+      if (failureId > 0) await db.setOccPending(failureId, action);
+      return;
+    }
+    final departments = selectedDepartments.isNotEmpty
+        ? selectedDepartments.join(', ')
+        : (selectedDepartment.value ?? '');
+    await db.insertFailureList([
+      {
+        'id': -(sid * 10),
+        'failureNo': await OccOfflineService.offlineNumber(),
+        'failureDescription': body['FailureDescription'] ?? '',
+        'functionalLocation': selectedFunctionalLocation.value ?? '',
+        'statusName': 'Pending Sync',
+        'failureOccuranceDateTime': body['ActualFailureOccuranceDate'] ?? '',
+        'subLocation': body['SubLocation'] ?? '',
+        'system': body['System'] ?? '',
+        'locationName': selectedLocation.value ?? '',
+        'priority': selectedPriority.value ?? '',
+        'departmentName': departments,
+        'trainId': body['TrainId'] ?? '',
+        'lineName': selectedOccLine.value ?? '',
+        'creationType': 'OCC',
+        'syncStatus': 'offline',
+      }
+    ], OccOfflineService.listKey);
+  }
+
   /// Loads an OCC failure into the shared form state for the FMC user.
-  Future<void> loadOccFailureForUpdate(String id) async {
+  Future<void> loadOccFailureForUpdate(String id, {FailureItem? item}) async {
     encryptedId.value = id;
     occUpdateLoaded.value = false;
     pushLoading();
@@ -7774,7 +8006,7 @@ class CreateFailureController extends GetxController
       // CSS / RSC take them from the failure details response (below).
       if (!isFmcUser) await loadOccCreateDropdowns();
 
-      final output = await _failureService.getOccFailureById(id);
+      final output = await _occDetailsOutput(id, item);
       final raw = output['getFailureCreationDetails'];
       if (raw is! Map) {
         throw Exception('Failure details not found');
@@ -7786,6 +8018,7 @@ class CreateFailureController extends GetxController
         occReportedToList.assignAll(pick(['getRoleList']));
         occLineList.assignAll(pick(['getLineList']));
         occTrainSetList.assignAll(pick(['getTrainSetList']));
+        await _occUseLocalTrainSets();
         occTrainOperatorList
             .assignAll(pick(['getTrainOpeartorList', 'getTrainOperatorList']));
         occReportedByList.assignAll(pick(['getFailureReportedbyList']));
@@ -7996,16 +8229,16 @@ class CreateFailureController extends GetxController
           'isNetwork': true,
           'id': img['id'],
         };
-        switch (_occStr(img['documentType'])) {
-          case 'BEFORE_NOT':
-            beforeImagesList.add(entry);
-            break;
+        // Same rule as the other failure flows: any other type is a Before image.
+        switch (_occStr(img['documentType']).toUpperCase()) {
           case 'AFTER_NOT':
             afterImagesList.add(entry);
             break;
           case 'RCA_NOT':
             rcaImagesList.add(entry);
             break;
+          default:
+            beforeImagesList.add(entry);
         }
       }
 
@@ -8149,6 +8382,10 @@ class CreateFailureController extends GetxController
       _occError(errors.first);
       return false;
     }
+    if ((originalFailureId.value ?? 0) < 0) {
+      _occError('This failure is waiting to be sent. You can update it once it is synced.');
+      return false;
+    }
 
     try {
       final files = <http.MultipartFile>[];
@@ -8272,7 +8509,26 @@ class CreateFailureController extends GetxController
       };
 
       failureLog('submitOccUpdate($kind): payload $body, files=${files.length}');
-      final result = await _failureService.createOccFailure(body, files: files);
+      String? result;
+      try {
+        result = await _failureService
+            .createOccFailure(body, files: files)
+            .timeout(const Duration(seconds: 60));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: kept and sent when internet returns.
+        await _saveOccOffline(
+          action: OccOfflineService.actionUpdate,
+          body: body,
+          filePaths: _occLocalFilePaths(),
+          failureId: originalFailureId.value ?? 0,
+        );
+        _refreshOccList();
+        EasyLoading.dismiss();
+        Get.back(result: true);
+        _occSavedOfflinePopup();
+        return true;
+      }
 
       if (Get.isRegistered<FailureListController>(tag: 'OCC')) {
         Future.microtask(() async {

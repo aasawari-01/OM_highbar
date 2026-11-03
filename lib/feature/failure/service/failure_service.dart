@@ -1467,6 +1467,8 @@ class FailureService {
   List<Map<String, dynamic>> jeRecords,
   List<Map<String, dynamic>> jiRecords,
   List<Map<String, dynamic>> depotRecords,
+  List<Map<String, dynamic>> occRecords,
+  List<Map<String, dynamic>> fmcRecords,
   String? downloadedAt
   })> getFailureTransactions({String? lastSyncDate}) async {
     final userId = await _userId();
@@ -1501,6 +1503,8 @@ class FailureService {
       jeRecords: <Map<String, dynamic>>[],
       jiRecords: <Map<String, dynamic>>[],
       depotRecords: <Map<String, dynamic>>[],
+      occRecords: <Map<String, dynamic>>[],
+      fmcRecords: <Map<String, dynamic>>[],
       downloadedAt: null
       );
     }
@@ -1522,6 +1526,30 @@ class FailureService {
             out.add(Map<String, dynamic>.from(e));
           }
         }
+      }
+      return out;
+    }
+
+    // occFailures / fmcFailures: every item is kept, whatever its actionType
+    // (OCC, FMC, TPC, CSS) or wrapper key: the failure is the "failure" map, or
+    // else the first map that has an id, or the item itself.
+    List<Map<String, dynamic>> occRecords(String listKey) {
+      final list = data is Map ? data[listKey] : null;
+      final out = <Map<String, dynamic>>[];
+      if (list is! List) return out;
+      for (final e in list) {
+        if (e is! Map) continue;
+        final item = Map<String, dynamic>.from(e);
+        Map? failure = item['failure'] is Map ? item['failure'] as Map : null;
+        failure ??= item.values
+            .whereType<Map>()
+            .firstWhere((m) => m['id'] != null, orElse: () => const {});
+        if (failure.isEmpty && item['id'] != null) failure = item;
+        if (failure == null || failure['id'] == null) {
+          failureLog('getFailureTransactions: $listKey item skipped, no id: ${item.keys.toList()}');
+          continue;
+        }
+        out.add({...item, 'failure': Map<String, dynamic>.from(failure)});
       }
       return out;
     }
@@ -1633,6 +1661,8 @@ class FailureService {
     jeRecords: records('jeInboxFailureList', 'jeFailure'),
     jiRecords: await jointRecords(),
     depotRecords: records('depotFailuresList', 'depotFailures'),
+    occRecords: occRecords('occFailures'),
+    fmcRecords: occRecords('fmcFailures'),
     downloadedAt: data is Map ? data['downloadedAt']?.toString() : null,
     );
   }
