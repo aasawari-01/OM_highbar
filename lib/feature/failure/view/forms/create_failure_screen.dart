@@ -2319,12 +2319,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           // ------------------------------------------------------------
           // Read-only sections (same conditions as JE failure view)
           // ------------------------------------------------------------
-          // PTW
-          // PTW
-          if (_isExistingMaintenance &&
-              _maintenanceStatusId != 1 &&
-              _maintenanceStatusId != 202)
-            CustSection(
+          // PTW — only when PTW is required / number is filled
+          Obx(() {
+            final hasPtw = controller.isPtwRequired.value ||
+                controller.ptwNumberController.text.trim().isNotEmpty;
+            if (!_isExistingMaintenance || !hasPtw) {
+              return const SizedBox.shrink();
+            }
+            return CustSection(
               title: "PTW Required?",
               trailing: YesNoToggle(
                 enabled: false,
@@ -2337,8 +2339,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 label: "PTW Number",
                 enabled: false,
               ),
-            ),
-          // Failure Rectification Details (RCA)
+            );
+          }),
+          // Failure Rectification Details (RCA) — unchanged
           Obx(() {
             if (controller.rcaDetailsList.isEmpty) {
               return const SizedBox.shrink();
@@ -2355,15 +2358,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ),
             );
           }),
-          // Failure Type
+          // Failure Type — only when a type is selected
           Obx(() {
-            final type = controller.selectedMaterialType.value ?? '';
-            final showFailureType =
-                (_isExistingMaintenance &&
-                    _maintenanceStatusId != 1 &&
-                    _maintenanceStatusId != 202) ||
-                    type.isNotEmpty;
-            if (!showFailureType) return const SizedBox.shrink();
+            final type = (controller.selectedMaterialType.value ?? '').trim();
+            if (type.isEmpty) return const SizedBox.shrink();
             return CustSection(
               title: "Failure Type",
               child: Column(
@@ -2378,7 +2376,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     enabled: false,
                     onChanged: (_) {},
                   ),
-                  if (type == "Other") ...[
+                  if (type == "Other" &&
+                      controller.failureTypeController.text.trim().isNotEmpty) ...[
                     const SizedBox(height: AppConstants.elementSpacing),
                     CustomTextField(
                       label: "Remark",
@@ -2390,7 +2389,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ),
             );
           }),
-          // Spare Part Replace (only for Hardware failure type)
+          // Spare Part Replace (only for Hardware failure type) — unchanged
           Obx(() {
             if (controller.selectedMaterialType.value != "Hardware") {
               return const SizedBox.shrink();
@@ -2408,49 +2407,37 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   : _buildReplacedMaterialTable(enabled: false),
             );
           }),
-          // Material Dismantle
+          // Material Dismantle — only when dismantle data exists
           Obx(() {
-            final showMaterialDismantle =
-                _isExistingMaintenance ||
-                    controller.dismantleMaterialsList.isNotEmpty;
-            if (!showMaterialDismantle) {
+            if (controller.dismantleMaterialsList.isEmpty) {
               return const SizedBox.shrink();
             }
             return CustSection(
               title: "Material Dismantle",
               trailing: YesNoToggle(
                 enabled: false,
-                value: controller.isMaterialDismantle.value,
+                value: true,
                 onChanged: (_) {},
               ),
-              child: controller.isMaterialDismantle.value
-                  ? _buildDismantleMaterialTable(enabled: false)
-                  : const SizedBox.shrink(),
+              child: _buildDismantleMaterialTable(enabled: false),
             );
           }),
-          // Joint Inspection
+          // Joint Inspection — only when inspection entries exist
           Obx(() {
-            final showJointInspection =
-                (_isExistingMaintenance &&
-                    _maintenanceStatusId != 1 &&
-                    _maintenanceStatusId != 202) ||
-                    controller.isJointInspection.value ||
-                    controller.jointInspectionHistoryList.isNotEmpty;
-            if (!showJointInspection) {
+            if (controller.jointInspectionHistoryList.isEmpty) {
               return const SizedBox.shrink();
             }
             return CustSection(
               title: "Joint Inspection",
               trailing: YesNoToggle(
                 enabled: false,
-                value: controller.isJointInspection.value,
+                value: true,
                 onChanged: (_) {},
               ),
-              child: controller.jointInspectionHistoryList.isEmpty
-                  ? const SizedBox.shrink()
-                  : _buildJointInspectionTable(enabled: false),
+              child: _buildJointInspectionTable(enabled: false),
             );
           }),
+
           // Closure: rectification details, user status and dates
           Obx(() {
             final hasClosure =
@@ -2463,11 +2450,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     controller.selectedFailureAttendedDate.value != null ||
                     controller.selectedActualFailureRectifiedDate.value !=
                         null;
-            final showClosure =
-                (_isExistingMaintenance &&
-                    _maintenanceStatusId != 1 &&
-                    _maintenanceStatusId != 202) ||
-                    hasClosure;
+            final showClosure = hasClosure;
             if (!showClosure) return const SizedBox.shrink();
             return CustSection(
               title: "Failure Rectification Details",
