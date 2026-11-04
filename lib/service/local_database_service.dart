@@ -6077,6 +6077,70 @@ class LocalDatabaseService {
     }
   }
 
+  /// Makes the user's rows in UserMaster match the roles / departments the
+  /// login returned (the server's current answer): a right missing here is
+  /// added, a right the server no longer gives is removed. Without this a
+  /// stale bundled copy hides a role or department added after it was built.
+  /// [rights]: [{roleId, roleDescr, deptId, deptName}].
+  Future<void> reconcileUserRights(
+      int userId, int? businessArea, List<Map<String, Object?>> rights) async {
+    final valid = [
+      for (final r in rights)
+        if (int.tryParse('${r['roleId']}') != null &&
+            int.tryParse('${r['deptId']}') != null)
+          r
+    ];
+    if (valid.isEmpty) return; // never wipe the user because of an empty answer
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return;
+      final existing = await db.query('"$t"',
+          where: 'UserId = ? AND BusinessArea IS ?',
+          whereArgs: [userId, businessArea]);
+      final have = {
+        for (final e in existing) '${e['RoleId']}-${e['DeptId']}',
+      };
+      final want = {
+        for (final r in valid) '${r['roleId']}-${r['deptId']}',
+      };
+      final template = existing.isNotEmpty
+          ? Map<String, Object?>.from(existing.first)
+          : ((await db.query('"$t"',
+                      where: 'UserId = ?', whereArgs: [userId], limit: 1))
+                  .firstOrNull ??
+              <String, Object?>{'UserId': userId});
+      final now = DateTime.now().toIso8601String();
+      final batch = db.batch();
+      for (final key in have.difference(want)) {
+        final parts = key.split('-');
+        batch.delete('"$t"',
+            where: 'UserId = ? AND BusinessArea IS ? AND RoleId = ? AND DeptId = ?',
+            whereArgs: [userId, businessArea, parts[0], parts[1]]);
+      }
+      final added = <String>{};
+      for (final r in valid) {
+        final key = '${r['roleId']}-${r['deptId']}';
+        if (have.contains(key) || !added.add(key)) continue;
+        batch.insert('"$t"', {
+          ...template,
+          'UserId': userId,
+          'RoleId': int.parse('${r['roleId']}'),
+          'RoleDescr': r['roleDescr'],
+          'DeptId': int.parse('${r['deptId']}'),
+          'DeptName': r['deptName'],
+          'BusinessArea': businessArea,
+          'UpdatedOn': now,
+        });
+      }
+      await batch.commit(noResult: true);
+      debugPrint('reconcileUserRights: user $userId added=${added.length} '
+          'removed=${have.difference(want).length}');
+    } catch (e) {
+      debugPrint('reconcileUserRights error: $e');
+    }
+  }
+
   Future<List<Map<String, dynamic>>> getJuniorEngineersForDepartments(
       Iterable<int> deptIds, {int? businessArea}) async {
     final ids = deptIds.where((e) => e > 0).toSet().toList();

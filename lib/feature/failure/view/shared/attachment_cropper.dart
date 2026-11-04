@@ -12,6 +12,15 @@ class AttachmentCropper {
 
   static const _imageExtensions = {'.jpg', '.jpeg', '.png', '.webp'};
 
+  /// What a failure attachment can be: JPG / PNG images only (no pdf, doc...).
+  static const allowedExtensions = ['jpg', 'jpeg', 'png'];
+  static const allowedHint = 'Only JPG and PNG images can be attached.';
+
+  static bool isAllowed(String? nameOrPath) =>
+      nameOrPath != null &&
+      allowedExtensions
+          .contains(p.extension(nameOrPath).toLowerCase().replaceFirst('.', ''));
+
   static bool isImage(String path) =>
       _imageExtensions.contains(p.extension(path).toLowerCase());
 

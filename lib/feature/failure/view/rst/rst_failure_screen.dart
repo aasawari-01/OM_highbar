@@ -123,10 +123,18 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                       try {
                         Get.back();
                         final FilePickerResult? result =
-                        await FilePicker.platform.pickFiles();
+                        await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: AttachmentCropper.allowedExtensions,
+                          allowMultiple: true,
+                        );
                         if (result != null) {
+                          var rejected = 0;
                           for (var file in result.files) {
-                            // Images can be cropped; other files are kept as they are.
+                            if (!AttachmentCropper.isAllowed(file.name)) {
+                              rejected++;
+                              continue;
+                            }
                             final picked = file.path;
                             final path = picked == null
                                 ? null
@@ -145,6 +153,11 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                               'isNetwork': false,
                             });
                           }
+                          if (rejected > 0) {
+                            FailureToast.warning(
+                                '$rejected file${rejected == 1 ? '' : 's'} not added. ${AttachmentCropper.allowedHint}',
+                                title: 'Attachment');
+                          }
                         }
                       } catch (e) {
                         failureLog("Error picking file: $e");
@@ -160,6 +173,12 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                 size: 16,
                 color: AppColors.textMutedLight,
                 fontWeightName: FontWeight.w600,
+              ),
+              const SizedBox(height: 4),
+              CustText.body(
+                "Allowed: JPG, PNG images only",
+                size: 12,
+                color: AppColors.textMutedLight,
               ),
               const SizedBox(height: AppConstants.labelSpacing),
             ],

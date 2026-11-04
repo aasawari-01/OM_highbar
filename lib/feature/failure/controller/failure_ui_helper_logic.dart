@@ -1,3 +1,4 @@
+import 'package:om_mobile/feature/failure/view/shared/attachment_cropper.dart';
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
@@ -119,12 +120,17 @@ mixin FailureUIHelperLogic on GetxController, FailureFormState {
   Future<void> pickBeforeFiles() async {
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.image,
+        type: FileType.custom,
+        allowedExtensions: AttachmentCropper.allowedExtensions,
         allowMultiple: true,
       );
 
       if (result != null) {
         for (var file in result.files) {
+          if (!AttachmentCropper.isAllowed(file.name)) {
+            FailureToast.warning(AttachmentCropper.allowedHint, title: 'Attachment');
+            continue;
+          }
           final sizeInMb = file.size / (1024 * 1024);
           if (sizeInMb > 1) {
             FailureToast.show('Error', 'File size must be less than 1MB',

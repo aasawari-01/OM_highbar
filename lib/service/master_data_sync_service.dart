@@ -20,6 +20,7 @@ import '../feature/failure/service/si_offline_service.dart';
 import '../feature/failure/service/je_offline_service.dart';
 import '../feature/failure/service/depot_offline_service.dart';
 import '../feature/failure/service/occ_offline_service.dart';
+import '../feature/failure/service/failure_image_cache.dart';
 import '../feature/failure/service/station_overlay.dart';
 import '../service/auth_manager.dart';
 import 'network_service/app_urls.dart';
@@ -203,8 +204,19 @@ class MasterDataSyncService extends GetxController {
       final incremental =
           !forceAll && !fullNeeded && layoutOk && (last ?? '').isNotEmpty;
 
+      // The kept date has no time, and the server's own date may be a day
+      // ahead of ours: ask from one day earlier so a failure created later the
+      // same day (or near midnight) is never missed. Rows are stored by id, so
+      // the overlap only repeats what is already stored.
+      String? since;
+      if (incremental) {
+        final day = DateTime.tryParse(last!);
+        since = day == null
+            ? last
+            : DateFormat('yyyy-MM-dd').format(day.subtract(const Duration(days: 1)));
+      }
       final res = await _failureService
-          .getFailureTransactions(lastSyncDate: incremental ? last : null)
+          .getFailureTransactions(lastSyncDate: since)
           .timeout(Duration(seconds: incremental ? 12 : 90));
       if (incremental) {
         await _dbService.upsertStationFailureCache(res.stationRecords);
@@ -214,6 +226,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.upsertDepotFailureCache(res.depotRecords);
         await _dbService.upsertOccFailureCache('OCC', res.occRecords);
         await _dbService.upsertOccFailureCache('FMC', res.fmcRecords);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords]);
       } else {
         await _dbService.replaceStationFailureCache(res.stationRecords);
         await _dbService.replaceSiFailureCache(res.siRecords);
@@ -222,6 +235,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.replaceDepotFailureCache(res.depotRecords);
         await _dbService.replaceOccFailureCache('OCC', res.occRecords);
         await _dbService.replaceOccFailureCache('FMC', res.fmcRecords);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords]);
       }
       if (!incremental) {
         await _dbService.setAppSetting(_fullSyncNeededKey, '');
@@ -371,6 +385,8 @@ class MasterDataSyncService extends GetxController {
           login = false; // the next pages: after the version just received
         }
 
+        if (isLogin) await _reconcileLoginRights();
+
         // Reload master data controller
         await Get.find<GlobalMasterDataController>().reloadMasterData();
         syncStatus.value = totalUpdates == 0
@@ -388,6 +404,47 @@ class MasterDataSyncService extends GetxController {
       }
     });
     debugPrint("syncMasterDataFromAPI: FINISHED");
+  }
+
+  /// Saves the pictures of the depot and OCC failures on the device in the background,
+  /// so they can be seen without internet.
+  void _prefetchImages(List<Map<String, dynamic>> records) {
+    final urls = <String>[
+      for (final r in records)
+        if (r['documents'] is List)
+          for (final d in r['documents'] as List)
+            if (d is Map && '${d['fileName'] ?? ''}'.isNotEmpty)
+              '${AppUrls.imageUrl}${d['fileName']}'
+    ];
+    if (urls.isEmpty) return;
+    FailureImageCache.prefetch(urls).catchError((Object e) {
+      debugPrint('_prefetchImages: $e');
+    });
+  }
+
+  /// The login answer lists the roles / departments the user holds now. They
+  /// are written into the local user table (what the drawer and offline mode
+  /// read), then the drawer lists are read again.
+  Future<void> _reconcileLoginRights() async {
+    try {
+      final userId = int.tryParse(await AuthManager().getUserId() ?? '');
+      if (userId == null) return;
+      final login = await AuthManager().getRoleAndDeptMaster();
+      await _dbService.reconcileUserRights(userId, await AuthManager().getBusinessArea(), [
+        for (final r in login)
+          {
+            'roleId': r.roleId,
+            'roleDescr': r.roleDescr,
+            'deptId': r.deptId,
+            'deptName': r.deptName,
+          }
+      ]);
+      if (Get.isRegistered<SessionController>()) {
+        await Get.find<SessionController>().refreshRoleDeptFromLocal();
+      }
+    } catch (e) {
+      debugPrint('syncMasterDataFromAPI: login rights: $e');
+    }
   }
 
   /// Writes the lists of one response into the local master tables; returns

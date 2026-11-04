@@ -55,7 +55,8 @@ class SessionController extends GetxController {
     "CSS",
     "RSC",
     "DCC",
-    "Inspection Junior Engineer"
+    "Inspection Junior Engineer",
+    "OCC"
   ];
 
   /// The role that creates OCC failures and updates / closes the ones

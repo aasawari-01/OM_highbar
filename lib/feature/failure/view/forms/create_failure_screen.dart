@@ -1,4 +1,5 @@
 import 'package:om_mobile/feature/failure/view/shared/attachment_cropper.dart';
+import 'package:om_mobile/feature/failure/view/shared/failure_cached_image.dart';
 import 'package:path/path.dart' as p;
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
@@ -894,7 +895,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     if (_isOccUpdate) {
       // Once FMC / TPC / CSS / RSC assign the failure to a department it is
       // no longer theirs to edit: show the read-only view.
-      return controller.occDelegateReadOnly
+      // The OCC role gets the same read-only view for a failure reported to
+      // another role, or once it is closed.
+      final closed = (controller.mainStatusName.value ?? '')
+          .toLowerCase()
+          .contains('close');
+      return controller.occDelegateReadOnly ||
+              controller.occRoleViewOnly ||
+              (controller.isOccRoleUser && closed)
           ? _buildOccAssignedView(context)
           : _buildOccUpdateForm(context);
     }
@@ -1528,14 +1536,22 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       child: CustDropdown(
                         label: "Department *",
                         hint: "Select...",
-                        items: controller.departmentList
+                        // Station / Depot / OCC failure: only its own department.
+                        items: controller.siDepartmentLocked.value &&
+                            controller.selectedDepartment.value != null
+                            ? [controller.selectedDepartment.value!]
+                            : controller.departmentList
                             .map((e) => e.label ?? '')
                             .toList(),
                         selectedValue:
                         controller.selectedDepartment.value,
-                        enabled: _maintenanceOpenOr202Editable,
+                        enabled: _maintenanceOpenOr202Editable &&
+                            !controller.siDepartmentLocked.value,
                         onChanged: (value) async {
-                          if (!_maintenanceOpenOr202Editable) return;
+                          if (!_maintenanceOpenOr202Editable ||
+                              controller.siDepartmentLocked.value) {
+                            return;
+                          }
                           await controller.onDepartmentChanged(value);
                         },
                         validator: (val) =>
@@ -4401,6 +4417,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 horizontal: AppConstants.screenPadding),
             child: _buildFailureNumberDisplay(),
           ),
+          Obx(() => controller.occRoleViewOnly
+              ? Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppConstants.screenPadding,
+                AppConstants.elementSpacing,
+                AppConstants.screenPadding,
+                0),
+            child: CustText.body(
+              "Reported to ${controller.selectedOccReportedTo.value ?? 'another role'}. "
+                  "Only that role can update this failure.",
+              color: AppColors.orangeColor,
+            ),
+          )
+              : const SizedBox.shrink()),
           CustSection(
             title: "Failure Information",
             trailing: _buildExpandCollapseButton(),
@@ -4735,9 +4765,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               spacing: 8,
               runSpacing: 8,
               children: list
-                  .map<Widget>(
-                      (file) => _buildUploadedImagePreview(file['path']!))
-                  .toList(),
+                  .map<Widget>((file) {
+                final path = '${file['path']}';
+                // A file on this device (failure not sent yet) or a server picture.
+                final onDevice = !path.startsWith('http') &&
+                    path.startsWith('/') &&
+                    File(path).existsSync();
+                return FailureCachedImage(path.startsWith('http') || onDevice
+                    ? path
+                    : "${AppUrls.imageUrl}${path.replaceFirst(RegExp(r'^/+'), '')}");
+              }).toList(),
             ),
           ],
         ),
@@ -5451,6 +5488,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         return (s == 'null') ? '' : s;
       }
 
+      // First of the given keys that has a value ('' when none has).
+      String first(List<String> keys) {
+        for (final k in keys) {
+          final s = v(k);
+          if (s.isNotEmpty) return s;
+        }
+        return '';
+      }
+
       Widget field(String label, String value, {int maxLines = 1}) =>
           CustomTextField(
             label: label,
@@ -5496,6 +5542,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   gap,
                   field("System", v('system')),
                   gap,
+                  // Empty when the server sends nothing (no equipment number yet).
+                  field("Sub System",
+                      first(['subSystem', 'subsystem', 'subSystems'])),
+                  gap,
+                  field("Equipment Number",
+                      first(['equipmentNumber', 'equipmentName', 'equipNo'])),
+                  gap,
+                  field("Failure Frequency of Gear (Last 12 Months)",
+                      first(['frequency', 'freq', 'failureFrequency'])),
+                  gap,
                   field("Actual Failure Occurrence",
                       v('actualFailureOccuranceDate')),
                   gap,
@@ -5508,26 +5564,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       v('failureCategoryTypeName')),
                   gap,
                   field("Status", v('statusName')),
-                ],
-              ),
-            ),
-            CustSection(
-              title: "Trip Affected",
-              isVisible: d['isTripAffected'] == true,
-              trailing: CustText.body(yesNo('isTripAffected'),
-                  fontWeightName: FontWeight.w600),
-              child: Column(
-                children: [
-                  _occRow(field("Trip Delay Upline (NOS)", v('tripDelayUpline')),
-                      field("Trip Cancel (NOS)", v('tripCancel'))),
-                  gap,
-                  _occRow(
-                      field("Trip Delay Downline (NOS)", v('tripDelayDownline')),
-                      field("Trip Delay in Min.", v('trainDelayInMin'))),
-                  gap,
-                  _occRow(
-                      field("Trip Withdrawal (NOS)", v('noOfTranWithdrawal')),
-                      field("Train Replace (NOS)", v('trainReplace'))),
                 ],
               ),
             ),
@@ -5553,21 +5589,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   spacing: 12,
                   runSpacing: 12,
                   children: controller.depotImages
-                      .map<Widget>((url) => ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      url,
-                      width: 100,
-                      height: 100,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 100,
-                        height: 100,
-                        color: Colors.grey.shade200,
-                        child: const Icon(Icons.broken_image),
-                      ),
-                    ),
-                  ))
+                      .map<Widget>((url) => FailureCachedImage(url))
                       .toList(),
                 ),
               ),
@@ -6366,10 +6388,18 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       try {
                         Get.back();
                         final FilePickerResult? result =
-                        await FilePicker.platform.pickFiles();
+                        await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: AttachmentCropper.allowedExtensions,
+                          allowMultiple: true,
+                        );
                         if (result != null) {
+                          var rejected = 0;
                           for (var file in result.files) {
-                            // Images can be cropped; other files are kept as they are.
+                            if (!AttachmentCropper.isAllowed(file.name)) {
+                              rejected++;
+                              continue;
+                            }
                             final picked = file.path;
                             final path = picked == null
                                 ? null
@@ -6386,6 +6416,11 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               'path': path,
                             });
                           }
+                          if (rejected > 0) {
+                            FailureToast.warning(
+                                '$rejected file${rejected == 1 ? '' : 's'} not added. ${AttachmentCropper.allowedHint}',
+                                title: 'Attachment');
+                          }
                         }
                       } catch (e) {
                         failureLog("Error picking file: $e");
@@ -6401,6 +6436,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 size: 16,
                 color: AppColors.textMutedLight,
                 fontWeightName: FontWeight.w600,
+              ),
+              const SizedBox(height: 4),
+              CustText.body(
+                "Allowed: JPG, PNG images only",
+                size: 12,
+                color: AppColors.textMutedLight,
               ),
               const SizedBox(height: AppConstants.labelSpacing),
             ],

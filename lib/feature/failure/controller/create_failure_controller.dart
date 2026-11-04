@@ -154,6 +154,26 @@ class CreateFailureController extends GetxController
   /// failure originated from an OCC failure (label, value), empty otherwise.
   final occOriginDetails = <MapEntry<String, String>>[].obs;
 
+  /// Section Incharge: a failure that came from Station, Depot or OCC keeps the
+  /// department it was raised for (shown, not changeable). A Maintenance
+  /// failure lets the Section Incharge pick any department.
+  final siDepartmentLocked = false.obs;
+
+  void _applySiDepartmentLock({String? otherRequestFrom, String? creationType}) {
+    if (!isSectionIncharge) {
+      siDepartmentLocked.value = false;
+      return;
+    }
+    final from = (otherRequestFrom ?? '').trim().toLowerCase();
+    final created = (creationType ?? '').trim().toLowerCase();
+    siDepartmentLocked.value = from.contains('station') ||
+        from.contains('depot') ||
+        from.contains('occ') ||
+        created == 'station' ||
+        created == 'depot' ||
+        created == 'occ';
+  }
+
   void _applyOccOrigin(CreateVMModel model) {
     // Only failures that came from OCC; nothing for ordinary failures or ones
     // raised by other sources (e.g. "Depot Request"). The API marks them with
@@ -6352,6 +6372,7 @@ class CreateFailureController extends GetxController
       }) async {
     encryptedId.value = failureNo;
     notificationId.value = 0;
+    siDepartmentLocked.value = false;
     pushLoading();
     try {
       isLoading.value = true;
@@ -6436,6 +6457,9 @@ class CreateFailureController extends GetxController
 
       mainStatusName.value = model.mainStatusName;
       _applyOccOrigin(model);
+      _applySiDepartmentLock(
+          otherRequestFrom: model.otherRequestFrom,
+          creationType: item?.creationType ?? item?.otherRequestFrom);
       notificationHistoryList
           .assignAll(output.getNotificationActionUserHistory ?? []);
       notificationDescriptionHistoryList
@@ -6732,6 +6756,8 @@ class CreateFailureController extends GetxController
   /// Fallback when the API returns no model: fill what the list row already has.
   Future<void> _populateMaintenanceFromListItem(FailureItem item) async {
     notificationCode.value = item.notificationCode ?? item.failureNo ?? '';
+    _applySiDepartmentLock(
+        otherRequestFrom: item.otherRequestFrom, creationType: item.creationType);
     // List fallback does not expose the numeric statusId, so keep the
     // default 0 (all status-sensitive fields remain disabled until the
     // detail API supplies the actual status).
@@ -7523,7 +7549,24 @@ class CreateFailureController extends GetxController
     notificationCode.value = detail['failureId']?.toString() ?? '';
     mainStatusName.value = detail['statusName']?.toString();
     depotHistory.assignAll(history);
-    depotImages.clear();
+    // Pictures: the stored documents (server address, kept on the device once
+    // seen) or, for a failure not sent yet, the files saved with it.
+    final pictures = <String>[];
+    if (listId < 0) {
+      final queued = await db.getPendingSubmissionPayload((-listId) ~/ 10);
+      final files = queued?['files'];
+      if (files is List) pictures.addAll(files.map((e) => '$e').where((e) => e.isNotEmpty));
+    } else {
+      final rec = await db.getDepotFailureCacheRow(listId);
+      final docs = rec?['documents'];
+      if (docs is List) {
+        for (final e in docs) {
+          final f = e is Map ? e['fileName']?.toString() ?? '' : '';
+          if (f.isNotEmpty) pictures.add('${AppUrls.imageUrl}$f');
+        }
+      }
+    }
+    depotImages.assignAll(pictures);
     return true;
   }
 
@@ -7872,9 +7915,16 @@ class CreateFailureController extends GetxController
       'funcationLocation': item?.functionalLocation ?? '',
       'departmentName': item?.departmentName ?? '',
     };
+    // The photos picked offline (kept on this device until sent).
+    final files = queued['files'];
     return {
       ...(await db.getOccLookup(OccOfflineService.lookupKey) ?? <String, dynamic>{}),
       'getFailureCreationDetails': await _occNormalizeStored(d),
+      'getImageBefor': [
+        if (files is List)
+          for (final f in files)
+            if ('$f'.isNotEmpty) {'fileName': '$f', 'documentType': 'BEFORE_NOT'}
+      ],
     };
   }
 
@@ -8220,7 +8270,15 @@ class CreateFailureController extends GetxController
       beforeImagesList.clear();
       afterImagesList.clear();
       rcaImagesList.clear();
-      for (final img in _occValues(output['getImageBefor'])) {
+      // The server's details may come without the pictures: the ones kept with
+      // the failure by the list sync are shown then.
+      var documents = _occValues(output['getImageBefor']);
+      if (documents.isEmpty) {
+        final stored = await LocalDatabaseService()
+            .getOccFailureCacheRow(item?.id ?? int.tryParse(id) ?? 0);
+        documents = _occValues(stored?['documents']);
+      }
+      for (final img in documents) {
         final fileName = _occStr(img['fileName']);
         if (fileName.isEmpty) continue;
         final entry = <String, dynamic>{
@@ -8246,6 +8304,29 @@ class CreateFailureController extends GetxController
           _occValues(output['getNotificationHistory'])
               .map(NotificationHistory.fromJson)
               .toList());
+      // The list sync sends no description history: the failure's own
+      // description is the first (and only) entry then.
+      var firstDescription = _occStr(d['failureDescription']);
+      if (firstDescription.isEmpty) firstDescription = _occStr(d['description']);
+      if (firstDescription.isEmpty) firstDescription = _occStr(item?.failureDescription);
+      if (firstDescription.isEmpty && notificationDescriptionHistoryList.isEmpty) {
+        final stored = await LocalDatabaseService()
+            .getOccFailureCacheRow(item?.id ?? int.tryParse(id) ?? 0);
+        final f = stored?['failure'];
+        if (f is Map) firstDescription = _occStr(f['failureDescription']);
+      }
+      if (notificationDescriptionHistoryList.isEmpty && firstDescription.isNotEmpty) {
+        final created = DateTime.tryParse(_occStr(d['createdDate']));
+        notificationDescriptionHistoryList.add(NotificationHistory(
+          description: firstDescription,
+          createdBy: _occStr(d['failureReportedby']).isNotEmpty
+              ? _occStr(d['failureReportedby'])
+              : null,
+          createdOn: created != null
+              ? DateFormat('dd-MM-yyyy HH:mm').format(created)
+              : (_occStr(d['createdDate']).isEmpty ? null : _occStr(d['createdDate'])),
+        ));
+      }
       notificationHistoryList.assignAll(
           _occValues(output['getNotificationActionUserHistory'])
               .map(NotificationActionHistory.fromJson)
@@ -8385,6 +8466,20 @@ class CreateFailureController extends GetxController
     if ((originalFailureId.value ?? 0) < 0) {
       _occError('This failure is waiting to be sent. You can update it once it is synced.');
       return false;
+    }
+    // One saved action per failure: a second one would be sent on top of the
+    // first. The list's Retry / Discard deals with the waiting one.
+    final waiting = originalFailureId.value ?? 0;
+    for (final q in await LocalDatabaseService().getPendingSubmissions()) {
+      final payload = q['payload'];
+      if (q['failureType'] == OccOfflineService.queueType &&
+          payload is Map &&
+          payload['action'] == OccOfflineService.actionUpdate &&
+          int.tryParse('${payload['failureId']}') == waiting) {
+        _occError(
+            'An update for this failure is already waiting to be sent. Open the list to retry or discard it.');
+        return false;
+      }
     }
 
     try {
