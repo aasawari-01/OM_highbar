@@ -43,7 +43,7 @@ dependencies:
   flutter_tabler_icons: ^1.43.0
   intl: ^0.17.0
   image_picker: ^1.1.2
-  image_cropper: ^8.0.2
+  image_cropper: ^12.2.1
   get: ^4.7.2
   shared_preferences: ^2.5.4
   http: ^1.2.0
