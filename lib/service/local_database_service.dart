@@ -5188,6 +5188,28 @@ class LocalDatabaseService {
     return _stationAckPending(db);
   }
 
+  /// Depot failures (DCC) with an Acknowledge / Re-Open / Close waiting to be
+  /// sent: {failure id: {sid, error, action}}.
+  Future<Map<int, Map<String, dynamic>>> getDepotActionPending() async {
+    final db = await database;
+    final out = <int, Map<String, dynamic>>{};
+    final rows = await db.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0', whereArgs: ['DepotAck']);
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        final id = int.tryParse('${p['id']}');
+        if (id == null) continue;
+        out[id] = {
+          'sid': r['id'],
+          'error': r['syncError'],
+          'action': p['action'],
+        };
+      } catch (_) {}
+    }
+    return out;
+  }
+
   Future<Map<int, Map<String, dynamic>>> _stationAckPending(DatabaseExecutor ex) async {
     final out = <int, Map<String, dynamic>>{};
     final rows = await ex.query('PendingFailureSubmissions',
@@ -5390,6 +5412,16 @@ class LocalDatabaseService {
     record['encryptedId'] = token;
     await db.update('SiFailureCache', {'payload': jsonEncode(record)},
         where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  /// A failure the server deleted: removed from the local copy and list.
+  Future<void> deleteSiFailureLocal(int notificationId) async {
+    final db = await database;
+    await db.delete('SiFailureCache',
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+    await db.delete('FailureList',
+        where: 'id = ? AND failureType = ?',
+        whereArgs: [notificationId, 'Maintenance']);
   }
 
   Future<void> clearSiFailurePending(int notificationId) async {

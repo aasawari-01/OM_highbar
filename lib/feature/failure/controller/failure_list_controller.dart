@@ -638,6 +638,15 @@ class FailureListController extends GetxController {
         v is bool ? v : (text == 'Yes' ? true : (text == 'No' ? false : null));
     int? count(dynamic v) => v is bool ? null : asInt(v);
 
+    // The sync sends the location with the sub location added ("Khapari -
+    // SASA"); the Location field is the location alone.
+    String? locationOnly(dynamic loc, dynamic sub) {
+      final l = loc?.toString().trim();
+      final s = sub?.toString().trim() ?? '';
+      if (l == null || s.isEmpty || !l.endsWith(' - $s')) return l;
+      return l.substring(0, l.length - s.length - 3).trim();
+    }
+
     final row = {
       'id': asInt(f['id']),
       'syncStatus': 'synced',
@@ -645,7 +654,7 @@ class FailureListController extends GetxController {
       'failureCreationId': f['failureCreationId']?.toString() ?? f['id']?.toString(),
       'failureDescription': f['failureDescription'],
       'funcationLocation': f['functionalLocation'],
-      'location': f['location'],
+      'location': locationOnly(f['location'], f['subLocation']),
       'subLocation': f['subLocation'],
       'departmentName': f['departmentName'],
       'priority': f['priority'],
@@ -666,13 +675,17 @@ class FailureListController extends GetxController {
       'isTripAffected': flag(f['isTripAffected'], f['tripAffected']),
       'tripDelayUpline': asInt(f['tripDelayUpline']),
       'tripDelayDownline': asInt(f['tripDelayDownline']),
-      'tripCancel': count(f['tripCancel']),
+      // The sync names the counts noOfTranCancel / noOfTrainDeboarded /
+      // noOfPassengerAffected (tripCancel is only a yes/no flag there).
+      'tripCancel': count(f['tripCancel']) ?? asInt(f['noOfTranCancel']),
       'isTrainReplace': f['isTrainReplace'] is bool ? f['isTrainReplace'] : null,
       'trainReplace': asInt(f['trainReplace']),
       'isTrainDeboarded': f['isTrainDeboarded'] is bool ? f['isTrainDeboarded'] : null,
-      'trainDeboarded': count(f['trainDeboarded']),
+      'trainDeboarded': count(f['trainDeboarded']) ??
+          asInt(f['noOfTrainDeboarded'] ?? f['noofTrainDeboarded']),
       'isPassengerAffected': flag(f['isPassengerAffected'], f['passengerAffected']),
-      'numberOfPassengerAffected': asInt(f['numberOfPassengerAffected']),
+      'numberOfPassengerAffected':
+          asInt(f['numberOfPassengerAffected'] ?? f['noOfPassengerAffected']),
       'trappedDuration': asInt(f['trappedDuration']),
       'rescusedDuration': asInt(f['rescusedDuration']),
       'trainDelayInMin': asInt(f['trainDelayInMin']),
@@ -809,6 +822,14 @@ class FailureListController extends GetxController {
       await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
       return;
     }
+    if (failureType.toLowerCase() == 'depot' && f.pendingAction != null) {
+      // An Acknowledge / Re-Open / Close of a depot failure that is on the server.
+      final waiting = (await _dbService.getDepotActionPending())[f.id];
+      if (waiting != null) await _dbService.resetSubmissionAttempts(waiting['sid'] as int);
+      await fetchFailures();
+      await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
+      return;
+    }
     if (failureType.toLowerCase() == 'depot') {
       final depotSid = _submissionIdOf(f);
       if (depotSid <= 0) return;
@@ -844,6 +865,13 @@ class FailureListController extends GetxController {
       } else {
         await _dbService.clearOccPending(f.id!);
       }
+      await fetchFailures();
+      return;
+    }
+    if (failureType.toLowerCase() == 'depot' && f.pendingAction != null) {
+      // The failure goes back to what the server has: the buttons show again.
+      final waiting = (await _dbService.getDepotActionPending())[f.id];
+      if (waiting != null) await _dbService.deletePendingSubmission(waiting['sid'] as int);
       await fetchFailures();
       return;
     }
@@ -987,11 +1015,22 @@ class FailureListController extends GetxController {
       isOfflineMode.value = true;
     }
 
+    final depotActions = await _dbService.getDepotActionPending();
     final items = <FailureItem>[];
     for (final r in await _dbService.getDepotFailureCache(depotId)) {
       try {
         final f = _depotRowFromTransaction(Map<String, dynamic>.from(r['depotFailures'] as Map));
-        items.add(_fmcItemFromRow(f, creationType: 'Depot'));
+        // An Acknowledge / Re-Open / Close saved offline: shown as waiting (or
+        // failed, with why).
+        final waiting = depotActions[int.tryParse('${f['id']}')];
+        final error = '${waiting?['error'] ?? ''}'.trim();
+        items.add(_fmcItemFromRow(
+          f,
+          creationType: 'Depot',
+          syncStatus: waiting == null ? null : (error.isEmpty ? 'offline' : 'failed'),
+          pendingAction: waiting == null ? null : '${waiting['action']}',
+          remarks: error.isEmpty ? null : error,
+        ));
       } catch (e) {
         failureLog('_fetchDepotFailures: skipped bad row: $e');
       }
@@ -1205,23 +1244,67 @@ class FailureListController extends GetxController {
   /// DCC depot list: Re-open / Close (web: updateDepotAcknowledgeStatus).
   Future<void> reOpenDepotFailure(int id, String remark, {String? failureNo}) =>
       _updateDepotStatus(id, 'UPDATE_REOPEN_OCC_DEPOT', remark,
+          kind: 'reopen',
+          failureNo: failureNo,
           successMessage: 'Failure No.${failureNo ?? id} re-open successfully.');
 
   Future<void> closeDepotFailure(int id, {String? failureNo}) =>
       _updateDepotStatus(id, 'UPDATE_CLOSED_OCC_DEPOT', 'Closed Request',
+          kind: 'close',
+          failureNo: failureNo,
           successMessage: 'Failure No.${failureNo ?? id} closed successfully.');
 
+  /// Acknowledge accept (StatusId 197) / deny (198), like the web depot list.
+  Future<void> acknowledgeDepotFailure(int id, String remark,
+          {required bool accept, String? failureNo}) =>
+      _updateDepotStatus(id, 'UPDATE_Acknowledge_OCC_DEPOT', remark,
+          kind: 'acknowledge',
+          failureNo: failureNo,
+          statusId: accept ? 197 : 198,
+          successMessage:
+              'Failure No.${failureNo ?? id} acknowledge ${accept ? 'accepted' : 'denied'} successfully.');
+
+  /// Sends a DCC action (Acknowledge / Re-Open / Close). Without a connection
+  /// it is saved on the device and sent when internet returns.
   Future<void> _updateDepotStatus(int id, String action, String description,
-      {required String successMessage, int statusId = 202}) async {
+      {required String successMessage,
+      int statusId = 202,
+      String kind = 'update',
+      String? failureNo}) async {
     try {
       isLoading.value = true;
       errorMessage.value = '';
-      final response = await _failureService.updateDepotStatus(
-        id: id,
-        action: action,
-        description: description,
-        statusId: statusId,
-      );
+      Map<String, dynamic> response;
+      try {
+        response = await _failureService
+            .updateDepotStatus(
+              id: id,
+              action: action,
+              description: description,
+              statusId: statusId,
+            )
+            .timeout(const Duration(seconds: 30));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: keep it and send it when internet returns.
+        await _dbService.insertPendingSubmission({
+          'action': kind,
+          'id': id,
+          'depotAction': action,
+          'statusId': statusId,
+          'remark': description,
+          'failureNo': failureNo ?? id.toString(),
+          'queuedBy': await AuthManager().getUserId(),
+        }, 'DepotAck');
+        FailureToast.show(
+          'Saved Offline',
+          'Your action for Failure No.${failureNo ?? id} is saved. It is sent when the internet is back.',
+          backgroundColor: AppColors.orangeColor,
+          colorText: AppColors.white1,
+        );
+        await fetchFailures();
+        return;
+      }
       final ok = response['responseCode'] == 200 ||
           response['responseMessage']?.toString().toLowerCase() == 'success';
       if (ok) {

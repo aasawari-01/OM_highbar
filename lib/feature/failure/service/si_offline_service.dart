@@ -1,7 +1,9 @@
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:get/get.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
@@ -162,7 +164,8 @@ class SiOfflineService {
   /// A new maintenance failure saved offline. Returns the queue id (the list
   /// entry uses -id).
   Future<int> queueCreate(Map<String, dynamic> formData,
-      {Map<String, dynamic> labels = const {}}) async {
+      {Map<String, dynamic> labels = const {},
+      List<String> files = const []}) async {
     // [labels] are the names shown on the form (not sent to the server); the
     // details screen uses them to show the failure while it is offline.
     return _db.insertPendingSubmission({
@@ -171,6 +174,8 @@ class SiOfflineService {
       'queuedBy': await AuthManager().getUserId(),
       'formData': formData,
       'labels': labels,
+      // Pictures picked on the form, kept on the device until it is sent.
+      if (files.isNotEmpty) 'files': files,
     }, queueType);
   }
 
@@ -210,9 +215,22 @@ class SiOfflineService {
         await _service.updateMaintenanceFailure(payload);
         return true;
       case 'create':
+        final saved = p['files'] is List ? p['files'] as List : const [];
+        final parts = <http.MultipartFile>[];
+        for (final path in saved) {
+          if (await File('$path').exists()) {
+            parts.add(await http.MultipartFile.fromPath('beforImage', '$path'));
+          }
+        }
         final r = await _service.submitMaintenanceNotificationForm(
-            Map<String, dynamic>.from(p['formData'] as Map));
+            Map<String, dynamic>.from(p['formData'] as Map),
+            files: parts);
         lastCreatedNumber = r['responseOutput']?.toString();
+        for (final path in saved) {
+          try {
+            await File('$path').delete();
+          } catch (_) {}
+        }
         return true;
       default:
         return false;

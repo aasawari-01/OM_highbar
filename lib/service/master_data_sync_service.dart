@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show File;
 import 'dart:math';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
@@ -226,7 +227,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.upsertDepotFailureCache(res.depotRecords);
         await _dbService.upsertOccFailureCache('OCC', res.occRecords);
         await _dbService.upsertOccFailureCache('FMC', res.fmcRecords);
-        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords]);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords]);
       } else {
         await _dbService.replaceStationFailureCache(res.stationRecords);
         await _dbService.replaceSiFailureCache(res.siRecords);
@@ -235,7 +236,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.replaceDepotFailureCache(res.depotRecords);
         await _dbService.replaceOccFailureCache('OCC', res.occRecords);
         await _dbService.replaceOccFailureCache('FMC', res.fmcRecords);
-        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords]);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords]);
       }
       if (!incremental) {
         await _dbService.setAppSetting(_fullSyncNeededKey, '');
@@ -411,10 +412,11 @@ class MasterDataSyncService extends GetxController {
   void _prefetchImages(List<Map<String, dynamic>> records) {
     final urls = <String>[
       for (final r in records)
-        if (r['documents'] is List)
-          for (final d in r['documents'] as List)
-            if (d is Map && '${d['fileName'] ?? ''}'.isNotEmpty)
-              '${AppUrls.imageUrl}${d['fileName']}'
+        for (final key in const ['documents', 'siDoc'])
+          if (r[key] is List)
+            for (final d in r[key] as List)
+              if (d is Map && '${d['fileName'] ?? ''}'.isNotEmpty)
+                '${AppUrls.imageUrl}${d['fileName']}'
     ];
     if (urls.isEmpty) return;
     FailureImageCache.prefetch(urls).catchError((Object e) {
@@ -633,6 +635,9 @@ class MasterDataSyncService extends GetxController {
       final syncedNumbers = <String>[]; // real failure numbers of Station failures
       var stationSynced = 0;
       var stationFailed = 0;
+      var depotActSynced = 0; // DCC Acknowledge / Re-Open / Close: sent and failed
+      var depotActFailed = 0;
+      final depotActNumbers = <String>[];
       var ackSynced = 0; // Station Controller Acknowledge: sent and failed
       var ackFailed = 0;
       final ackNumbers = <String>[];
@@ -659,9 +664,23 @@ class MasterDataSyncService extends GetxController {
             continue;
           }
           try {
+            // Images saved with the failure (not part of the data sent).
+            final savedImages =
+                (payload.remove('_files') as List? ?? const []).map((e) => '$e').toList();
+            final imageParts = <http.MultipartFile>[];
+            for (final path in savedImages) {
+              if (await File(path).exists()) {
+                imageParts.add(await http.MultipartFile.fromPath('beforImage', path));
+              }
+            }
             final no = await _failureService
-                .createStationFailure(payload)
-                .timeout(const Duration(seconds: 60));
+                .createStationFailure(payload, files: imageParts)
+                .timeout(Duration(seconds: imageParts.isEmpty ? 60 : 120));
+            for (final path in savedImages) {
+              try {
+                await File(path).delete();
+              } catch (_) {}
+            }
             await StationOverlay.save(no, await StationOverlay.build(payload));
             await _dbService.deletePendingSubmission(sid);
             // The real failure comes back with the next list sync.
@@ -683,6 +702,62 @@ class MasterDataSyncService extends GetxController {
                 DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
             stationFailed++;
             debugPrint('syncPendingSubmissions: station failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
+        // DCC: Acknowledge (Accept / Deny), Re-Open or Close of a depot failure
+        // saved offline.
+        if (submission['failureType'] == 'DepotAck') {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+
+          Future<void> failIt(String reason) async {
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            _retryAfter[sid] = DateTime.now()
+                .add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            depotActFailed++;
+            debugPrint('syncPendingSubmissions: depot action $sid failed ($n): $reason');
+          }
+
+          try {
+            final response = await _failureService
+                .updateDepotStatus(
+                  id: int.tryParse('${payload['id']}') ?? 0,
+                  action: payload['depotAction']?.toString() ?? '',
+                  description: payload['remark']?.toString() ?? '',
+                  statusId: int.tryParse('${payload['statusId']}') ?? 202,
+                )
+                .timeout(const Duration(seconds: 60));
+            final ok = response['responseCode'] == 200 ||
+                '${response['responseMessage']}'.toLowerCase() == 'success';
+            if (ok) {
+              await _dbService.deletePendingSubmission(sid);
+              _retryAfter.remove(sid);
+              syncedCount++;
+              depotActSynced++;
+              resync = true; // a closed failure leaves the list: reload it all
+              final no = payload['failureNo']?.toString() ?? '';
+              if (no.isNotEmpty) depotActNumbers.add(no);
+            } else {
+              await failIt('${response['responseMessage'] ?? 'The server did not accept it'}');
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break;
+            }
+            await failIt(e.toString().replaceFirst('Exception: ', ''));
           }
           continue;
         }
@@ -787,6 +862,9 @@ class MasterDataSyncService extends GetxController {
                 await _dbService.deleteSiCreateEntry(sid);
                 final no = siOffline.lastCreatedNumber?.trim() ?? '';
                 if (no.isNotEmpty) siCreatedNumbers.add(no);
+              } else if (nid > 0 && action == 'delete') {
+                // Deleted on the server: it also leaves the local list.
+                await _dbService.deleteSiFailureLocal(nid);
               } else if (nid > 0) {
                 await _dbService.clearSiFailurePending(nid);
               }
@@ -1011,6 +1089,22 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
+      if (depotActSynced > 0 || depotActFailed > 0) {
+        final lines = <String>[
+          if (depotActSynced > 0)
+            '$depotActSynced depot update${depotActSynced == 1 ? '' : 's'} synced'
+                '${depotActNumbers.isEmpty ? '' : ': ${depotActNumbers.join(', ')}'}',
+          if (depotActFailed > 0)
+            '$depotActFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          depotActFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: depotActFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
       if (ackSynced > 0 || ackFailed > 0) {
         final lines = <String>[
           if (ackSynced > 0)
@@ -1060,15 +1154,15 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
-      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced + occSynced) {
+      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced + occSynced + depotActSynced) {
         Get.snackbar(
           'Sync Complete',
-          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced - occSynced} pending submissions',
+          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced - occSynced - depotActSynced} pending submissions',
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
       }
-      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0 || occFailed > 0) {
+      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0 || occFailed > 0 || depotActFailed > 0) {
         debugPrint("syncPendingSubmissions: Reloading lists after offline submissions");
         // Bring the server's state of what was just sent (a dropped action gets a
         // full reload so its local change disappears).

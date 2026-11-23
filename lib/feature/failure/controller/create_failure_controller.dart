@@ -2252,11 +2252,36 @@ class CreateFailureController extends GetxController
       if (numericId != null && item.syncStatus != 'offline') {
         await _applyStationCachedHistory(numericId);
       }
+      await _applyStationPendingImages(item);
       return;
     }
     await loadStationFailureDetails(id, useCreationByIdApi: true);
     if (errorMessage.value.isNotEmpty && item != null) {
       await loadStationFailureDetailsFromData(item);
+    }
+  }
+
+  /// A station failure created offline and not sent yet: the pictures picked
+  /// on the form are kept on the device with the queued failure.
+  Future<void> _applyStationPendingImages(FailureItem item) async {
+    final id = item.id ?? 0;
+    if (id >= 0 || (item.syncStatus != 'offline' && item.syncStatus != 'failed')) {
+      return;
+    }
+    try {
+      // Offline entry ids are -(queue id * 10 + department index).
+      final queued = await LocalDatabaseService()
+          .getPendingSubmissionPayload((-id) ~/ 10);
+      final files = queued?['_files'];
+      if (files is! List) return;
+      final pictures = <Map<String, dynamic>>[
+        for (final f in files)
+          if ('$f'.trim().isNotEmpty)
+            {'name': '$f'.split('/').last, 'path': '$f', 'isNetwork': false}
+      ];
+      if (pictures.isNotEmpty) beforeImagesList.assignAll(pictures);
+    } catch (e) {
+      failureLog('_applyStationPendingImages error: $e');
     }
   }
 
@@ -2298,6 +2323,18 @@ class CreateFailureController extends GetxController
       ))
           .toList();
       notificationHistoryList.assignAll(actions);
+
+      // The pictures sent with the failure (shown under "Uploaded Images").
+      final pictures = <Map<String, dynamic>>[
+        for (final d in (rec['documents'] as List? ?? const []).whereType<Map>())
+          if ('${d['fileName'] ?? ''}'.trim().isNotEmpty)
+            {
+              'name': '${d['fileName']}'.split('/').last,
+              'path': '${d['fileName']}'.trim(),
+              'isNetwork': true,
+            }
+      ];
+      if (pictures.isNotEmpty) beforeImagesList.assignAll(pictures);
     } catch (e) {
       failureLog('_applyStationCachedHistory error: $e');
     }
@@ -6567,6 +6604,10 @@ class CreateFailureController extends GetxController
       // RCA, failure type, spare parts and dismantle the JE entered (read-only
       // for the Section Incharge).
       _applySiClosureData(model, output, result.failureRectificationJson);
+      // Created offline and not sent yet: the pictures kept on the device
+      // (added after the server pictures are read below).
+      final pendingCreateId =
+          offlineResult != null && item != null ? -(item.id ?? 0) : 0;
       selectedFailureAttendedDate.value =
       (model.failureAttendedDate ?? '').isNotEmpty
           ? _parseDate(model.failureAttendedDate!)
@@ -6612,6 +6653,26 @@ class CreateFailureController extends GetxController
           rcaImagesList.add(imgMap);
         } else {
           beforeImagesList.add(imgMap);
+        }
+      }
+      if (pendingCreateId > 0) {
+        try {
+          final queued = await LocalDatabaseService()
+              .getPendingSubmissionPayload(pendingCreateId);
+          final kept = queued?['files'];
+          if (kept is List) {
+            for (final f in kept) {
+              final path = '$f'.trim();
+              if (path.isEmpty) continue;
+              beforeImagesList.add({
+                'name': path.split(RegExp(r'[\\/]')).last,
+                'path': path,
+                'isNetwork': false
+              });
+            }
+          }
+        } catch (e) {
+          failureLog('SI details: queued pictures failed: $e');
         }
       }
     } catch (e, st) {

@@ -1,5 +1,6 @@
 import 'package:om_mobile/feature/failure/view/shared/attachment_cropper.dart';
 import 'package:om_mobile/feature/failure/view/shared/failure_cached_image.dart';
+import 'package:om_mobile/feature/failure/view/shared/failure_image_viewer.dart';
 import 'package:path/path.dart' as p;
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
@@ -282,6 +283,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   }
 
   void _handleCancel() {
+    // Station Controller viewing a created station failure: view only, nothing
+    // can be changed, so there is nothing to lose.
+    if (_isStationControllerView) {
+      Navigator.pop(context);
+      return;
+    }
     if (_hasUnsavedChanges()) {
       Get.dialog(
         CustPopup(
@@ -1097,8 +1104,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     hintText: "Enter Sub Location",
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
-                  // System / Sub System of the chosen functional location (API).
-                  _occSystemSubsystemFields(),
+                  // System of the chosen functional location (API); the
+                  // Station Controller form has no Sub System.
+                  _occSystemSubsystemFields(showSubsystem: false),
                   const SizedBox(height: AppConstants.elementSpacing),
                   CustomTextField(
                     label: "Train Id",
@@ -1112,9 +1120,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     selectedDateTime:
                     controller.selectedFailureOccurrenceDate.value,
                     enabled: _maintenanceOpenOr202Editable,
+                    lastDate: DateTime.now(),
                     onDateTimeSelected: (dt) {
                       if (!_maintenanceOpenOr202Editable) return;
-                      controller.selectedFailureOccurrenceDate.value = dt;
+                      // Today's date with a time still to come is not allowed.
+                      controller.selectedFailureOccurrenceDate.value =
+                          (dt != null && dt.isAfter(DateTime.now()))
+                              ? DateTime.now()
+                              : dt;
                     },
                     validator: (val) {
                       if (controller.selectedFailureOccurrenceDate.value ==
@@ -1725,8 +1738,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   selectedDateTime:
                   controller.selectedFailureOccurrenceDate.value,
                   enabled: _maintenanceOpenOr202Editable,
+                  lastDate: DateTime.now(),
                   onDateTimeSelected: (dt) =>
-                  controller.selectedFailureOccurrenceDate.value = dt,
+                  controller.selectedFailureOccurrenceDate.value =
+                      (dt != null && dt.isAfter(DateTime.now()))
+                          ? DateTime.now()
+                          : dt,
                   validator: (val) {
                     if (controller.selectedFailureOccurrenceDate.value ==
                         null) {
@@ -3539,7 +3556,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         CustomTextField(
                           controller: controller.subsystemController,
                           label: "Subsystem *",
-                          enabled: !controller.isFormDisabled,
+                          // JE: the subsystem comes from the failure, read-only.
+                          enabled: !controller.isFormDisabled && !controller.isJE,
                         ),
                         const SizedBox(height: AppConstants.elementSpacing),
                         Obx(() => CustDropdown(
@@ -4679,7 +4697,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
   /// System and Sub System: read-only text when the functional location maps
   /// to a single pair, otherwise dropdowns (web behaviour).
-  Widget _occSystemSubsystemFields() {
+  Widget _occSystemSubsystemFields({bool showSubsystem = true}) {
     return Obx(() {
       final systemReadOnly = controller.fmecaSystemReadOnly.value;
       final subReadOnly = controller.fmecaSubsystemReadOnly.value;
@@ -4723,8 +4741,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       return Column(
         children: [
           system,
-          const SizedBox(height: AppConstants.elementSpacing),
-          subSystem,
+          if (showSubsystem) ...[
+            const SizedBox(height: AppConstants.elementSpacing),
+            subSystem,
+          ],
         ],
       );
     });
@@ -6177,10 +6197,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     spacing: 8,
                     runSpacing: 8,
                     children: controller.beforeImagesList
-                        .map<Widget>(
-                          (file) => _buildUploadedImagePreview(file['path']!),
-                    )
-                        .toList(),
+                        .map<Widget>((file) {
+                      final path = '${file['path']}';
+                      // A file on this device (failure not sent yet), or a server
+                      // picture, kept on the device once loaded.
+                      final onDevice = path.startsWith('/') && File(path).existsSync();
+                      return FailureCachedImage(path.startsWith('http') || onDevice
+                          ? path
+                          : "${AppUrls.imageUrl}${path.replaceFirst(RegExp(r'^/+'), '')}");
+                    }).toList(),
                   ),
                 ],
               ),
@@ -6293,23 +6318,26 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   }
 
   Widget _buildUploadedImagePreview(String path) {
-    return Container(
-      width: 100,
-      height: 100,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.network(
-          path.startsWith('http')
-              ? path
-              : "${AppUrls.baseUrl.replaceAll('/api/', '/')}${path.replaceFirst(RegExp(r'^/+'), '')}",
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) =>
-          const Icon(Icons.broken_image, color: Colors.grey),
+    // A picture kept on this device (failure created offline, not sent yet).
+    if (!path.startsWith('http') && File(path).existsSync()) {
+      return FailureCachedImage(path);
+    }
+    final url = path.startsWith('http')
+        ? path
+        : "${AppUrls.baseUrl.replaceAll('/api/', '/')}${path.replaceFirst(RegExp(r'^/+'), '')}";
+    // Tap opens the picture in full view.
+    return GestureDetector(
+      onTap: () => FailureImageViewer.show(url),
+      child: Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(8),
         ),
+        // The picture is saved on the device the first time it loads, so it
+        // shows again without internet.
+        child: FailureCachedImage(url),
       ),
     );
   }

@@ -1,3 +1,4 @@
+import 'package:om_mobile/service/local_database_service.dart';
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
@@ -540,13 +541,30 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   /// OCC list of the Chief Controller / FMC / TPC / CSS / RSC.
   bool get _isOccList => widget.failureType == 'OCC';
 
-  /// Re-Open / Close when statusId is 195 or 175. There is no acknowledge
-  /// step for the DCC: the JE closes the failure and the Section Incharge
-  /// reviews and closes it.
+  /// Web: Acknowledge when status is "Work Complete"; Re-Open / Close when
+  /// statusId is 195 or 175.
+  bool _isDepotWorkComplete(FailureItem f) =>
+      (f.statusName ?? '').trim() == 'Work Complete';
+
   bool _depotCanReopenClose(FailureItem f) =>
       f.statusId == 195 || f.statusId == 175;
 
-  bool _depotHasActions(FailureItem f) => _depotCanReopenClose(f);
+  bool _depotHasActions(FailureItem f) =>
+      f.pendingAction != null ||
+      _isDepotWorkComplete(f) ||
+      _depotCanReopenClose(f);
+
+  static String _depotActionLabel(String? action) {
+    switch (action) {
+      case 'acknowledge':
+        return 'Acknowledge';
+      case 'reopen':
+        return 'Re-Open';
+      case 'close':
+        return 'Close';
+    }
+    return 'Update';
+  }
 
   Widget _depotChip(String label, Color color, VoidCallback onTap) {
     return ActionChip(
@@ -563,10 +581,24 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   Widget _buildDepotActions(FailureItem failure) {
     final id = failure.id ?? 0;
     final code = failure.notificationCode ?? failure.failureNo;
+    // An action done offline is waiting to be sent: no new action meanwhile
+    // (when the server refused it, the Retry / Discard above deals with it).
+    if (failure.pendingAction != null) {
+      return failure.syncStatus == 'failed'
+          ? const SizedBox.shrink()
+          : CustText(
+              name: 'Waiting to be sent: ${_depotActionLabel(failure.pendingAction)}',
+              size: 12,
+              color: AppColors.orangeColor,
+            );
+    }
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
+        if (_isDepotWorkComplete(failure))
+          _depotChip('Acknowledge', AppColors.green,
+                  () => _showDepotAcknowledgePopup(failure)),
         if (_depotCanReopenClose(failure)) ...[
           _depotChip('Re-Open', AppColors.green,
                   () => _showDepotReopenPopup(id, code)),
@@ -678,6 +710,140 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                           ),
                         );
                       },
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _confirmDepotAcknowledge(FailureItem failure, String remark,
+      {required bool accept}) {
+    Get.dialog(
+      CustPopup(
+        title: "Confirm",
+        message: accept
+            ? "Do you want acknowledge accept failure?"
+            : "Do you want acknowledge deny failure?",
+        icon: accept ? TablerIcons.circle_check : TablerIcons.alert_triangle,
+        iconColor: accept ? AppColors.green : AppColors.orangeColor,
+        confirmText: "Yes",
+        cancelText: "Cancel",
+        onCancel: () => Get.back(),
+        onConfirm: () async {
+          Get.back(); // confirm dialog
+          Get.back(); // acknowledge popup
+          await controller.acknowledgeDepotFailure(
+            failure.id ?? 0,
+            remark,
+            accept: accept,
+            failureNo: failure.notificationCode ?? failure.failureNo,
+          );
+        },
+      ),
+    );
+  }
+
+  void _showDepotAcknowledgePopup(FailureItem failure) {
+    final remarkController = TextEditingController();
+    final code = failure.notificationCode ?? failure.failureNo ?? '';
+    String? error;
+    Get.dialog(
+      CustPopup(
+        title: "Acknowledge For Failure",
+        showIcon: true,
+        icon: TablerIcons.circle_check,
+        iconColor: AppColors.green,
+        onCancel: () => Get.back(),
+        customContent: StatefulBuilder(
+          builder: (context, setPopupState) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: CustText(
+                    name: "Acknowledge For Failure",
+                    size: AppConstants.headerSize,
+                    color: AppColors.textMutedLight,
+                    fontWeightName: FontWeight.w600),
+              ),
+              if (code.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Center(
+                  child: CustText(
+                      name: "Failure No: $code",
+                      size: 13,
+                      color: AppColors.orangeColor,
+                      fontWeightName: FontWeight.w600),
+                ),
+              ],
+              const SizedBox(height: 16),
+              CustText(
+                  name: "Remark *",
+                  size: AppConstants.formLabelSize,
+                  fontWeightName: FontWeight.w500),
+              const SizedBox(height: 8),
+              CustomTextField(
+                controller: remarkController,
+                hintText: "Enter remark (max 250 characters)",
+                maxLines: 3,
+                maxLength: 250,
+                onChanged: (v) {
+                  if (error != null && v.trim().isNotEmpty) {
+                    setPopupState(() => error = null);
+                  }
+                },
+              ),
+              if (error != null)
+                Text(error!,
+                    style: const TextStyle(color: AppColors.red, fontSize: 12)),
+              const SizedBox(height: 20),
+              Row(
+                children: [
+                  Expanded(
+                    child: CustOutlineButton(
+                      name: "Close",
+                      size: double.infinity,
+                      sHeight: 36,
+                      fontSize: 14,
+                      onSelected: (_) => Get.back(),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CustButton(
+                      name: "Deny",
+                      size: double.infinity,
+                      sHeight: 36,
+                      fontSize: 14,
+                      color1: AppColors.red,
+                      color2: AppColors.red,
+                      onSelected: (_) {
+                        final remark = remarkController.text.trim();
+                        if (remark.isEmpty) {
+                          setPopupState(() => error = "Please enter remark.");
+                          return;
+                        }
+                        _confirmDepotAcknowledge(failure, remark, accept: false);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: CustButton(
+                      name: "Accept",
+                      size: double.infinity,
+                      sHeight: 36,
+                      fontSize: 14,
+                      color1: AppColors.green,
+                      color2: AppColors.green,
+                      onSelected: (_) => _confirmDepotAcknowledge(
+                          failure, remarkController.text.trim(),
+                          accept: true),
                     ),
                   ),
                 ],
@@ -1735,6 +1901,9 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
 
       if (mounted) {
         if (success) {
+          if (outcome == SiOutcome.done) {
+            await LocalDatabaseService().deleteSiFailureLocal(notificationId);
+          }
           FailureToast.show(outcome == SiOutcome.queued ? 'Saved Offline' : 'Success', _siMsg(outcome, "Delete successful"));
           controller.fetchFailures();
         } else {

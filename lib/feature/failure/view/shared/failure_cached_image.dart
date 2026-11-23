@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:om_mobile/feature/failure/service/failure_image_cache.dart';
+import 'package:om_mobile/feature/failure/view/shared/failure_image_viewer.dart';
 
 /// A failure attachment thumbnail: a file on this device (failure not sent yet)
 /// or a server address. A server picture is saved on the device the first time
@@ -89,6 +90,10 @@ class _FailureCachedImageState extends State<FailureCachedImage> {
               return file == null ? _fromNetwork() : _fromFile(file);
             },
           );
-    return ClipRRect(borderRadius: BorderRadius.circular(8), child: child);
+    // Tap opens the picture in full view.
+    return GestureDetector(
+      onTap: () => FailureImageViewer.show(widget.source),
+      child: ClipRRect(borderRadius: BorderRadius.circular(8), child: child),
+    );
   }
 }

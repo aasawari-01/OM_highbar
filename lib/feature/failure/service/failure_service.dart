@@ -695,8 +695,12 @@ class FailureService {
     }
   }
 
-  /// Creates a new station failure. Returns the created failure number.
-  Future<String?> createStationFailure(Map<String, dynamic> payload) async {
+  /// Creates a new station failure. Returns the created failure number. The
+  /// "before" images go in `beforImage` (spelling is the server's).
+  Future<String?> createStationFailure(
+    Map<String, dynamic> payload, {
+    List<http.MultipartFile> files = const [],
+  }) async {
     final headers = await _authHeaders();
     failureLog(
         "createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
@@ -705,6 +709,7 @@ class FailureService {
       AppUrls.createStationFailure,
       headers: headers,
       fields: {'StationFailureCreationDetails': jsonEncode(payload)},
+      files: files,
     );
     failureLog("createStationFailure: Response status: ${response.statusCode}");
     failureLog("createStationFailure: Response body: ${response.body}");
@@ -2410,7 +2415,8 @@ class FailureService {
 
   /// Submits maintenance failure notification for Section Incharge
   Future<Map<String, dynamic>> submitMaintenanceNotificationForm(
-      Map<String, dynamic> formData) async {
+      Map<String, dynamic> formData,
+      {List<http.MultipartFile> files = const []}) async {
     final userId = await _userId();
     final userName = await _userName();
 
@@ -2485,7 +2491,7 @@ class FailureService {
     failureLog("Formatted Request Body: $requestBody");
 
     // ACTUAL API CALL
-    final failureNo = await createMaintenanceFailure(requestBody);
+    final failureNo = await createMaintenanceFailure(requestBody, files: files);
 
     failureLog("Created Maintenance Failure No: $failureNo");
 
@@ -2678,6 +2684,18 @@ class FailureService {
             ? list('siMaterialDismentle')
             : list('siMaterialDismantle'),
         'measurementPoint': list('siMeasurementPoint'),
+        // The pictures sent with the failure (server address, saved on the
+        // device once seen).
+        'getImageBefor': [
+          for (final d in [...list('siDoc'), ...list('documents')])
+            if (d is Map && '${d['fileName'] ?? ''}'.trim().isNotEmpty)
+              {
+                ...Map<String, dynamic>.from(d),
+                'fileName': '${d['fileName']}'.trim().startsWith('http')
+                    ? '${d['fileName']}'.trim()
+                    : '${AppUrls.imageUrl}${'${d['fileName']}'.trim().replaceFirst(RegExp(r'^/+'), '')}',
+              }
+        ],
       },
     });
     return (
@@ -2724,7 +2742,8 @@ class FailureService {
   }
 
   Future<String?> createMaintenanceFailure(
-      Map<String, dynamic> payload) async {
+      Map<String, dynamic> payload,
+      {List<http.MultipartFile> files = const []}) async {
     final headers = await _authHeaders();
 
     failureLog(
@@ -2737,6 +2756,7 @@ class FailureService {
       fields: {
         'CreateNotificationVM': jsonEncode(payload),
       },
+      files: files,
     );
 
     failureLog(
