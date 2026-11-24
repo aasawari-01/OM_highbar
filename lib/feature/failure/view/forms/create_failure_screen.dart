@@ -353,7 +353,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           widget.isUpdate) {
         // Editing a rejected station failure: API dropdowns, then the failure.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.loadStationFailureForUpdate(widget.failureNo!);
+          controller.loadStationFailureForUpdate(widget.failureNo!,
+              item: widget.failureItem);
         });
       } else if (widget.failureType == 'Station' &&
           controller.isStationController) {
@@ -1133,6 +1134,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     controller.selectedFailureOccurrenceDate.value,
                     enabled: _maintenanceOpenOr202Editable,
                     lastDate: DateTime.now(),
+                    blockFutureTime: true,
                     onDateTimeSelected: (dt) {
                       if (!_maintenanceOpenOr202Editable) return;
                       // Today's date with a time still to come is not allowed.
@@ -1486,6 +1488,40 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         file))
                         .toList(),
                   )),
+                  // Pictures the failure already has (update of an existing
+                  // station failure).
+                  Obx(() {
+                    if (controller.beforeImagesList.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CustText.body("Uploaded Images"),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: controller.beforeImagesList
+                                  .map<Widget>((file) {
+                                final path = '${file['path']}';
+                                final onDevice = path.startsWith('/') &&
+                                    File(path).existsSync();
+                                return FailureCachedImage(
+                                    path.startsWith('http') || onDevice
+                                        ? path
+                                        : "${AppUrls.imageUrl}${path.replaceFirst(RegExp(r'^/+'), '')}");
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),
@@ -1751,6 +1787,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   controller.selectedFailureOccurrenceDate.value,
                   enabled: _maintenanceOpenOr202Editable,
                   lastDate: DateTime.now(),
+                  blockFutureTime: true,
                   onDateTimeSelected: (dt) =>
                   controller.selectedFailureOccurrenceDate.value =
                       (dt != null && dt.isAfter(DateTime.now()))
@@ -2178,19 +2215,41 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             }),
           ),
           // Web: SIC Required is displayed when Department == 3.
-          // It is read-only for the existing Maintenance failure.
+          // OHE Required goes with it (Rolling Stock). Both can be changed
+          // while the failure is still editable; otherwise they are read-only.
           Obx(() {
             if (controller.departmentId.value != 3) {
               return const SizedBox.shrink();
             }
-            return CustSection(
-              title: "SIC Required",
-              trailing: YesNoToggle(
-                enabled: false,
-                value: controller.isSicRequired.value,
-                onChanged: (_) {},
-              ),
-              child: const SizedBox.shrink(),
+            final editable = _maintenanceOpenOr202Editable &&
+                !controller.siDepartmentLocked.value;
+            return Column(
+              children: [
+                CustSection(
+                  title: "OHE Required",
+                  trailing: YesNoToggle(
+                    enabled: editable,
+                    value: controller.isOheRequired.value,
+                    onChanged: (val) {
+                      if (!editable) return;
+                      controller.isOheRequired.value = val;
+                    },
+                  ),
+                  child: const SizedBox.shrink(),
+                ),
+                CustSection(
+                  title: "SIC Required",
+                  trailing: YesNoToggle(
+                    enabled: editable,
+                    value: controller.isSicRequired.value,
+                    onChanged: (val) {
+                      if (!editable) return;
+                      controller.isSicRequired.value = val;
+                    },
+                  ),
+                  child: const SizedBox.shrink(),
+                ),
+              ],
             );
           }),
           Obx(() {
@@ -5043,6 +5102,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   controller.selectedFailureOccurrenceDate.value,
                   enabled: controller.isOccRoleUser,
                   lastDate: DateTime.now(),
+                  blockFutureTime: true,
                   onDateTimeSelected: (dt) => controller.isOccRoleUser
                       ? controller.selectedFailureOccurrenceDate.value = dt
                       : null,
@@ -5390,6 +5450,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     selectedDateTime:
                     controller.selectedFailureOccurrenceDate.value,
                     lastDate: DateTime.now(),
+                    blockFutureTime: true,
                     onDateTimeSelected: (dt) =>
                     controller.selectedFailureOccurrenceDate.value = dt,
                     validator: (val) {
@@ -5817,6 +5878,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     selectedDateTime:
                     controller.selectedFailureOccurrenceDate.value,
                     lastDate: DateTime.now(),
+                    blockFutureTime: true,
                     onDateTimeSelected: (dt) =>
                     controller.selectedFailureOccurrenceDate.value = dt,
                     validator: (val) {
@@ -6060,6 +6122,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             enabled: false)),
                   ],
                 ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                    label: "Subsystem",
+                    controller: controller.subsystemController,
+                    enabled: false),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                    label: "Failure Frequency of Gear (Last 12 Months)",
+                    controller: controller.fmecaFrequencyController,
+                    enabled: false),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDateTimePicker(
                   label: "Actual Failure Occurrence",
@@ -6438,6 +6510,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         if (image != null) {
                           final path = await AttachmentCropper.crop(image.path);
                           final sizeInMb = await File(path).length() / (1024 * 1024);
+                          if (sizeInMb > 1) {
+                            FailureToast.error(
+                                'File too large. Maximum allowed size is 1 MB.',
+                                title: 'Attachment',
+                                icon: Icons.file_present_outlined);
+                            return;
+                          }
                           targetList.add({
                             'name': path == image.path ? image.name : p.basename(path),
                             'size': '${sizeInMb.toStringAsFixed(1)} MB',
@@ -6465,6 +6544,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         );
                         if (result != null) {
                           var rejected = 0;
+                          var tooLarge = 0;
                           for (var file in result.files) {
                             if (!AttachmentCropper.isAllowed(file.name)) {
                               rejected++;
@@ -6478,6 +6558,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 ? file.size
                                 : await File(path).length();
                             final sizeInMb = bytes / (1024 * 1024);
+                            if (sizeInMb > 1) {
+                              tooLarge++;
+                              continue;
+                            }
                             targetList.add({
                               'name': path == null || path == picked
                                   ? file.name
@@ -6485,6 +6569,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               'size': '${sizeInMb.toStringAsFixed(1)} MB',
                               'path': path,
                             });
+                          }
+                          if (tooLarge > 0) {
+                            FailureToast.error(
+                                'File too large. Maximum allowed size is 1 MB.',
+                                title: 'Attachment',
+                                icon: Icons.file_present_outlined);
                           }
                           if (rejected > 0) {
                             FailureToast.warning(

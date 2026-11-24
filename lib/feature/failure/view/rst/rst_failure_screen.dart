@@ -101,6 +101,13 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                         if (image != null) {
                           final path = await AttachmentCropper.crop(image.path);
                           final sizeInMb = await File(path).length() / (1024 * 1024);
+                          if (sizeInMb > 1) {
+                            FailureToast.error(
+                                'File too large. Maximum allowed size is 1 MB.',
+                                title: 'Attachment',
+                                icon: Icons.file_present_outlined);
+                            return;
+                          }
                           targetList.add({
                             'name': path == image.path ? image.name : p.basename(path),
                             'size': '${sizeInMb.toStringAsFixed(1)} MB',
@@ -130,6 +137,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                         );
                         if (result != null) {
                           var rejected = 0;
+                          var tooLarge = 0;
                           for (var file in result.files) {
                             if (!AttachmentCropper.isAllowed(file.name)) {
                               rejected++;
@@ -143,6 +151,10 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                                 ? file.size
                                 : await File(path).length();
                             final sizeInMb = bytes / (1024 * 1024);
+                            if (sizeInMb > 1) {
+                              tooLarge++;
+                              continue;
+                            }
                             targetList.add({
                               'name': path == null || path == picked
                                   ? file.name
@@ -152,6 +164,12 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                               'url': '',
                               'isNetwork': false,
                             });
+                          }
+                          if (tooLarge > 0) {
+                            FailureToast.error(
+                                'File too large. Maximum allowed size is 1 MB.',
+                                title: 'Attachment',
+                                icon: Icons.file_present_outlined);
                           }
                           if (rejected > 0) {
                             FailureToast.warning(

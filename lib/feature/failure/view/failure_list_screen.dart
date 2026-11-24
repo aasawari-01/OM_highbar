@@ -482,6 +482,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
                           failureNo: failure.failureNo,
                           notificationCode: failure.notificationCode,
                           failureType: widget.failureType,
+                          failureItem: failure,
                           isUpdate: true,
                         ));
                         if (result == true) {

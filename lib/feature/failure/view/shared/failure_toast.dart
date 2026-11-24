@@ -21,8 +21,9 @@ class FailureToast {
   static void success(String message, {String title = 'Success'}) =>
       _display(FailureToastType.success, title, message);
 
-  static void error(Object message, {String title = 'Error'}) =>
-      _display(FailureToastType.error, title, message);
+  static void error(Object message,
+          {String title = 'Error', IconData? icon}) =>
+      _display(FailureToastType.error, title, message, icon: icon);
 
   static void warning(String message, {String title = 'Warning'}) =>
       _display(FailureToastType.warning, title, message);
@@ -106,6 +107,7 @@ class FailureToast {
     String title,
     Object message, {
     Duration? duration,
+    IconData? icon,
   }) {
     final text = type == FailureToastType.error
         ? clean(message)
@@ -123,7 +125,7 @@ class FailureToast {
     _lastKey = key;
     _lastAt = now;
 
-    final (Color color, IconData icon) = switch (type) {
+    final (Color color, IconData typeIcon) = switch (type) {
       FailureToastType.success => (AppColors.green, Icons.check_circle_outline),
       FailureToastType.error => (AppColors.red, Icons.error_outline),
       FailureToastType.warning =>
@@ -138,7 +140,7 @@ class FailureToast {
         text,
         backgroundColor: color.withValues(alpha: 0.95),
         colorText: Colors.white,
-        icon: Icon(icon, color: Colors.white),
+        icon: Icon(icon ?? typeIcon, color: Colors.white),
         snackPosition: SnackPosition.BOTTOM,
         margin: const EdgeInsets.all(12),
         borderRadius: 10,

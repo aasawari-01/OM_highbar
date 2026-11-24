@@ -672,6 +672,9 @@ class FailureListController extends GetxController {
       'carriedOutRemarks': f['carriedOutRemarks'],
       'trainId': f['trainId']?.toString(),
       'system': f['system'],
+      // Added by the server as the status moves on (e.g. work completed).
+      'subSystems': f['subSystems'] ?? f['subSystem'],
+      'freq': asInt(f['freq'] ?? f['frequency']),
       'isTripAffected': flag(f['isTripAffected'], f['tripAffected']),
       'tripDelayUpline': asInt(f['tripDelayUpline']),
       'tripDelayDownline': asInt(f['tripDelayDownline']),
@@ -1504,6 +1507,11 @@ class FailureListController extends GetxController {
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
+        // Re-open / Close: the server replaces the failure, so download the
+        // whole list again and drop the old one from the local copy.
+        if (submitStatus == null && Get.isRegistered<MasterDataSyncService>()) {
+          await Get.find<MasterDataSyncService>().markFullSyncNeeded();
+        }
         fetchFailures(); // Refresh list
       } else {
         errorMessage.value =

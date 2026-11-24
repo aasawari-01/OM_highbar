@@ -22,6 +22,10 @@ class CustDateTimePicker extends StatelessWidget {
   final String? Function(String?)? validator;
   final bool use24Hour;
 
+  /// When true, a date + time later than the current moment is never kept:
+  /// picking today with a time still to come falls back to the current time.
+  final bool blockFutureTime;
+
   const CustDateTimePicker({
     super.key,
     required this.label,
@@ -35,6 +39,7 @@ class CustDateTimePicker extends StatelessWidget {
     this.enabled = true,
     this.validator,
     this.use24Hour = false,
+    this.blockFutureTime = false,
   });
 
   ThemeData _pickerTheme(BuildContext context) {
@@ -148,13 +153,20 @@ class CustDateTimePicker extends StatelessWidget {
       );
 
       final time = pickedTime ?? const TimeOfDay(hour: 0, minute: 0);
-      onDateTimeSelected(DateTime(
+      var result = DateTime(
         pickedDate.year,
         pickedDate.month,
         pickedDate.day,
         time.hour,
         time.minute,
-      ));
+      );
+      if (blockFutureTime) {
+        final now = DateTime.now();
+        if (result.isAfter(now)) {
+          result = DateTime(now.year, now.month, now.day, now.hour, now.minute);
+        }
+      }
+      onDateTimeSelected(result);
     }
   }
 

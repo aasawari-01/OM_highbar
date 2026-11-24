@@ -2377,6 +2377,12 @@ class CreateFailureController extends GetxController
         }
         subLocationController.text = details['subLocation'] ?? '';
         systemController.text = details['system'] ?? '';
+        if (isStationController) {
+          subsystemController.text =
+              (details['subSystems'] ?? details['subSystem'] ?? '').toString();
+          fmecaFrequencyController.text =
+              (details['freq'] ?? details['frequency'] ?? '').toString();
+        }
         trainIdController.text = details['trainId'] ?? '';
         await filterRcaFailureCategoriesBySystem();
 
@@ -2642,6 +2648,11 @@ class CreateFailureController extends GetxController
       try {
         await _failureService.updateStationFailure(payload);
         failureLog("steppppp");
+        // The server replaces this failure with a new one: the next sync
+        // downloads everything so the old one leaves the local list.
+        if (Get.isRegistered<MasterDataSyncService>()) {
+          await Get.find<MasterDataSyncService>().markFullSyncNeeded();
+        }
         Get.back(result: true);
         FailureToast.show(AppStrings.success, AppStrings.failureUpdated,
             backgroundColor: AppColors.green, colorText: AppColors.white1);
@@ -4982,10 +4993,54 @@ class CreateFailureController extends GetxController
   /// Edit of a rejected station failure: load the API lists, then the failure,
   /// then select the saved values by id (the details return names that can
   /// differ from the lookup labels, e.g. "Khapari" vs "KHP - Khapari").
-  Future<void> loadStationFailureForUpdate(String id) async {
+  Future<void> loadStationFailureForUpdate(String id,
+      {FailureItem? item}) async {
     await loadStationCreateDropdowns();
+    // The synced list row carries only the numeric id, which the details API
+    // does not accept: fill the form from the failure's own saved data.
+    if (item != null &&
+        (RegExp(r'^\d+$').hasMatch(id) ||
+            item.syncStatus == 'offline' ||
+            item.syncStatus == 'failed')) {
+      await loadStationFailureDetailsFromData(item);
+      await _stationDetailsFromCache(item);
+      await _applyStationSavedSelections();
+      // The pictures already on the failure (or kept for it on this device).
+      final numericId = int.tryParse(id);
+      if (numericId != null && item.syncStatus != 'offline') {
+        await _applyStationCachedHistory(numericId);
+      }
+      await _applyStationPendingImages(item);
+      return;
+    }
     await loadStationFailureDetails(id);
     await _applyStationSavedSelections();
+  }
+
+  /// The saved ids of a synced station failure, so the update form can select
+  /// the same department, location, functional location, priority and category.
+  Future<void> _stationDetailsFromCache(FailureItem item) async {
+    final d = <String, dynamic>{
+      'departmentId_1': item.departmentId_1,
+      'locationId': item.locationId,
+      'funcationLocationId': item.funcationLocationId,
+      'system': item.system,
+    };
+    try {
+      final rec = await LocalDatabaseService()
+          .getStationFailureCacheRow(item.id ?? 0);
+      final f = rec?['failure'];
+      if (f is Map) {
+        d['departmentId_1'] ??= f['departmentId'];
+        d['locationId'] ??= f['locationId'];
+        d['funcationLocationId'] ??= f['functionalLocationId'];
+        d['failureCategoryTypeId'] = f['failureCategoryTypeId'];
+        d['priorityId'] = f['priorityId'];
+      }
+    } catch (e) {
+      failureLog('_stationDetailsFromCache error: $e');
+    }
+    _stationDetails = d;
   }
 
   Future<void> _applyStationSavedSelections() async {
@@ -6020,6 +6075,8 @@ class CreateFailureController extends GetxController
       subLocationController.text = failureItem.subLocation ?? '';
       failureLog("failureItem.subLocation==${failureItem.subLocation}");
       systemController.text = failureItem.system ?? '';
+      subsystemController.text = failureItem.subSystems ?? '';
+      fmecaFrequencyController.text = failureItem.freq?.toString() ?? '';
       trainIdController.text = failureItem.trainId ?? '';
       await filterRcaFailureCategoriesBySystem();
 
