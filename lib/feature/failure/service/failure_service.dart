@@ -2711,7 +2711,8 @@ class FailureService {
 
 
   Future<Map<String, dynamic>> updateMaintenanceFailure(
-      Map<String, dynamic> payload) async {
+      Map<String, dynamic> payload,
+      {List<http.MultipartFile> files = const []}) async {
     final headers = await _authHeaders();
 
     failureLog("updateMaintenanceFailure: API endpoint: ${AppUrls.editNotificationDetails}");
@@ -2723,6 +2724,7 @@ class FailureService {
       fields: {
         'CreateNotificationVM': jsonEncode(payload),
       },
+      files: files,
     );
 
     failureLog("updateMaintenanceFailure: Response status: ${response.statusCode}");

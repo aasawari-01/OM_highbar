@@ -519,7 +519,19 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   /// Web rule: Service Affected + its dependent values are editable only
   /// when statusId == 1 (isHideStationRequest is true in the normal flow).
   bool get _maintenanceServiceEditable =>
-      !_isExistingMaintenance || _maintenanceStatusId == 1;
+      (!_isExistingMaintenance || _maintenanceStatusId == 1) &&
+      // Section Incharge, failure from Station / Depot / OCC: shown as the
+      // server has it, not editable.
+      !controller.siDepartmentLocked.value;
+
+  /// Those fields are not compulsory for that failure (no star, no check).
+  String _svcLabel(String label) =>
+      controller.siDepartmentLocked.value ? label : '$label *';
+
+  String? _svcRequired(String? value, String fieldName) =>
+      controller.siDepartmentLocked.value
+          ? null
+          : _requiredText(value, fieldName);
 
 // ---------------------------------------------------------
 // JE Change Notification
@@ -1769,14 +1781,40 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 const SizedBox(height: AppConstants.elementSpacing),
                 // Always shown: editable while the failure can be edited (new,
                 // status 1 or 202), read-only once it was assigned or later.
-                CustomTextField(
-                  label: "Failure Description",
-                  controller: controller.failureDescriptionController,
-                  hintText: "Enter failure description",
-                  maxLines: 4,
-                  maxLength: 500,
-                  enabled: _maintenanceOpenOr202Editable,
-                ),
+                Obx(() {
+                  // Section Incharge: earlier descriptions (who / when) above,
+                  // then a box for the new description.
+                  final showHistory = controller.isSectionIncharge &&
+                      controller.notificationDescriptionHistoryList.isNotEmpty;
+                  if (!showHistory) {
+                    return CustomTextField(
+                      label: "Failure Description",
+                      controller: controller.failureDescriptionController,
+                      hintText: "Enter failure description",
+                      maxLines: 4,
+                      maxLength: 500,
+                      enabled: _maintenanceOpenOr202Editable,
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CustText.formLabel("Failure Description:"),
+                      const SizedBox(height: AppConstants.labelSpacing),
+                      _occDescriptionHistory(),
+                      if (_maintenanceOpenOr202Editable) ...[
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        CustomTextField(
+                          label: "Add Description",
+                          controller: controller.failureDescriptionController,
+                          hintText: "Enter your description",
+                          maxLines: 4,
+                          maxLength: 500,
+                        ),
+                      ],
+                    ],
+                  );
+                }),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(
                   label: "Notification Type *",
@@ -1937,14 +1975,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Delay in Min. *",
+                          label: _svcLabel("Train Delay in Min."),
                           controller:
                           controller.trainDelayMinController,
                           keyboardType: TextInputType.number,
                           hintText: "Enter delay in minutes",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Delay in Min",
                               ),
@@ -1957,7 +1995,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Delay (NOS) *",
+                          label: _svcLabel("Train Delay (NOS)"),
                           controller:
                           controller.trainDelayNosController,
                           keyboardType: TextInputType.number,
@@ -1965,7 +2003,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains delayed",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Delay (NOS)",
                               ),
@@ -1983,7 +2021,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Cancel (NOS) *",
+                          label: _svcLabel("Train Cancel (NOS)"),
                           controller:
                           controller.trainCancelNosController,
                           keyboardType: TextInputType.number,
@@ -1991,7 +2029,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains cancelled",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Cancel (NOS)",
                               ),
@@ -2004,7 +2042,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Withdrawal (NOS) *",
+                          label: _svcLabel("Train Withdrawal (NOS)"),
                           controller:
                           controller.trainWithdrawalNosController,
                           keyboardType: TextInputType.number,
@@ -2012,7 +2050,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains withdrawn",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Withdrawal (NOS)",
                               ),
@@ -2030,7 +2068,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Replace (NOS) *",
+                          label: _svcLabel("Train Replace (NOS)"),
                           controller:
                           controller.trainReplaceNosController,
                           keyboardType: TextInputType.number,
@@ -2038,7 +2076,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains replaced",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Replace (NOS)",
                               ),
@@ -2052,7 +2090,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
                         Expanded(
                           child: CustDateTimePicker(
-                            label: "System Downtime *",
+                            label: _svcLabel("System Downtime"),
                             hint: "DD/MM/YYYY hh:mm",
                             selectedDateTime:
                             controller.selectedSystemDowntime.value,
@@ -2064,7 +2102,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                   .value = dt;
                             },
                             validator: (val) {
-                              if (controller
+                              if (!controller.siDepartmentLocked.value &&
+                                  controller
                                   .selectedSystemDowntime
                                   .value ==
                                   null) {
@@ -2120,7 +2159,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         top: AppConstants.elementSpacing,
                       ),
                       child: CustomTextField(
-                        label: "Train Deboarded (NOS) *",
+                        label: _svcLabel("Train Deboarded (NOS)"),
                         controller:
                         controller.trainDeboardedNosController,
                         keyboardType: TextInputType.number,
@@ -2128,7 +2167,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         "Enter number of trains deboarded",
                         enabled: _maintenanceServiceEditable,
                         validator: (val) =>
-                            _requiredText(
+                            _svcRequired(
                               val,
                               "Train Deboarded (NOS)",
                             ),
@@ -2194,7 +2233,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Number Of Passenger Affected *",
+                          label: _svcLabel("Number Of Passenger Affected"),
                           controller:
                           controller.passengersAffectedCountController,
                           keyboardType: TextInputType.number,
@@ -2202,7 +2241,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter Number Of Passenger Affected",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) {
-                            if (controller.isPassengerAffected.value &&
+                            if (!controller.siDepartmentLocked.value &&
+                                controller.isPassengerAffected.value &&
                                 (val == null || val.trim().isEmpty)) {
                               return "Number Of Passenger Affected is required";
                             }
@@ -2215,13 +2255,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ),
                       Expanded(
                         child: CustomTextField(
-                          label: "Trapped Duration *",
+                          label: _svcLabel("Trapped Duration"),
                           controller:
                           controller.trappedDurationController,
                           hintText: "Enter Trapped Duration",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) {
-                            if (controller.isPassengerAffected.value &&
+                            if (!controller.siDepartmentLocked.value &&
+                                controller.isPassengerAffected.value &&
                                 (val == null || val.trim().isEmpty)) {
                               return "Trapped Duration is required";
                             }
@@ -2235,13 +2276,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     height: AppConstants.elementSpacing,
                   ),
                   CustomTextField(
-                    label: "Rescued Duration *",
+                    label: _svcLabel("Rescued Duration"),
                     controller:
                     controller.rescuedDurationController,
                     hintText: "Enter Rescued Duration",
                     enabled: _maintenanceServiceEditable,
                     validator: (val) {
-                      if (controller.isPassengerAffected.value &&
+                      if (!controller.siDepartmentLocked.value &&
+                                controller.isPassengerAffected.value &&
                           (val == null || val.trim().isEmpty)) {
                         return "Rescued Duration is required";
                       }

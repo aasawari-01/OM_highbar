@@ -272,6 +272,13 @@ mixin FailureFormState on GetxController {
   final selectedFailureOccurrenceDate = Rxn<DateTime>();
   final selectedFailureAttendedDate = Rxn<DateTime>();
   final selectedActualFailureRectifiedDate = Rxn<DateTime>();
+
+  /// Section Incharge: a failure that came from Station, Depot or OCC keeps the
+  /// department it was raised for (shown, not changeable), and its Service
+  /// Affected / Passenger data is shown as the server has it (not editable, not
+  /// compulsory). A Maintenance failure lets the Section Incharge pick any
+  /// department and fill those parts.
+  final siDepartmentLocked = false.obs;
   final selectedFailureCompletedDate = Rxn<DateTime>();
   final oldSerialDismantleDate = Rxn<DateTime>();
   final newSerialInstallationDate = Rxn<DateTime>();

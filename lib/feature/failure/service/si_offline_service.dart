@@ -145,7 +145,8 @@ class SiOfflineService {
 
   /// The edit form of an existing failure, saved offline. The change is also
   /// applied to the local copy so the details show it.
-  Future<void> queueUpdate(Map<String, dynamic> payload) async {
+  Future<void> queueUpdate(Map<String, dynamic> payload,
+      {List<String> files = const []}) async {
     final notificationId = int.tryParse('${payload['NotificationId']}') ?? 0;
     final patch = <String, dynamic>{};
     payload.forEach((key, value) {
@@ -157,7 +158,7 @@ class SiOfflineService {
     await _queue(
         action: 'update',
         notificationId: notificationId,
-        args: {'payload': payload},
+        args: {'payload': payload, if (files.isNotEmpty) 'files': files},
         patch: patch);
   }
 
@@ -212,7 +213,19 @@ class SiOfflineService {
         final payload = Map<String, dynamic>.from(p['payload'] as Map);
         // The edit form may have been saved with the numeric id.
         payload['NotificationCode'] = await encryptedIdFor(notificationId: nid);
-        await _service.updateMaintenanceFailure(payload);
+        final kept = p['files'] is List ? p['files'] as List : const [];
+        final parts = <http.MultipartFile>[];
+        for (final path in kept) {
+          if (await File('$path').exists()) {
+            parts.add(await http.MultipartFile.fromPath('beforImage', '$path'));
+          }
+        }
+        await _service.updateMaintenanceFailure(payload, files: parts);
+        for (final path in kept) {
+          try {
+            await File('$path').delete();
+          } catch (_) {}
+        }
         return true;
       case 'create':
         final saved = p['files'] is List ? p['files'] as List : const [];

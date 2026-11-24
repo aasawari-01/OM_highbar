@@ -1,3 +1,4 @@
+import 'dart:io' show File;
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
@@ -938,17 +939,19 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       errors.add("Notification Type is required.");
     }
 
-    if (isServiceAffected.value) {
+    // Not compulsory for a failure the Section Incharge did not create.
+    final checkService = !siDepartmentLocked.value;
+    if (checkService && isServiceAffected.value) {
       if (trainDelayMinController.text.trim().isEmpty) errors.add("Train Delay in Min is required.");
       if (trainDelayNosController.text.trim().isEmpty) errors.add("Train Delay (NOS) is required.");
       if (trainCancelNosController.text.trim().isEmpty) errors.add("Train Cancel (NOS) is required.");
       if (trainWithdrawalNosController.text.trim().isEmpty) errors.add("Train Withdrawal (NOS) is required.");
       if (trainReplaceNosController.text.trim().isEmpty) errors.add("Train Replace (NOS) is required.");
     }
-    if (isPassengerDeboarding.value && trainDeboardedNosController.text.trim().isEmpty) {
+    if (checkService && isPassengerDeboarding.value && trainDeboardedNosController.text.trim().isEmpty) {
       errors.add("Train Deboarded (NOS) is required.");
     }
-    if (isPassengerAffected.value) {
+    if (checkService && isPassengerAffected.value) {
       if (numberOfPassengerAffectedController.text.trim().isEmpty) errors.add("Number Of Passenger Affected is required.");
       if (trappedDurationController.text.trim().isEmpty) errors.add("Trapped Duration is required.");
       if (rescuedDurationController.text.trim().isEmpty) errors.add("Rescued Duration is required.");
@@ -966,7 +969,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         errors.add("Train Running KM is required.");
       }
     }
-    if ((deptId == 13 || deptId == 16) && isServiceAffected.value && selectedSystemDowntime.value == null) {
+    if (checkService && (deptId == 13 || deptId == 16) && isServiceAffected.value && selectedSystemDowntime.value == null) {
       errors.add("System Downtime is required.");
     }
 
@@ -1029,7 +1032,12 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       final payload = <String, dynamic>{
         'NotificationCode': notificationCode,
         'NotificationId': resolveNotificationId(),
-        'Description': failureDescriptionController.text.trim(),
+        // No new description typed: the failure keeps its latest one.
+        'Description': failureDescriptionController.text.trim().isNotEmpty ||
+                !isSectionIncharge ||
+                notificationDescriptionHistoryList.isEmpty
+            ? failureDescriptionController.text.trim()
+            : (notificationDescriptionHistoryList.last.description ?? '').trim(),
         'NatureOfWorkId': natureId,
         'TrainRunningKM': deptId == 3 ? double.tryParse(trainRunningKmController.text.trim()) : null,
         'NotificationTypeId': failureTypeId,
@@ -1070,16 +1078,41 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       };
 
       failureLog('Maintenance update payload: $payload');
+      // Pictures added on this form (the ones already on the server are not
+      // sent again): 1 MB each, as the form says.
+      final imagePaths = <String>[];
+      final imageParts = <http.MultipartFile>[];
+      for (final f in beforeFiles) {
+        final path = f['path']?.toString() ?? '';
+        if (path.isEmpty || f['isNetwork'] == true || !File(path).existsSync()) {
+          continue;
+        }
+        final part = await http.MultipartFile.fromPath('beforImage', path,
+            filename: f['name']?.toString());
+        if (part.length > 1024 * 1024) {
+          EasyLoading.dismiss();
+          isSubmitting.value = false;
+          FailureToast.show('Validation Error',
+              '${f['name']} is larger than 1 MB.',
+              backgroundColor: AppColors.red.withValues(alpha: 0.9),
+              colorText: AppColors.white1,
+              duration: const Duration(seconds: 3));
+          return;
+        }
+        imagePaths.add(path);
+        imageParts.add(part);
+      }
       Map<String, dynamic> response;
       var savedOffline = false;
       try {
         response = await _failureService
-            .updateMaintenanceFailure(payload)
-            .timeout(const Duration(seconds: 45));
+            .updateMaintenanceFailure(payload, files: imageParts)
+            .timeout(Duration(seconds: imageParts.isEmpty ? 45 : 90));
       } catch (e) {
         if (!isNetworkError(e)) rethrow;
         // No connection: keep the change locally, it is sent when internet returns.
-        await SiOfflineService().queueUpdate(payload);
+        await SiOfflineService().queueUpdate(payload,
+            files: await DepotOfflineService.keepFiles(imagePaths));
         savedOffline = true;
         response = {
           'responseMessage':

@@ -154,10 +154,7 @@ class CreateFailureController extends GetxController
   /// failure originated from an OCC failure (label, value), empty otherwise.
   final occOriginDetails = <MapEntry<String, String>>[].obs;
 
-  /// Section Incharge: a failure that came from Station, Depot or OCC keeps the
-  /// department it was raised for (shown, not changeable). A Maintenance
-  /// failure lets the Section Incharge pick any department.
-  final siDepartmentLocked = false.obs;
+  // siDepartmentLocked: see FailureFormState.
 
   void _applySiDepartmentLock({String? otherRequestFrom, String? creationType}) {
     if (!isSectionIncharge) {
@@ -166,12 +163,12 @@ class CreateFailureController extends GetxController
     }
     final from = (otherRequestFrom ?? '').trim().toLowerCase();
     final created = (creationType ?? '').trim().toLowerCase();
+    // Everything the Section Incharge did not create by hand (creation type
+    // other than Manual) keeps its department.
     siDepartmentLocked.value = from.contains('station') ||
         from.contains('depot') ||
         from.contains('occ') ||
-        created == 'station' ||
-        created == 'depot' ||
-        created == 'occ';
+        (created.isNotEmpty && created != 'manual');
   }
 
   void _applyOccOrigin(CreateVMModel model) {
@@ -6494,9 +6491,23 @@ class CreateFailureController extends GetxController
 
       mainStatusName.value = model.mainStatusName;
       _applyOccOrigin(model);
+      // The list row always says "Manual", so the creation type of the stored
+      // failure (Station / Depot / OCC / Manual) is read from the local copy.
+      String? storedCreation;
+      try {
+        final stored = await LocalDatabaseService().findSiFailure(
+            notificationId: model.notificationId, code: model.notificationCode);
+        final rec = stored?['record'];
+        final si = rec is Map ? rec['siFailure'] : null;
+        storedCreation = si is Map ? si['creationType']?.toString() : null;
+      } catch (_) {}
       _applySiDepartmentLock(
-          otherRequestFrom: model.otherRequestFrom,
-          creationType: item?.creationType ?? item?.otherRequestFrom);
+          otherRequestFrom: (model.otherRequestFrom ?? '').trim().isNotEmpty
+              ? model.otherRequestFrom
+              : item?.otherRequestFrom,
+          creationType: (storedCreation ?? '').trim().isNotEmpty
+              ? storedCreation
+              : item?.creationType);
       notificationHistoryList
           .assignAll(output.getNotificationActionUserHistory ?? []);
       notificationDescriptionHistoryList
@@ -6523,6 +6534,13 @@ class CreateFailureController extends GetxController
       //   selectedEquipmentNumber.value = eqLabel;
 
       failureDescriptionController.text = model.description ?? '';
+      // Earlier descriptions are shown above (read-only); the box below is for
+      // the Section Incharge's own, new description.
+      if (isSectionIncharge &&
+          notificationDescriptionHistoryList.isNotEmpty &&
+          (model.statusId == 1 || model.statusId == 202)) {
+        failureDescriptionController.clear();
+      }
       subLocationController.text = model.locationFailure ?? '';
       selectedFailureOccurrenceDate.value =
       model.actualFailureOccuranceOn != null
@@ -6655,25 +6673,31 @@ class CreateFailureController extends GetxController
           beforeImagesList.add(imgMap);
         }
       }
-      if (pendingCreateId > 0) {
-        try {
-          final queued = await LocalDatabaseService()
-              .getPendingSubmissionPayload(pendingCreateId);
+      // Pictures kept on the device: of a failure created offline, or added by
+      // an update that is still waiting to be sent.
+      try {
+        final db = LocalDatabaseService();
+        final queueIds = <int>[
+          if (pendingCreateId > 0) pendingCreateId,
+          if ((model.notificationId ?? 0) > 0)
+            ...await db.getSiSubmissionIds(model.notificationId!),
+        ];
+        for (final queueId in queueIds) {
+          final queued = await db.getPendingSubmissionPayload(queueId);
           final kept = queued?['files'];
-          if (kept is List) {
-            for (final f in kept) {
-              final path = '$f'.trim();
-              if (path.isEmpty) continue;
-              beforeImagesList.add({
-                'name': path.split(RegExp(r'[\\/]')).last,
-                'path': path,
-                'isNetwork': false
-              });
-            }
+          if (kept is! List) continue;
+          for (final f in kept) {
+            final path = '$f'.trim();
+            if (path.isEmpty) continue;
+            beforeImagesList.add({
+              'name': path.split(RegExp(r'[\\/]')).last,
+              'path': path,
+              'isNetwork': false
+            });
           }
-        } catch (e) {
-          failureLog('SI details: queued pictures failed: $e');
         }
+      } catch (e) {
+        failureLog('SI details: queued pictures failed: $e');
       }
     } catch (e, st) {
       errorMessage.value = 'Error: $e';

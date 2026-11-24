@@ -544,7 +544,7 @@ class _FailureListScreenState extends State<FailureListScreen> with SingleTicker
   /// Web: Acknowledge when status is "Work Complete"; Re-Open / Close when
   /// statusId is 195 or 175.
   bool _isDepotWorkComplete(FailureItem f) =>
-      (f.statusName ?? '').trim() == 'Work Complete';
+      (f.statusName ?? '').trim() == 'Confirm';
 
   bool _depotCanReopenClose(FailureItem f) =>
       f.statusId == 195 || f.statusId == 175;
