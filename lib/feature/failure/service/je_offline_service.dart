@@ -102,7 +102,7 @@ class JeOfflineService {
       'payload': payload,
       'files': kept,
     }, queueType);
-    await JeOverlay.save(notificationId, payload);
+    await JeOverlay.save(notificationId, payload, localFiles: kept);
     await _db.setJeFailurePending(notificationId, 'update');
   }
 

@@ -1,6 +1,7 @@
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
+import 'dart:io' show File;
 import 'package:intl/intl.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
@@ -97,14 +98,8 @@ class FailureService {
         failureLog('JE details: encrypted id not found ($e)');
       }
     }
-    final serverId = numeric && (token ?? '').isNotEmpty ? token! : failureNo;
-    try {
-      final r = await _getFailureDetailsFromServer(serverId)
-          .timeout(const Duration(seconds: 20));
-      if (r.responseOutput?.getCreateVMModel != null) return r;
-    } catch (e) {
-      failureLog('JE details: server not used ($e), using the local copy');
-    }
+    // The details come from the synced GetAllFailuresTransactionData copy, not
+    // from the details API: what the sync did not carry stays empty.
     return local.response;
   }
 
@@ -285,10 +280,14 @@ class FailureService {
     var dismantle = <dynamic>[];
     var measurementPoints = list('measurementPoint');
     if (ov != null) {
+      // An update saved on this device and not sent yet is newer than the
+      // synced copy: it wins. Otherwise it only fills what the copy lacks.
+      final unsent = row['pendingAction'] != null;
       void fill(String k) {
         final cur = model[k];
         final v = ov[k];
-        if (v != null && (cur == null || (cur is String && cur.trim().isEmpty))) {
+        if (v != null &&
+            (unsent || cur == null || (cur is String && cur.trim().isEmpty))) {
           model[k] = v;
         }
       }
@@ -297,6 +296,11 @@ class FailureService {
         'userStatus', 'failureRectificationDetails', 'failureAttendedDate',
         'actualFailureRectifiedDate', 'underObservationDate', 'failureType',
         'failureTypeId', 'ptwNo', 'isPTWReq', 'isHardwareReplaced',
+        'isJointInspectionReq', 'isServiceAffected', 'trainDelayInMin',
+        'trainDelayInNo', 'noOfTranWithdrawal', 'noOfTranCancel',
+        'noOfTrainReplace', 'isPassengerDeboarding', 'noofTrainDeboarded',
+        'isPassengerAffected', 'noOfPassengerAffected', 'trappedDuration',
+        'rescuedDuration', 'locationFailure',
       ]) {
         fill(k);
       }
@@ -351,10 +355,34 @@ class FailureService {
       'responseOutput': {
         'getCreateVMModel': model,
         'getNotificationActionUserHistory': history,
-        'getNotificationHistory': const [],
+        // Earlier descriptions of the failure, as the server sends them.
+        'getNotificationHistory': list('jeNotificationHistory'),
         'getMaterialReqDetails': materials,
         'getMaterialDismantleDetails': dismantle,
         'measurementPoint': measurementPoints,
+        // The pictures sent with the failure (server address, saved on the
+        // device once seen) and those added offline and not sent yet.
+        'getImageBefor': [
+          for (final d in list('jeDoc'))
+            if (d is Map && '${d['fileName'] ?? ''}'.trim().isNotEmpty)
+              {
+                ...Map<String, dynamic>.from(d),
+                'fileName': '${d['fileName']}'.trim().startsWith('http')
+                    ? '${d['fileName']}'.trim()
+                    : '${AppUrls.imageUrl}${'${d['fileName']}'.trim().replaceFirst(RegExp(r'^/+'), '')}',
+              },
+          if (ov?['localFiles'] is Map)
+            for (final e in (ov!['localFiles'] as Map).entries)
+              if (File('${e.value}').existsSync())
+                {
+                  'fileName': '${e.value}',
+                  'documentType': switch ('${e.key}') {
+                    'afterImage' => 'AFTER_NOT',
+                    'rcaImage' => 'RCA_NOT',
+                    _ => 'BEFORE_NOT',
+                  },
+                },
+        ],
         'getJoinInspectionHistory': [
           ...list('joinInspectionHistory'),
           // Added offline and not sent yet.

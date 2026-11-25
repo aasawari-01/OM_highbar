@@ -295,6 +295,9 @@ mixin FailureFormState on GetxController {
   final notificationHistoryList = <NotificationActionHistory>[].obs;
   final notificationDescriptionHistoryList = <NotificationHistory>[].obs;
   final jointInspectionHistoryList = <JointInspectionHistory>[].obs;
+  // The server's currentStatus of a station failure (shown in the Station
+  // Controller view; the list shows statusName).
+  final stationCurrentStatus = ''.obs;
 
   // Inline "history at this Functional Location" (from getFunctionEqDetailsById
   // response's functionalHistory / functionalHistoryPrev). Distinct from the
@@ -426,7 +429,9 @@ mixin FailureFormState on GetxController {
   bool get isJointInspectionPending {
     if (_isPendingJointInspectionStatus(mainStatusName.value)) return true;
     return jointInspectionHistoryList.any(
-      (item) => _isPendingJointInspectionStatus(item.statusName),
+      // jiId < 0: added offline, not sent yet (the server marks it pending).
+      (item) =>
+          _isPendingJointInspectionStatus(item.statusName) || (item.jiId ?? 0) < 0,
     );
   }
 

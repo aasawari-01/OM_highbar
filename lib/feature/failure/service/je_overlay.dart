@@ -13,7 +13,8 @@ class JeOverlay {
   static String _key(int notificationId) => 'jeOverlay:$notificationId';
 
   /// [payload] is the body of the update call (updateChangeNotificationJE).
-  static Future<void> save(int notificationId, Map<String, dynamic> payload) async {
+  static Future<void> save(int notificationId, Map<String, dynamic> payload,
+      {Map<String, String>? localFiles}) async {
     if (notificationId <= 0) return;
     try {
       final je = payload['changeNotifictionJE'] is Map
@@ -50,10 +51,29 @@ class JeOverlay {
         'ptwNo': text('PTWNo'),
         'isPTWReq': flag('PTWRequired'),
         'isHardwareReplaced': flag('IsHardwareReplaced'),
+        // The Joint Inspection Required toggle, so it opens as it was saved.
+        'isJointInspectionReq': flag('IsJointInspectionReq'),
+        // Service / passenger part and sub location of the form.
+        'isServiceAffected': flag('IsServiceAffected'),
+        'trainDelayInMin': number('TrainDelayInMin'),
+        'trainDelayInNo': number('TrainDelayInNo'),
+        'noOfTranWithdrawal': number('NoOfTranWithdrawal'),
+        'noOfTranCancel': number('NoOfTranCancel'),
+        'noOfTrainReplace': number('NoOfTrainReplace'),
+        'isPassengerDeboarding': flag('IsPassengerDeboarding'),
+        'noofTrainDeboarded': number('NoofTrainDeboarded'),
+        'isPassengerAffected': flag('IsPassengerAffected'),
+        'noOfPassengerAffected': number('NoOfPassengerAffected'),
+        'trappedDuration': number('TrappedDuration'),
+        'rescuedDuration': number('RescuedDuration'),
+        'locationFailure': text('LocationFailure'),
         'rca': list(je['FailureRectificationJson']),
         'materials': list(payload['materialRequiredDetails']),
         'dismantle': list(payload['materialDismantleDetails']),
         'readings': list(readings),
+        // Pictures kept on the device while the update waits to be sent
+        // (field name -> path), so the failure shows them when opened again.
+        'localFiles': (localFiles == null || localFiles.isEmpty) ? null : localFiles,
       };
       m.removeWhere((k, v) => v == null);
       await LocalDatabaseService().setAppSetting(_key(notificationId), jsonEncode(m));

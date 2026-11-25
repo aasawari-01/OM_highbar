@@ -901,16 +901,64 @@ class CreateFailureController extends GetxController
     departmentDisplayController.text = deptLabel;
     systemController.text = text(je['systems']);
     subsystemController.text = text(je['subSystems']);
-    locationDisplayController.text = text(je['locationName']);
+    // The failure as the server sent it (jEjointInspection) fills what the
+    // stored copy did not get under the names the app reads.
+    final raw = rec['jEjointInspection'] is Map
+        ? Map<String, dynamic>.from(rec['jEjointInspection'] as Map)
+        : <String, dynamic>{};
+    String firstText(List<dynamic> values) {
+      for (final v in values) {
+        final t = text(v).trim();
+        if (t.isNotEmpty && t.toLowerCase() != 'null') return t;
+      }
+      return '';
+    }
+
+    locationDisplayController.text =
+        firstText([je['locationName'], raw['locationTypeName']]);
     final funcLabel = text(je['functionalLocation']);
     functionalLocationDisplayController.text = funcLabel;
     if (funcLabel.isNotEmpty) selectedFunctionalLocation.value = funcLabel;
     final equipLabel = text(je['equipmentDescription']);
     equipmentDisplayController.text = equipLabel;
     if (equipLabel.isNotEmpty) selectedEquipmentNumber.value = equipLabel;
-    final person = text(je['assignedUserName']);
+    // Person responsible: the server sends the name ("Mr. A - 0000451"), or
+    // an id that the local user list resolves.
+    var person = firstText([je['assignedUserName']]);
+    if (person.isEmpty) {
+      final p = firstText([je['personResponsible'], raw['personResponsible']]);
+      final asId = int.tryParse(p);
+      person = asId == null
+          ? p
+          : (await LocalDatabaseService().getUserNameById(asId) ?? '');
+    }
     selectedPersonResponsible.value = person.isEmpty ? null : person;
     personResponsibleDisplayController.text = person;
+
+    // Pictures of the joint inspection (before / after / RCA), from the stored
+    // copy, so they show online and offline.
+    beforeImagesList.clear();
+    afterImagesList.clear();
+    rcaImagesList.clear();
+    for (final d in list('jointInspectionDoc').whereType<Map>()) {
+      final fileName = text(d['fileName']).trim();
+      if (fileName.isEmpty) continue;
+      final img = {
+        'name': fileName.split('/').last,
+        'path': fileName,
+        'isNetwork': true,
+      };
+      switch (text(d['documentType'])) {
+        case 'AFTER_NOT':
+          afterImagesList.add(img);
+          break;
+        case 'RCA_NOT':
+          rcaImagesList.add(img);
+          break;
+        default:
+          beforeImagesList.add(img);
+      }
+    }
 
     selectedFailureOccurrenceDate.value = _parseJeDate(je['actualFailureOccuranceOn']);
     selectedFailureAttendedDate.value = _parseJeDate(je['failureAttendedDate']);
@@ -932,6 +980,8 @@ class CreateFailureController extends GetxController
     trainDeboardedNosController.text = text(je['noofTrainDeboarded']);
     isPassengerAffected.value = je['isPassengerAffected'] == true;
     numberOfPassengerAffectedController.text = text(je['noOfPassengerAffected']);
+    // The form's Number Of Passenger Affected box is this controller.
+    passengersAffectedCountController.text = text(je['noOfPassengerAffected']);
     trappedDurationController.text = text(je['trappedDuration']);
     rescuedDurationController.text = text(je['rescuedDuration']);
     isJointInspection.value = je['isJointInspectionReq'] == true;
@@ -1000,7 +1050,42 @@ class CreateFailureController extends GetxController
           }
     ])));
     await filterRcaFailureCategoriesBySystem();
+    await _applyPendingJiSubmit(nid);
     errorMessage.value = "";
+  }
+
+  /// What the JE entered on the joint inspection screen offline and has not
+  /// sent yet (functional location, equipment, user's remark): shown again.
+  Future<void> _applyPendingJiSubmit(int nid) async {
+    if (nid <= 0) return;
+    try {
+      final p = await LocalDatabaseService().getPendingJiSubmitPayload(nid);
+      if (p == null) return;
+      final remark = '${p['UserRemark_JI'] ?? p['userRemark_JI'] ?? ''}'.trim();
+      if (remark.isNotEmpty) jiUserRemarkController.text = remark;
+
+      final flId = '${int.tryParse('${p['FunctionLocation_JI']}') ?? 0}';
+      final fl = flId == '0'
+          ? null
+          : functionalLocationList.firstWhereOrNull((e) => e.value == flId);
+      if (fl == null) return;
+      selectedJiFunctionalLocation.value = fl.label;
+      jiFunctionalLocationId.value = fl.value;
+      jiFunctionalLocation.value = fl.label;
+      await _loadJiEquipment(fl.value);
+
+      final eqId = '${int.tryParse('${p['EquipmentId_JI']}') ?? 0}';
+      final eq = eqId == '0'
+          ? null
+          : equipmentList.firstWhereOrNull((e) => e.value == eqId);
+      if (eq != null) {
+        selectedJiEquipmentNumber.value = eq.label;
+        jiEquipmentId.value = int.tryParse(eqId);
+        jiEquipmentNumber.value = eq.label;
+      }
+    } catch (e) {
+      failureLog('_applyPendingJiSubmit: $e');
+    }
   }
 
   /// Label for an id inside one of the {label,value} lists of the response.
@@ -1104,6 +1189,8 @@ class CreateFailureController extends GetxController
 
     isPassengerAffected.value = je['isPassengerAffected'] == true;
     numberOfPassengerAffectedController.text =
+        je['noOfPassengerAffected']?.toString() ?? '';
+    passengersAffectedCountController.text =
         je['noOfPassengerAffected']?.toString() ?? '';
     trappedDurationController.text = je['trappedDuration']?.toString() ?? '';
     rescuedDurationController.text = je['rescuedDuration']?.toString() ?? '';
@@ -1734,7 +1821,9 @@ class CreateFailureController extends GetxController
                 orElse: () => LabelValue(label: null))
                 .label;
           }
-          if (matchedNotif == null || matchedNotif.isEmpty) {
+          // JE: the type comes only from the synced data; none there = empty.
+          final jeWithoutType = isJE && model.corrNotificationTypeId == null;
+          if (!jeWithoutType && (matchedNotif == null || matchedNotif.isEmpty)) {
             matchedNotif = corrNotificationTypeList
                 .firstWhere(
                     (e) => e.value == model.corrNotificationTypeId.toString(),
@@ -2287,6 +2376,10 @@ class CreateFailureController extends GetxController
     try {
       final rec = await LocalDatabaseService().getStationFailureCacheRow(id);
       if (rec == null) return;
+      final stored = rec['failure'];
+      if (stored is Map) {
+        stationCurrentStatus.value = (stored['currentStatus']?.toString() ?? '').trim();
+      }
       String? fmt(dynamic v) {
         final d = DateTime.tryParse(v?.toString() ?? '');
         return d == null ? v?.toString() : DateFormat('dd-MM-yyyy HH:mm:ss').format(d);
@@ -2359,6 +2452,7 @@ class CreateFailureController extends GetxController
             details['status'] ??
             details['statusDescription'] ??
             'Open';
+        stationCurrentStatus.value = (details['currentStatus']?.toString() ?? '').trim();
         failureDescriptionController.text = details['failureDescription'] ?? '';
         selectedDepartment.value = details['departmentName'];
         originalDepartmentId.value =

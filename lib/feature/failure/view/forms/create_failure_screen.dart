@@ -24,6 +24,7 @@ import '../../../../utils/widgets/cust_dropdown.dart';
 import '../../../../utils/widgets/cust_multi_dropdown.dart';
 import '../../../../utils/widgets/cust_loader.dart';
 import '../../../../utils/widgets/cust_popup.dart';
+import '../../controller/failure_list_controller.dart';
 import '../../../../utils/widgets/cust_section.dart';
 import '../../../../utils/widgets/cust_text.dart';
 import '../../../../utils/widgets/cust_textfield.dart';
@@ -3632,7 +3633,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         label: "PTW Number *",
                         keyboardType: TextInputType.number,
                         hintText: "Enter PTW Number",
-                        enabled: !controller.isFormDisabled,
+                        enabled: !controller.isFormDisabled &&
+                            !_isJointInspectionFlow,
                         validator: (val) {
                           if (controller.isPtwRequired.value &&
                               (val == null || val.trim().isEmpty)) {
@@ -6086,15 +6088,82 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 Obx(() => CustomTextField(
                     label: "Current Status",
                     controller: TextEditingController(
-                        text: controller.mainStatusName.value ?? ''),
+                        text: controller.stationCurrentStatus.value.isNotEmpty
+                            ? controller.stationCurrentStatus.value
+                            : controller.mainStatusName.value ?? ''),
                     enabled: false)),
                 const SizedBox(height: AppConstants.elementSpacing),
-                CustomTextField(
-                  label: "Failure Description",
-                  controller: controller.failureDescriptionController,
-                  maxLines: 3,
-                  enabled: false,
-                ),
+                Obx(() {
+                  final history = controller.notificationDescriptionHistoryList;
+                  if (history.isEmpty) {
+                    return CustomTextField(
+                      label: "Failure Description",
+                      controller: controller.failureDescriptionController,
+                      maxLines: 3,
+                      enabled: false,
+                    );
+                  }
+                  // Every description added on the failure, as for the other roles.
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CustText.formLabel("Failure Description:"),
+                      const SizedBox(height: AppConstants.labelSpacing),
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: history.length,
+                          separatorBuilder: (context, index) =>
+                              Divider(height: 1, color: Colors.grey.shade200),
+                          itemBuilder: (context, index) {
+                            final item = history[index];
+                            return Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CustText(
+                                    name: item.description ?? "",
+                                    size: 13,
+                                    color: AppColors.textDarkPrimary,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: CustText(
+                                          name: item.createdBy ?? "Unknown User",
+                                          size: 11,
+                                          color: AppColors.textDarkSecondary,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      CustText(
+                                        name: item.createdOn ?? "",
+                                        size: 11,
+                                        color: AppColors.textDarkSecondary,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                }),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustomTextField(
                     label: "Location",
@@ -6325,7 +6394,180 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ),
             );
           }),
+          // Acknowledge, on the same rule as the list: Work Complete, nothing
+          // waiting to be sent.
+          Obx(() {
+            final item = widget.failureItem;
+            final canAcknowledge = item != null &&
+                item.pendingAction == null &&
+                (controller.mainStatusName.value ?? '').trim().toLowerCase() ==
+                    'work complete';
+            if (!canAcknowledge) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.all(AppConstants.screenPadding),
+              child: ActionChip(
+                label: const Text('Acknowledge',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                onPressed: () => _showStationAcknowledgePopup(item),
+                backgroundColor: AppColors.white1,
+                labelStyle: const TextStyle(color: AppColors.green),
+                side: const BorderSide(color: AppColors.green),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+            );
+          }),
         ],
+      ),
+    );
+  }
+
+  /// Acknowledge (Accept / Deny) of a station failure from its view: the same
+  /// call as the list's Acknowledge.
+  void _showStationAcknowledgePopup(FailureItem failure) {
+    final remarkController = TextEditingController();
+    final notifCode = failure.notificationCode ??
+        failure.failureNo ??
+        failure.id.toString();
+    String? remarkError;
+
+    Future<void> submit(String status, String remark) async {
+      Get.back(); // acknowledge popup
+      if (!Get.isRegistered<FailureListController>(tag: 'Station')) return;
+      await Get.find<FailureListController>(tag: 'Station').acknowledgeFailure(
+          failure.id ?? 0, remark, status,
+          failureNo: notifCode);
+      if (mounted) Get.back(result: true); // back to the list
+    }
+
+    void confirm(String status, String message) {
+      final remark = remarkController.text.trim();
+      if (status == 'deny' && remark.isEmpty) return;
+      Get.dialog(
+        CustPopup(
+          title: "Confirm",
+          message: message,
+          icon: status == 'accept'
+              ? TablerIcons.circle_check
+              : TablerIcons.alert_triangle,
+          iconColor:
+              status == 'accept' ? AppColors.green : AppColors.orangeColor,
+          confirmText: status == 'accept' ? "Accept" : "Deny",
+          cancelText: "Cancel",
+          onCancel: () => Get.back(),
+          onConfirm: () async {
+            Get.back(); // confirm dialog
+            await submit(status, remark);
+          },
+        ),
+      );
+    }
+
+    Get.dialog(
+      CustPopup(
+        title: "Acknowledge For Failure",
+        showIcon: true,
+        icon: TablerIcons.circle_check,
+        iconColor: AppColors.green,
+        onCancel: () => Get.back(),
+        customContent: StatefulBuilder(
+          builder: (context, setPopupState) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: CustText(
+                    name: "Acknowledge For Failure",
+                    size: AppConstants.headerSize,
+                    color: AppColors.textMutedLight,
+                    fontWeightName: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Center(
+                  child: CustText(
+                    name: "Failure No: $notifCode",
+                    size: 13,
+                    color: AppColors.orangeColor,
+                    fontWeightName: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                CustText(
+                  name: "Remark *",
+                  size: AppConstants.formLabelSize,
+                  fontWeightName: FontWeight.w500,
+                ),
+                const SizedBox(height: 8),
+                CustomTextField(
+                  controller: remarkController,
+                  hintText: "Enter remark",
+                  maxLines: 3,
+                  maxLength: 250,
+                  onChanged: (val) {
+                    if (remarkError != null && val.trim().isNotEmpty) {
+                      setPopupState(() => remarkError = null);
+                    }
+                  },
+                ),
+                if (remarkError != null) ...[
+                  const SizedBox(height: 4),
+                  Text(remarkError!,
+                      style:
+                          const TextStyle(color: AppColors.red, fontSize: 12)),
+                ],
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: CustOutlineButton(
+                        name: "Close",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        onSelected: (_) => Get.back(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: CustButton(
+                        name: "Deny",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        color1: AppColors.red,
+                        color2: AppColors.red,
+                        onSelected: (_) {
+                          if (remarkController.text.trim().isEmpty) {
+                            setPopupState(
+                                () => remarkError = "Please enter remark.");
+                            return;
+                          }
+                          confirm('deny',
+                              "Do you want acknowledge deny failure?");
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: CustButton(
+                        name: "Accept",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        color1: AppColors.green,
+                        color2: AppColors.green,
+                        onSelected: (_) => confirm('accept',
+                            "Do you want acknowledge accept failure?"),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }

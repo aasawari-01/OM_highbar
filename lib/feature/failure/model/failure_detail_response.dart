@@ -157,7 +157,8 @@ class FailureDetailOutput {
       getImageBefor: json['getImageBefor'] != null
           ? List<Map<String, dynamic>>.from(json['getImageBefor'])
           : null,
-      getJoinInspectionHistory: (json['joinInspectionHistory'] ??
+      getJoinInspectionHistory: (json['getJoinInspectionHistory'] ??
+          json['joinInspectionHistory'] ??
           json['getJointInspectionHistory'] ??
           json['JoinInspectionHistory']) !=
           null

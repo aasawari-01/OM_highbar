@@ -3425,6 +3425,25 @@ class LocalDatabaseService {
     return out;
   }
 
+  /// The joint inspection screen saved offline for a failure and not sent yet
+  /// (what the user entered), or null.
+  Future<Map<String, dynamic>?> getPendingJiSubmitPayload(int notificationId) async {
+    final db = await database;
+    final rows = await db.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0',
+        whereArgs: ['JE'],
+        orderBy: 'id DESC');
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        if (p['action'] != 'jiSubmit') continue;
+        if (int.tryParse('${p['notificationId']}') != notificationId) continue;
+        if (p['payload'] is Map) return Map<String, dynamic>.from(p['payload'] as Map);
+      } catch (_) {}
+    }
+    return null;
+  }
+
   Future<void> deletePendingSubmission(int id) async {
     final db = await database;
     await db.delete('PendingFailureSubmissions', where: 'id = ?', whereArgs: [id]);

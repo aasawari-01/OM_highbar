@@ -227,7 +227,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.upsertDepotFailureCache(res.depotRecords);
         await _dbService.upsertOccFailureCache('OCC', res.occRecords);
         await _dbService.upsertOccFailureCache('FMC', res.fmcRecords);
-        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords]);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords, ...res.jeRecords, ...res.jiRecords]);
       } else {
         await _dbService.replaceStationFailureCache(res.stationRecords);
         await _dbService.replaceSiFailureCache(res.siRecords);
@@ -236,7 +236,7 @@ class MasterDataSyncService extends GetxController {
         await _dbService.replaceDepotFailureCache(res.depotRecords);
         await _dbService.replaceOccFailureCache('OCC', res.occRecords);
         await _dbService.replaceOccFailureCache('FMC', res.fmcRecords);
-        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords]);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords, ...res.jeRecords, ...res.jiRecords]);
       }
       if (!incremental) {
         await _dbService.setAppSetting(_fullSyncNeededKey, '');
@@ -412,7 +412,7 @@ class MasterDataSyncService extends GetxController {
   void _prefetchImages(List<Map<String, dynamic>> records) {
     final urls = <String>[
       for (final r in records)
-        for (final key in const ['documents', 'siDoc'])
+        for (final key in const ['documents', 'siDoc', 'jeDoc', 'jointInspectionDoc'])
           if (r[key] is List)
             for (final d in r[key] as List)
               if (d is Map && '${d['fileName'] ?? ''}'.isNotEmpty)
