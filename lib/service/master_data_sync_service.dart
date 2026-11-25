@@ -409,19 +409,33 @@ class MasterDataSyncService extends GetxController {
 
   /// Saves the pictures of the depot and OCC failures on the device in the background,
   /// so they can be seen without internet.
+  static const String _pendingImagesKey = 'failureImagesPending';
+
   void _prefetchImages(List<Map<String, dynamic>> records) {
-    final urls = <String>[
+    final urls = <String>{
       for (final r in records)
         for (final key in const ['documents', 'siDoc', 'jeDoc', 'jointInspectionDoc'])
           if (r[key] is List)
             for (final d in r[key] as List)
-              if (d is Map && '${d['fileName'] ?? ''}'.isNotEmpty)
-                '${AppUrls.imageUrl}${d['fileName']}'
-    ];
-    if (urls.isEmpty) return;
-    FailureImageCache.prefetch(urls).catchError((Object e) {
-      debugPrint('_prefetchImages: $e');
-    });
+              if (d is Map && '${d['fileName'] ?? ''}'.trim().isNotEmpty)
+                // The same address the screens build (no leading slash).
+                '${d['fileName']}'.trim().startsWith('http')
+                    ? '${d['fileName']}'.trim()
+                    : '${AppUrls.imageUrl}${'${d['fileName']}'.trim().replaceFirst(RegExp(r'^/+'), '')}'
+    };
+    () async {
+      try {
+        // The pictures an earlier sync could not save are tried again now.
+        final kept = await _dbService.getAppSetting(_pendingImagesKey);
+        if ((kept ?? '').isNotEmpty) {
+          urls.addAll((jsonDecode(kept!) as List).map((e) => '$e'));
+        }
+        final failed = await FailureImageCache.prefetch(urls);
+        await _dbService.setAppSetting(_pendingImagesKey, jsonEncode(failed));
+      } catch (e) {
+        debugPrint('_prefetchImages: $e');
+      }
+    }();
   }
 
   /// The login answer lists the roles / departments the user holds now. They

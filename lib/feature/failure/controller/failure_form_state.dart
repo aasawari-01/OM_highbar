@@ -440,5 +440,10 @@ mixin FailureFormState on GetxController {
   bool get isJointInspectionPendingStatus =>
       _isPendingJointInspectionStatus(mainStatusName.value);
 
-  bool get isFormDisabled => isJointInspectionPendingStatus;
+  // A Junior Engineer keeps editing his own failure (all but priority,
+  // department, system, subsystem, occurrence, person and frequency) until it
+  // is closed; a joint inspection pending only blocks the Closed status.
+  bool get isFormDisabled =>
+      isJointInspectionPendingStatus &&
+      (!isJE || isFromJointInspection.value);
 }

@@ -262,6 +262,7 @@ class AuthManager {
       await db.clearOccFailureCache();
       await db.clearOccLookups();
       await FailureImageCache.clear();
+      await db.setAppSetting('failureImagesPending', '');
       await db.setAppSetting('failureTxnLastSync', '');
       await db.setAppSetting('failureTxnUserId', '');
       await db.setAppSetting('failureTxnFullNeeded', '1');
