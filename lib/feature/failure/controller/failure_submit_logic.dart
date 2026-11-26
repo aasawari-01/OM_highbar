@@ -1884,7 +1884,12 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       EasyLoading.dismiss();
       // Keep what the JE filled (Under Observation / In-Process, RCA, ...): the
       // failure opens with it again.
-      if (isJE) await JeOverlay.save(resolveNotificationId(), payload);
+      if (isJE) {
+        await JeOverlay.save(resolveNotificationId(), payload);
+        // The server now holds the material rows: their ids are kept so the
+        // next submit updates them instead of adding them again.
+        await JeOfflineService().refreshServerLists(resolveNotificationId());
+      }
       // The server decides what stays in the JE inbox (a closed failure leaves
       // it): the next list load downloads the lists again to show exactly that.
       if (isJE && Get.isRegistered<MasterDataSyncService>()) {

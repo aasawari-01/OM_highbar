@@ -19,6 +19,10 @@ mixin FailureMaterialLogic on GetxController, FailureFormState {
   final editingDismantleMaterialIndex = (-1).obs;
   final measurementPointsList = <Map<String, dynamic>>[].obs;
 
+  /// Bumped when a picked spare-part material is refused (already added), so
+  /// the dropdown is rebuilt and shows the real selection again.
+  final spareDropdownReset = 0.obs;
+
   void toggleReplacedExpansion(int index) {
     isExpandedReplaced[index] = !(isExpandedReplaced[index] ?? false);
   }
@@ -117,6 +121,19 @@ mixin FailureMaterialLogic on GetxController, FailureFormState {
 
   void addReplacedMaterial() {
     if (selectedMaterialCode.value != null) {
+      // Junior Engineer: the same material cannot be added twice.
+      if (isJE) {
+        final code = selectedMaterialCode.value!.trim().toLowerCase();
+        final dup = replacedMaterialsList.asMap().entries.any((e) =>
+            e.key != editingReplacedMaterialIndex.value &&
+            '${e.value['materialCode'] ?? ''}'.trim().toLowerCase() == code);
+        if (dup) {
+          Get.snackbar('Already added',
+              'This material is already added. Select a different material.',
+              snackPosition: SnackPosition.BOTTOM);
+          return;
+        }
+      }
       if (editingReplacedMaterialIndex.value >= 0) {
         final existing =
         replacedMaterialsList[editingReplacedMaterialIndex.value];

@@ -42,6 +42,8 @@ class JeOverlay {
 
       final m = <String, dynamic>{
         'userStatus': number('UserStatus'),
+        // The failure description typed on the form.
+        'description': text('Description'),
         'failureRectificationDetails': text('FailureRectificationDetails'),
         'failureAttendedDate': text('FailureAttendedDate'),
         'actualFailureRectifiedDate': text('ActualFailureRectifiedDate'),
@@ -79,6 +81,25 @@ class JeOverlay {
       await LocalDatabaseService().setAppSetting(_key(notificationId), jsonEncode(m));
     } catch (e) {
       failureLog('JeOverlay.save error: $e');
+    }
+  }
+
+  /// After the update reached the server: the materials / dismantle rows as the
+  /// server now holds them (with their ids), so the next submit updates those
+  /// rows instead of adding them again.
+  static Future<void> saveServerLists(int notificationId,
+      {List<Map<String, dynamic>>? materials,
+      List<Map<String, dynamic>>? dismantle}) async {
+    if (notificationId <= 0) return;
+    try {
+      final m = await load(notificationId) ?? <String, dynamic>{};
+      m['serverMaterials'] = materials ?? const [];
+      m['serverDismantle'] = dismantle ?? const [];
+      m.remove('materials');
+      m.remove('dismantle');
+      await LocalDatabaseService().setAppSetting(_key(notificationId), jsonEncode(m));
+    } catch (e) {
+      failureLog('JeOverlay.saveServerLists error: $e');
     }
   }
 

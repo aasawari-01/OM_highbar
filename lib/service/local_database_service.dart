@@ -60,6 +60,7 @@ class LocalDatabaseService {
   Database? _rstStoreLocationDatabase;
   Database? _reasonForDelayDatabase;
   Database? _natureOfWorkDatabase;
+  Database? _rstFailureTypeDatabase;
   Database? _failureCategoryTypeDatabase;
   Database? _plantDatabase;
 
@@ -211,8 +212,14 @@ class LocalDatabaseService {
 
   Future<Database> get measurementDatabase async {
     if (_measurementDatabase != null) return _measurementDatabase!;
-    _measurementDatabase = await _openAssetDatabase('measurement_data.db', _copyMeasurementDatabaseFromAssets);
-    return _measurementDatabase!;
+    final db = await _openAssetDatabase('measurement_data.db', _copyMeasurementDatabaseFromAssets);
+    // 569,000 rows searched by ObjectNo: without an index every lookup scans
+    // them all (seconds on a phone), so the points of a functional location
+    // came late or not at all.
+    await _ensureMasterIndexes(
+        db, const ['CREATE INDEX IF NOT EXISTS idx_mp_objectno ON {t}(ObjectNo)']);
+    _measurementDatabase = db;
+    return db;
   }
 
   Future<Database> get priorityDatabase async {
@@ -436,6 +443,20 @@ class LocalDatabaseService {
     if (_natureOfWorkDatabase != null) return _natureOfWorkDatabase!;
     _natureOfWorkDatabase = await _openAssetDatabase('natureOfWork_data.db', _copyNatureOfWorkDatabaseFromAssets);
     return _natureOfWorkDatabase!;
+  }
+
+  Future<Database> get rstFailureTypeDatabase async {
+    if (_rstFailureTypeDatabase != null) return _rstFailureTypeDatabase!;
+    _rstFailureTypeDatabase = await _openAssetDatabase('rstFailureType_data.db', (targetPath) async {
+      try {
+        final byteData = await rootBundle.load('assets/RstFailureType.db');
+        final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+        await File(targetPath).writeAsBytes(bytes, flush: true);
+      } catch (e) {
+        debugPrint('rstFailureTypeDatabase: could not copy RstFailureType.db: $e');
+      }
+    });
+    return _rstFailureTypeDatabase!;
   }
 
   Future<Database> get failureCategoryTypeDatabase async {
@@ -839,6 +860,10 @@ class LocalDatabaseService {
       if (_natureOfWorkDatabase != null) {
         await _natureOfWorkDatabase!.close();
         _natureOfWorkDatabase = null;
+      }
+      if (_rstFailureTypeDatabase != null) {
+        await _rstFailureTypeDatabase!.close();
+        _rstFailureTypeDatabase = null;
       }
       if (_failureCategoryTypeDatabase != null) {
         await _failureCategoryTypeDatabase!.close();
@@ -4157,6 +4182,43 @@ class LocalDatabaseService {
       return results.map((row) => NatureOfWorkModel.fromJson(row)).toList();
     } catch (e) {
       debugPrint('getNatureOfWorks error: $e');
+      return [];
+    }
+  }
+
+  /// Section Incharge maintenance form, department Rolling Stock: the Nature of
+  /// Work dropdown, straight from natureOfWork.db (active rows), so it works
+  /// without internet. [{label, value}] = WorkName / NatureWorkID.
+  Future<List<Map<String, String>>> getMaintenanceNatureOfWorkOptions() async {
+    try {
+      final db = await natureOfWorkDatabase;
+      final rows = await db.rawQuery(
+          'SELECT NatureWorkID, WorkName FROM natureOfWork WHERE Status = 1 ORDER BY NatureWorkID');
+      return [
+        for (final r in rows)
+          if ('${r['WorkName'] ?? ''}'.trim().isNotEmpty)
+            {'label': '${r['WorkName']}'.trim(), 'value': '${r['NatureWorkID']}'}
+      ];
+    } catch (e) {
+      debugPrint('getMaintenanceNatureOfWorkOptions error: $e');
+      return [];
+    }
+  }
+
+  /// The Failure Type dropdown of the same form, straight from
+  /// RstFailureType.db (active rows, in the table's own order).
+  Future<List<Map<String, String>>> getMaintenanceFailureTypeOptions() async {
+    try {
+      final db = await rstFailureTypeDatabase;
+      final rows = await db.rawQuery(
+          'SELECT Id, Type FROM RstFailureType WHERE IsActive = 1 ORDER BY CAST(OrderId AS INTEGER), Id');
+      return [
+        for (final r in rows)
+          if ('${r['Type'] ?? ''}'.trim().isNotEmpty)
+            {'label': '${r['Type']}'.trim(), 'value': '${r['Id']}'}
+      ];
+    } catch (e) {
+      debugPrint('getMaintenanceFailureTypeOptions error: $e');
       return [];
     }
   }

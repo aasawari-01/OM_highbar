@@ -1165,10 +1165,10 @@ class FailureListController extends GetxController {
 
   /// JE lists are ordered purely by recency (not grouped by creation type, or
   /// a new OCC failure would always sit below older Manual / Station / Depot
-  /// ones): JE Inbox newest first, Joint Inspection Inbox oldest first.
+  /// ones): JE Inbox and Joint Inspection Inbox newest first.
   void _sortJeFailures(List<FailureItem> items) {
-    final oldestFirst =
-        selectedJETab.value == JEFailureListTab.jointInspection;
+    // Both tabs: newest first (a new joint inspection shows at the top).
+    const oldestFirst = false;
     items.sort((a, b) {
       final byRecency = _recencyKey(a).compareTo(_recencyKey(b));
       return oldestFirst ? byRecency : -byRecency;

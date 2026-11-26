@@ -67,7 +67,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
 
   void _showUploadPopup(List<Map<String, dynamic>> targetList) {
     Get.dialog(
-      Dialog(
+      Builder(builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 40),
         child: Container(
@@ -82,7 +82,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               Align(
                 alignment: Alignment.topRight,
                 child: GestureDetector(
-                  onTap: () => Get.back(),
+                  onTap: () => Navigator.of(dialogContext).pop(),
                   child: const Icon(Icons.close, color: Colors.black, size: 24),
                 ),
               ),
@@ -94,7 +94,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                     icon: TablerIcons.camera,
                     onTap: () async {
                       try {
-                        Get.back();
+                        Navigator.of(dialogContext).pop();
                         final ImagePicker picker = ImagePicker();
                         final XFile? image =
                         await picker.pickImage(source: ImageSource.camera);
@@ -128,7 +128,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                     icon: TablerIcons.paperclip,
                     onTap: () async {
                       try {
-                        Get.back();
+                        Navigator.of(dialogContext).pop();
                         final FilePickerResult? result =
                         await FilePicker.platform.pickFiles(
                           type: FileType.custom,
@@ -202,7 +202,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 

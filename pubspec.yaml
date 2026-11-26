@@ -98,6 +98,8 @@ flutter:
     - assets/UserMaster.db
     - assets/failure_categorytype.db
     - assets/notificationType.db
+    - assets/natureOfWork.db
+    - assets/RstFailureType.db
     - assets/rootCause.db
     - assets/actiontaken.db
     - assets/causeOfFailure.db

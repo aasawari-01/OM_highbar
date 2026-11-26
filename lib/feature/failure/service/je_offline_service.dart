@@ -95,6 +95,36 @@ class JeOfflineService {
     Map<String, String> filePaths = const {},
   }) async {
     final kept = await _keepFiles(filePaths);
+    // The same failure updated again before it was sent: the earlier waiting
+    // update is replaced by this one (only one update is sent). Pictures of the
+    // earlier one that were not picked again are carried over.
+    if (notificationId > 0) {
+      try {
+        for (final row in await _db.getPendingSubmissions()) {
+          if (row['failureType'] != queueType) continue;
+          final old = row['payload'];
+          if (old is! Map ||
+              '${old['action']}' != 'update' ||
+              int.tryParse('${old['notificationId']}') != notificationId) {
+            continue;
+          }
+          final oldFiles = old['files'] is Map ? old['files'] as Map : const {};
+          for (final e in oldFiles.entries) {
+            final path = '${e.value}';
+            if (kept.containsKey('${e.key}')) {
+              try {
+                await File(path).delete(); // replaced by a new picture
+              } catch (_) {}
+            } else if (await File(path).exists()) {
+              kept['${e.key}'] = path;
+            }
+          }
+          await _db.deletePendingSubmission(row['id'] as int);
+        }
+      } catch (e) {
+        failureLog('JeOfflineService: earlier update not replaced: $e');
+      }
+    }
     await _db.insertPendingSubmission({
       'action': 'update',
       'notificationId': notificationId,
@@ -143,6 +173,25 @@ class JeOfflineService {
   Future<void> discardJointInspection(int queueId) =>
       _db.deletePendingSubmission(queueId);
 
+  /// After an update was sent: learn the ids the server gave the material rows
+  /// and keep them, so a later submit without changes does not add them again.
+  /// Best effort (nothing happens when the server cannot be reached).
+  Future<void> refreshServerLists(int notificationId) async {
+    try {
+      final id = await encryptedIdFor(notificationId: notificationId);
+      final res = await _service
+          .fetchJeDetailsFromServer(id)
+          .timeout(const Duration(seconds: 20));
+      final out = res.responseOutput;
+      if (out == null) return;
+      await JeOverlay.saveServerLists(notificationId,
+          materials: out.getMaterialReqDetails,
+          dismantle: out.getMaterialDismantleDetails);
+    } catch (e) {
+      failureLog('JeOfflineService: server material ids not read: $e');
+    }
+  }
+
   /// Sends one queued action. true = done. Throws when the server cannot be
   /// reached (network error) or answers with an error.
   Future<bool> replay(Map<String, dynamic> p0) async {
@@ -181,6 +230,7 @@ class JeOfflineService {
             await File(e.value.toString()).delete();
           } catch (_) {}
         }
+        await refreshServerLists(nid);
         return true;
       default:
         return false;

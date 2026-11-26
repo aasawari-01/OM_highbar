@@ -300,7 +300,7 @@ class FailureService {
         'trainDelayInNo', 'noOfTranWithdrawal', 'noOfTranCancel',
         'noOfTrainReplace', 'isPassengerDeboarding', 'noofTrainDeboarded',
         'isPassengerAffected', 'noOfPassengerAffected', 'trappedDuration',
-        'rescuedDuration', 'locationFailure',
+        'rescuedDuration', 'locationFailure', 'description',
       ]) {
         fill(k);
       }
@@ -308,7 +308,11 @@ class FailureService {
         rca = [for (final r in ov['rca'] as List) if (r is Map) Map<String, dynamic>.from(r)];
       }
       // The update body names them differently from the details lists.
-      materials = [
+      final serverMat = ov['serverMaterials'];
+      final serverDis = ov['serverDismantle'];
+      materials = serverMat is List
+          ? [for (final m in serverMat) if (m is Map) Map<String, dynamic>.from(m)]
+          : [
         for (final m in (ov['materials'] as List? ?? const []))
           if (m is Map)
             {
@@ -324,7 +328,9 @@ class FailureService {
               'unitOfMeasurement': m['UnitMeasurement'],
             }
       ];
-      dismantle = [
+      dismantle = serverDis is List
+          ? [for (final m in serverDis) if (m is Map) Map<String, dynamic>.from(m)]
+          : [
         for (final m in (ov['dismantle'] as List? ?? const []))
           if (m is Map && '${m['InsertUpdateStatusId']}' != '3')
             {...Map<String, dynamic>.from(m), 'id': m['Id']}
@@ -401,6 +407,11 @@ class FailureService {
     token: token2,
     );
   }
+
+  /// The failure as the server holds it (used to learn the ids of the
+  /// material rows after an update was sent).
+  Future<FailureDetailResponse> fetchJeDetailsFromServer(String failureNo) =>
+      _getFailureDetailsFromServer(failureNo);
 
   Future<FailureDetailResponse> _getFailureDetailsFromServer(
       String failureNo) async {
@@ -2711,7 +2722,28 @@ class FailureService {
         'getMaterialDismantleDetails': list('siMaterialDismentle').isNotEmpty
             ? list('siMaterialDismentle')
             : list('siMaterialDismantle'),
-        'measurementPoint': list('siMeasurementPoint'),
+        'measurementPoint': () {
+          final saved = list('siMeasurementPoint');
+          // An update saved offline (not sent yet): the points ticked on the
+          // form are in the local copy as MeasurementPointIds.
+          if (row['pendingAction'] == null ||
+              !si.containsKey('measurementPointIds')) {
+            return saved;
+          }
+          final ids = <int>{
+            for (final t in '${si['measurementPointIds'] ?? ''}'.split(','))
+              if ((int.tryParse(t.trim()) ?? 0) > 0) int.parse(t.trim()),
+          };
+          return [
+            for (final m in saved)
+              if (m is Map && ids.contains(int.tryParse('${m['measId']}')))
+                m,
+            for (final id in ids)
+              if (!saved.any(
+                  (m) => m is Map && int.tryParse('${m['measId']}') == id))
+                {'measId': id, 'isRequired': true},
+          ];
+        }(),
         // The pictures sent with the failure (server address, saved on the
         // device once seen).
         'getImageBefor': [

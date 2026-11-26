@@ -2359,7 +2359,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             final showMeasurement =
                 controller.showMeasurementButton.value;
 
-            if (!showMeasurement) {
+            // Section Incharge does not add readings here (he only ticks the
+            // points in the section below).
+            if (!showMeasurement || controller.isSectionIncharge) {
               return const SizedBox.shrink();
             }
 
@@ -3069,6 +3071,24 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
                       CustomTextField(
+                        label: "System",
+                        controller: controller.systemController,
+                        enabled: false,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                        label: "Sub System",
+                        controller: controller.subsystemController,
+                        enabled: false,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                        label: "Failure Frequency of Gear (Last 12 Months)",
+                        controller: controller.fmecaFrequencyController,
+                        enabled: false,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
                         label: "Person Responsible",
                         controller:
                         controller.personResponsibleDisplayController,
@@ -3200,6 +3220,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             controller: controller.subsystemController,
                             enabled: false,
                           ),
+                          if (controller.isJE) ...[
+                            const SizedBox(
+                                height: AppConstants.elementSpacing),
+                            CustomTextField(
+                              label: "Failure Frequency of Gear (Last 12 Months)",
+                              controller: controller.fmecaFrequencyController,
+                              enabled: false,
+                            ),
+                          ],
                           const SizedBox(
                               height: AppConstants.elementSpacing),
                           Obx(() {
@@ -3865,6 +3894,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   title: "Attachments",
                   child: Column(
                     children: [
+                      // Joint inspection edit: only the uploaded pictures show.
+                      if (!_isJointInspectionFlow) ...[
                       Row(
                         children: [
                           CustText.body("After ",
@@ -3921,6 +3952,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             .toList(),
                       )),
                       const SizedBox(height: AppConstants.sectionSpacing),
+                      ],
                       Obx(() {
                         final hasImages =
                             controller.beforeImagesList.isNotEmpty ||
@@ -6717,7 +6749,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
   void _showUploadPopup(List<Map<String, dynamic>> targetList) {
     Get.dialog(
-      Dialog(
+      Builder(builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 40),
         child: Container(
@@ -6732,7 +6764,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               Align(
                 alignment: Alignment.topRight,
                 child: GestureDetector(
-                  onTap: () => Get.back(),
+                  onTap: () => Navigator.of(dialogContext).pop(),
                   child:
                   const Icon(Icons.close, color: AppColors.black, size: 24),
                 ),
@@ -6745,7 +6777,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     icon: TablerIcons.camera,
                     onTap: () async {
                       try {
-                        Get.back();
+                        Navigator.of(dialogContext).pop();
                         final ImagePicker picker = ImagePicker();
                         final XFile? image =
                         await picker.pickImage(source: ImageSource.camera);
@@ -6777,7 +6809,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     icon: TablerIcons.paperclip,
                     onTap: () async {
                       try {
-                        Get.back();
+                        Navigator.of(dialogContext).pop();
                         final FilePickerResult? result =
                         await FilePicker.platform.pickFiles(
                           type: FileType.custom,
@@ -6849,7 +6881,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 
@@ -7663,6 +7695,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CustDropdown(
+                  key: ValueKey('spareMat${controller.spareDropdownReset.value}'),
                   label: "Material Code & Description *",
                   hint: "Select...",
                   items: controller.materialMasterList
@@ -7676,6 +7709,35 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   onChanged: (v) {
                     if (controller.isFormDisabled) return;
+                    // Junior Engineer: a material already added is refused as
+                    // soon as it is picked.
+                    if (controller.isJE && v != null) {
+                      final code = v.trim().toLowerCase();
+                      final dup = controller.replacedMaterialsList
+                          .asMap()
+                          .entries
+                          .any((e) =>
+                              e.key !=
+                                  controller.editingReplacedMaterialIndex.value &&
+                              '${e.value['materialCode'] ?? ''}'
+                                      .trim()
+                                      .toLowerCase() ==
+                                  code);
+                      if (dup) {
+                        Get.snackbar('Already added',
+                            'This material is already added. Select a different material.',
+                            snackPosition: SnackPosition.BOTTOM,
+                            backgroundColor: Colors.red,
+                            colorText: Colors.white);
+                        // Rebuild the dropdown so the refused pick is not
+                        // left showing in the field.
+                        // (After the picker has closed itself: rebuilding it
+                        // while open made the screen go back.)
+                        Future.delayed(const Duration(milliseconds: 400),
+                            () => controller.spareDropdownReset.value++);
+                        return;
+                      }
+                    }
                     controller.onSpareMaterialSelected(v);
                     // Unfocus all used qty fields
                     for (final focusNode

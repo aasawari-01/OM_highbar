@@ -18,6 +18,7 @@ import '../../../core/models/measurement_point.dart';
 import '../../../core/models/root_cause.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
+import '../service/je_overlay.dart';
 import '../../../service/network_service/network_errors.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/app_urls.dart';
@@ -492,9 +493,13 @@ class CreateFailureController extends GetxController
       if (result.responseCode == 200 && result.responseOutput != null) {
         final output = result.responseOutput!;
         failureLog("naturee eof work==${output.getNatureOfWorkList}");
-        apiNatureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
-        failureLog("getNotificationTypeList==${output.getNotificationTypeList}");
-        apiNotificationTypeList.assignAll(output.getNotificationTypeList ?? []);
+        // Section Incharge: Nature of Work / Failure Type come from the local
+        // databases only (see _loadSiMaintenanceLocalLists), never the API.
+        if (!isSectionIncharge) {
+          apiNatureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
+          failureLog("getNotificationTypeList==${output.getNotificationTypeList}");
+          apiNotificationTypeList.assignAll(output.getNotificationTypeList ?? []);
+        }
         // Drop only the "Select User" placeholder row (value 0).
         apiPersonResponsibleList.assignAll((output.getUserList ?? const <LabelValue>[])
             .where((u) =>
@@ -901,6 +906,7 @@ class CreateFailureController extends GetxController
     departmentDisplayController.text = deptLabel;
     systemController.text = text(je['systems']);
     subsystemController.text = text(je['subSystems']);
+
     // The failure as the server sent it (jEjointInspection) fills what the
     // stored copy did not get under the names the app reads.
     final raw = rec['jEjointInspection'] is Map
@@ -914,6 +920,34 @@ class CreateFailureController extends GetxController
       return '';
     }
 
+    // System / Sub System / Failure Frequency of Gear (read-only): from the
+    // stored failure; what it lacks comes from the functional location master
+    // and from the same failure in the JE copy.
+    var sysText = firstText([je['systems'], je['system'], raw['system']]);
+    var subText = firstText([je['subSystems'], je['subSystem'], raw['subSystem']]);
+    var freqText = firstText([
+      je['freq'], je['frequency'], je['failureFrequency'],
+      raw['freq'], raw['frequency'], raw['failureFrequency'],
+    ]);
+    try {
+      final flId = int.tryParse(text(je['functionLocationId'])) ??
+          int.tryParse(text(raw['functionLocationId'])) ?? 0;
+      if ((sysText.isEmpty || subText.isEmpty) && flId > 0) {
+        final fl = await LocalDatabaseService().getFailureFunctionalLocationRow(flId);
+        if (sysText.isEmpty) sysText = text(fl?['TechObjectType']).trim();
+        if (subText.isEmpty) subText = text(fl?['SubSystem']).trim();
+      }
+      if (freqText.isEmpty) {
+        final jeRow = await LocalDatabaseService().findJeFailure(notificationId: nid);
+        final jf = jeRow?['record'] is Map ? (jeRow!['record'] as Map)['jeFailure'] : null;
+        if (jf is Map) {
+          freqText = firstText([jf['freq'], jf['frequency']]);
+        }
+      }
+    } catch (_) {}
+    systemController.text = sysText;
+    subsystemController.text = subText;
+    fmecaFrequencyController.text = freqText;
     locationDisplayController.text =
         firstText([je['locationName'], raw['locationTypeName']]);
     final funcLabel = text(je['functionalLocation']);
@@ -943,9 +977,13 @@ class CreateFailureController extends GetxController
     for (final d in list('jointInspectionDoc').whereType<Map>()) {
       final fileName = text(d['fileName']).trim();
       if (fileName.isEmpty) continue;
+      // The full address (the same one the picture was saved under offline).
+      final url = fileName.startsWith('http')
+          ? fileName
+          : '${AppUrls.imageUrl}${fileName.replaceFirst(RegExp(r'^/+'), '')}';
       final img = {
         'name': fileName.split('/').last,
-        'path': fileName,
+        'path': url,
         'isNetwork': true,
       };
       switch (text(d['documentType'])) {
@@ -1144,6 +1182,9 @@ class CreateFailureController extends GetxController
     if ((je['subSystem'] ?? '').toString().isNotEmpty) {
       subsystemController.text = je['subSystem'].toString();
     }
+    fmecaFrequencyController.text = (je['freq'] ?? je['frequency'] ??
+            je['failureFrequency'] ?? '')
+        .toString();
 
     // ---- location (API sends id "0" / "" when nothing chosen) ---------------
     locationDisplayController.text = je['locationTypeName']?.toString() ?? '';
@@ -1583,6 +1624,21 @@ class CreateFailureController extends GetxController
               : failureNo;
           notificationId.value = model.notificationId ?? 0;
           notificationCode.value = model.notificationCode ?? "";
+          // JE: the description typed in an update saved offline (not sent
+          // yet) is shown again in the box, to be edited.
+          if (isJE && notificationId.value > 0) {
+            try {
+              final ov = await JeOverlay.load(notificationId.value);
+              final typed = '${ov?['description'] ?? ''}'.trim();
+              if (typed.isNotEmpty) {
+                final row = await LocalDatabaseService()
+                    .findJeFailure(notificationId: notificationId.value);
+                if (row?['pendingAction'] != null) {
+                  failureDescriptionController.text = typed;
+                }
+              }
+            } catch (_) {}
+          }
           if (model.category != null && model.category!.trim().isNotEmpty) {
             failureCategory.value = model.category!.trim();
           }
@@ -1597,6 +1653,11 @@ class CreateFailureController extends GetxController
             failureLog("Subsystem set from model: '${model.subSystems}'");
           } else {
             failureLog("Subsystem is null or empty in model");
+          }
+          // JE view: Failure Frequency of Gear (Last 12 Months), read-only.
+          if (isJE) {
+            final freq = model.frequency ?? 0;
+            fmecaFrequencyController.text = freq > 0 ? '$freq' : '';
           }
 
           // Parse FailureRectificationJson after system/subsystem are populated
@@ -4149,6 +4210,7 @@ class CreateFailureController extends GetxController
   /// Measurement Reading button is only shown then.
   final siHasMeasurement = false.obs;
   int _siMeasCheckedFor = -1;
+  int _siMeasLoadingFor = -1;
 
   /// Loads the points when the functional location changes.
   Future<void> refreshSiMeasurementAvailability() async {
@@ -4160,7 +4222,15 @@ class CreateFailureController extends GetxController
       siHasMeasurement.value = false;
       return;
     }
-    await loadSiMeasurementPoints();
+    // The form asks again on every rebuild: one load per functional location
+    // at a time (parallel loads of the big table made each other fail).
+    if (funcId == _siMeasLoadingFor) return;
+    _siMeasLoadingFor = funcId;
+    try {
+      await loadSiMeasurementPoints();
+    } finally {
+      _siMeasLoadingFor = -1;
+    }
   }
 
   Future<void> loadSiMeasurementPoints() async {
@@ -4176,7 +4246,8 @@ class CreateFailureController extends GetxController
     siMeasurementRows.assignAll([
       for (final r in rows) {...r, 'checked': chosen.contains(r['measId'])},
     ]);
-    _siMeasCheckedFor = funcId;
+    // Nothing found is not remembered: it is looked up again next time.
+    _siMeasCheckedFor = rows.isEmpty ? -1 : funcId;
     siHasMeasurement.value = siMeasurementRows.isNotEmpty;
   }
 
@@ -5284,10 +5355,29 @@ class CreateFailureController extends GetxController
   /// Priority, department, location, notification type and failure category
   /// from GetLookupCreateCorrNotification. Person responsible, functional
   /// location, system / sub system and equipment follow the selections.
+  /// Nature of Work (natureOfWork.db) and Failure Type (RstFailureType.db) of
+  /// the Section Incharge maintenance form: local data only, works offline.
+  Future<void> _loadSiMaintenanceLocalLists() async {
+    try {
+      final db = LocalDatabaseService();
+      final nature = await db.getMaintenanceNatureOfWorkOptions();
+      final types = await db.getMaintenanceFailureTypeOptions();
+      apiNatureOfWorkList.assignAll([
+        for (final e in nature) LabelValue(label: e['label'], value: e['value'])
+      ]);
+      apiNotificationTypeList.assignAll([
+        for (final e in types) LabelValue(label: e['label'], value: e['value'])
+      ]);
+    } catch (e) {
+      failureLog('_loadSiMaintenanceLocalLists: $e');
+    }
+  }
+
   Future<void> loadSectionInchargeDropdowns() async {
     pushLoading();
     try {
       await _loadSiLookups();
+      await _loadSiMaintenanceLocalLists();
       userList.assignAll([LabelValue(label: 'Select', value: '')]);
       if ((departmentId.value ?? 0) > 0) await _loadSiPersonResponsible();
     } catch (e) {
@@ -6569,6 +6659,7 @@ class CreateFailureController extends GetxController
       } catch (e) {
         failureLog('SI details: lookups failed: $e');
       }
+      await _loadSiMaintenanceLocalLists();
 
       // Created offline: there is no server record yet, show what the list
       // row has.
@@ -6673,6 +6764,27 @@ class CreateFailureController extends GetxController
       ].toSet().join(',');
       _applyJeMeasurementPoints(output.measurementPoint);
       await loadSiMeasurementPoints();
+      // Points saved offline carry only the id: the point name, description and
+      // unit are taken from the local measurement master.
+      if (measurementPointsList.any((p) => '${p['measPointDesc'] ?? ''}'.isEmpty)) {
+        final master = {
+          for (final r in siMeasurementRows) '${r['measId']}': r,
+        };
+        measurementPointsList.assignAll([
+          for (final p in measurementPointsList)
+            if ('${p['measPointDesc'] ?? ''}'.isEmpty && master['${p['measId']}'] != null)
+              {
+                ...p,
+                'measPoint': _measurementText(master['${p['measId']}']!['measPoint']),
+                'measPointDesc':
+                    _measurementText(master['${p['measId']}']!['measPointDesc']),
+                'unitOfMeasurement':
+                    _measurementText(master['${p['measId']}']!['measRangeUnit']),
+              }
+            else
+              p,
+        ]);
+      }
 
       if ((model.frequency ?? 0) > 0) {
         fmecaFrequencyController.text = model.frequency.toString();
