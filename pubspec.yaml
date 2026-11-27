@@ -113,6 +113,13 @@ flutter:
     - assets/StoreLocation.db
     - assets/DepotMaster.db
     - assets/trainMaster.db
+    - assets/natureOfWork.db
+    - assets/RstFailureType.db
+    - assets/SICType.db
+    - assets/SICHeaderMaster.db
+    - assets/SICItemMaster.db
+    - assets/PartDRstFailureType.db
+    - assets/reasonForDelay.db
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

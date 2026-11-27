@@ -55,10 +55,20 @@ class SessionController extends GetxController {
     "CSS",
     "RSC",
     "DCC",
+    "PPIO",
     "Inspection Junior Engineer",
     "OCC"
   ];
 
+
+  /// RST failures: the PPIO creates (Part A), assigns (Part B) and closes
+  /// (Part G); the Junior Engineer accepts and fills Parts C, D, E and F.
+  static bool isRstPpioRole(String roleName) =>
+      RegExp(r'\bPPIO\b').hasMatch(roleName.toUpperCase());
+
+  static bool isRstJeRole(String roleName) =>
+      roleName.toLowerCase().contains('junior engineer') &&
+          !isInspectionJERole(roleName);
   /// The role that creates OCC failures and updates / closes the ones
   /// reported to OCC (role name "Chief Controller").
   static bool isOccFailureCreatorRole(String roleName) =>

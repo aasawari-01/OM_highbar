@@ -219,7 +219,7 @@ class _CustomDrawerState extends State<CustomDrawer> {
                         return _drawerItem('Maintenance Failure', 'section_incharge_failure', const FailureListScreen(failureType: 'Maintenance'));
                       }
                       final isStationController = role.contains('Station Controller');
-                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
+                      if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role) || SessionController.isRstPpioRole(role)) {
                         return const SizedBox.shrink();
                       }
                       return _drawerItem('Maintenance JE Inbox', 'maintenance_failure', const FailureListScreen(failureType: 'Maintenance'));
@@ -281,8 +281,12 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       if (isStationController || role.toUpperCase().contains('DCC') || _isOccRole(role)) {
                         return const SizedBox.shrink();
                       }
-                      return _drawerItem('RST JE Inbox', 'rst_failure', const RstListScreen());
-                    }),
+              return _drawerItem(
+              SessionController.isRstPpioRole(role) ? 'RST Failure' : 'RST JE Inbox',
+              'rst_failure',
+              const RstListScreen());
+              }),
+
                   ],
                 ),
                 divider(),

@@ -94,6 +94,7 @@ class LoginController extends GetxController {
         // locally at login so they work offline.
         debugPrint("_startMasterDataSync: Calling syncFailureTransactions");
         await syncService.syncFailureTransactions();
+        await syncService.syncRstFailures();
         debugPrint("_startMasterDataSync: Calling syncPendingSubmissions");
         await syncService.syncPendingSubmissions();
         debugPrint("_startMasterDataSync: All syncs completed");

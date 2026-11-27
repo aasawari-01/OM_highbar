@@ -10,8 +10,10 @@ class FunctionalLocationModel {
   final String techObjectType;
   final String objectKey;
   final String subSystem;
+  final String room;
 
   FunctionalLocationModel({
+    this.room = '',
     this.funcLocId,
     required this.funcLocation,
     required this.funcDescription,
@@ -60,6 +62,7 @@ class FunctionalLocationModel {
       techObjectType: (map['techobjecttype'] ?? map['techobject'] ?? map['techtype'])?.toString() ?? '',
       objectKey: (map['objectkey'] ?? map['objkey'])?.toString() ?? '',
       subSystem: (map['subsystem'] ?? map['sub_system'] ?? map['subsystem'])?.toString() ?? '',
+      room: map['room']?.toString() ?? '',
     );
   }
 
@@ -75,5 +78,6 @@ class FunctionalLocationModel {
     'techObjectType': techObjectType,
     'objectKey': objectKey,
     'subSystem': subSystem,
+    'room':room,
   };
 }

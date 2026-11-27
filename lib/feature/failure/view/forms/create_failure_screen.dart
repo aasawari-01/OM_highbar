@@ -6430,10 +6430,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           // waiting to be sent.
           Obx(() {
             final item = widget.failureItem;
+            // Read first: an Obx that reads no observable is a GetX error (it
+            // happened when the failure had an action waiting to be sent).
+            final statusName =
+                (controller.mainStatusName.value ?? '').trim().toLowerCase();
             final canAcknowledge = item != null &&
                 item.pendingAction == null &&
-                (controller.mainStatusName.value ?? '').trim().toLowerCase() ==
-                    'work complete';
+                statusName == 'work complete';
             if (!canAcknowledge) return const SizedBox.shrink();
             return Padding(
               padding: const EdgeInsets.all(AppConstants.screenPadding),

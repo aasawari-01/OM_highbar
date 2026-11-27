@@ -460,7 +460,9 @@ class CreateFailureController extends GetxController
 
       failureLog(
           "_initializeAllData: userList count after load = ${userList.length}");
-      await loadLookupDataForNewFailure();
+      // Station Controller: no online lookup here (the create form asks for
+      // its own lists when it needs them).
+      if (!isStationController) await loadLookupDataForNewFailure();
       // Auto-select logged-in user in "Failure Reported By" field
       await _autoSelectFailureReportedBy();
 
@@ -2390,13 +2392,15 @@ class CreateFailureController extends GetxController
   Future<void> loadStationFailureView(String id, FailureItem? item) async {
     // GetAllFailuresTransactionData rows carry only the numeric id; the
     // creation-by-id API needs the encrypted one, so use the row itself.
-    if (item != null &&
-        (item.syncStatus == 'offline' ||
-            item.syncStatus == 'failed' ||
-            RegExp(r'^\d+$').hasMatch(id))) {
+    // The Station Controller's list and details come only from the stored
+    // GetAllFailuresTransactionData copy: no online details API.
+    if (item != null) {
       await loadStationFailureDetailsFromData(item);
-      final numericId = int.tryParse(id);
-      if (numericId != null && item.syncStatus != 'offline') {
+      final numericId = int.tryParse(id) ?? item.id;
+      // A real (synced) failure with an action waiting still has its stored
+      // history and pictures; only a failure created offline (negative id)
+      // has none.
+      if (numericId != null && numericId > 0) {
         await _applyStationCachedHistory(numericId);
       }
       await _applyStationPendingImages(item);
@@ -6138,6 +6142,7 @@ class CreateFailureController extends GetxController
     int? businessArea,
     String? functionalLocationId,
     String? workCenter,
+    bool localOnly = false,
   }) async {
     isEquipmentLoading.value = true;
     failureLog(
@@ -6163,7 +6168,9 @@ class CreateFailureController extends GetxController
     ];
 
     // Check API as fallback/enrichment if functionalLocationId is present
-    if (functionalLocationId != null && functionalLocationId.trim().isNotEmpty) {
+    if (!localOnly &&
+        functionalLocationId != null &&
+        functionalLocationId.trim().isNotEmpty) {
       final cleanCode = functionalLocationId.contains(' - ')
           ? functionalLocationId.split(' - ').first.trim()
           : functionalLocationId.trim();
@@ -6254,7 +6261,8 @@ class CreateFailureController extends GetxController
         final cleanCode = funcToLoad.contains(' - ')
             ? funcToLoad.split(' - ').first.trim()
             : funcToLoad.trim();
-        await loadEquipmentsOnDemand(functionalLocationId: cleanCode);
+        await loadEquipmentsOnDemand(
+            functionalLocationId: cleanCode, localOnly: true);
       }
       subLocationController.text = failureItem.subLocation ?? '';
       failureLog("failureItem.subLocation==${failureItem.subLocation}");
@@ -6919,7 +6927,23 @@ class CreateFailureController extends GetxController
       beforeImagesList.clear();
       afterImagesList.clear();
       rcaImagesList.clear();
-      for (final img in output.getImageBefor ?? const <Map<String, dynamic>>[]) {
+      var images = output.getImageBefor ?? const <Map<String, dynamic>>[];
+      // The local copy has no image list: ask the server for it (a failure
+      // that is not created offline).
+      if (images.isEmpty && offlineResult == null) {
+        try {
+          final remote = await _failureService.getMaintenanceFailureDetails([
+            failureNo,
+            item?.id?.toString() ?? '',
+            item?.notificationCode ?? '',
+            code ?? '',
+          ], allowLocal: false);
+          images = remote.responseOutput?.getImageBefor ?? images;
+        } catch (e) {
+          failureLog('SI details: could not load images: $e');
+        }
+      }
+      for (final img in images) {
         final fileName = img['fileName']?.toString() ?? '';
         if (fileName.isEmpty) continue;
         final imgMap = {

@@ -577,6 +577,66 @@ class FailureService {
     }
   }
 
+  /// IBL request form lists (web: getAllDDLRSTIBLPage): IBL lines and train sets.
+  /// The last answer is kept so the form still opens without internet.
+  Future<({List<LabelValue> lines, List<LabelValue> trainSets})> getIblLookups() async {
+    const cacheKey = 'iblRequestLookups';
+    final db = LocalDatabaseService();
+    List<LabelValue> parse(dynamic raw) {
+      final list = raw is Map ? raw.values.toList() : (raw is List ? raw : const []);
+      final out = <LabelValue>[
+        for (final e in list)
+          if (e is Map) LabelValue.fromJson(Map<String, dynamic>.from(e))
+      ];
+      out.sort((a, b) => (int.tryParse(a.value ?? '') ?? 0)
+          .compareTo(int.tryParse(b.value ?? '') ?? 0));
+      return out;
+    }
+
+    Map<String, dynamic>? output;
+    try {
+      final response = await _apiClient.post(
+        AppUrls.getIblRequestDetails,
+        headers: await _authHeaders(),
+        body: {'Id': '0', 'UserId': await _userId(), 'Action': 'getAllDDLRSTIBLPage'},
+      );
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        if (body['responseOutput'] is Map) {
+          output = Map<String, dynamic>.from(body['responseOutput'] as Map);
+          await db.setAppSetting(cacheKey, jsonEncode(output));
+        }
+      }
+    } catch (e) {
+      failureLog('getIblLookups: server not reached: $e');
+    }
+    if (output == null) {
+      final saved = await db.getAppSetting(cacheKey);
+      if (saved != null && saved.isNotEmpty) {
+        output = Map<String, dynamic>.from(jsonDecode(saved) as Map);
+      }
+    }
+    return (
+    lines: parse(output?['getTrainLineList']),
+    trainSets: parse(output?['getTrainSetList']),
+    );
+  }
+
+  /// Creates the IBL request. Returns the server's responseMessage
+  /// ("Success", "Line Busy", ...).
+  Future<String> insertIblRequest(Map<String, dynamic> request) async {
+    final response = await _apiClient.postMultipart(
+      AppUrls.insertIblRequest,
+      headers: await _authHeaders(),
+      fields: {'IBLRequestDetails': jsonEncode(request)},
+      files: const [],
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return '${body['responseMessage'] ?? ''}';
+  }
   /// Returns the fault list for the given object-part ID.
   Future<List<LabelValue>> getFaults(String objectPartId) async {
     final response = await _apiClient.post(
@@ -2000,6 +2060,143 @@ class FailureService {
     return body;
   }
 
+
+
+
+  // ── RST (offline copy + create / assign / queued replay) ───────────────────
+
+  /// mobileAppAPI/GetRstFailureTrasactionDetails: every RST failure of the
+  /// logged-in user with its details, in one call. Without [lastSyncDate] it
+  /// asks for everything (syncType ALL), with it only what changed
+  /// (Incremental). Each record is {failure, documents, history, sicDetails,
+  /// joinInspectionDetails, workAllotedDetails, objectANDFault..., ...}.
+  Future<({List<Map<String, dynamic>> records, String? downloadedAt})>
+  getRstFailureTransactions({String? lastSyncDate}) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getRstFailureTransactions,
+      headers: headers,
+      body: {
+        'userId': userId,
+        if (lastSyncDate != null) 'lastSyncDate': lastSyncDate,
+        'syncType': lastSyncDate == null ? 'ALL' : 'Incremental',
+      },
+    );
+    // 204 / an empty body: the server had nothing to send (no changes).
+    if (response.statusCode == 204 ||
+        (response.statusCode == 200 && response.body.trim().isEmpty)) {
+      return (records: <Map<String, dynamic>>[], downloadedAt: null);
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    if (json['success'] != true) {
+      throw Exception(json['message'] ?? 'Failed to load RST failures');
+    }
+    final data = json['data'];
+    final list = data is Map ? data['rstFailures'] : null;
+    final out = <Map<String, dynamic>>[];
+    if (list is List) {
+      for (final e in list) {
+        if (e is Map && e['failure'] is Map) {
+          out.add(Map<String, dynamic>.from(e));
+        }
+      }
+    }
+    return (
+    records: out,
+    downloadedAt: data is Map ? data['downloadedAt']?.toString() : null
+    );
+  }
+
+  /// The dropdown lists of the RST forms (the web's getRSTNotificationDetailsById
+  /// with an [action]: getAllDDLRSTPage for the create page,
+  /// getRSTNotificationDetailsById for an existing failure (Part B lists),
+  /// getJoinInspectionUserDetails for the users of a department). Returns
+  /// responseOutput.
+  Future<Map<String, dynamic>> getRstLookups(String id, String action) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getRstDetailsById,
+      headers: headers,
+      body: {'Id': id, 'UserId': userId, 'Action': action},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseOutput'] is! Map) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load RST lists');
+    }
+    return Map<String, dynamic>.from(body['responseOutput'] as Map);
+  }
+
+  /// Functional locations and equipment of a department (RST create form).
+  Future<Map<String, dynamic>> getRstDepartmentLists(String deptId) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getRstDepartmentLists,
+      headers: headers,
+      body: {
+        'DepartmentId': deptId,
+        'UserId': userId,
+        'Action': 'getEquipmentListAndFunctinalListByDeptId',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseOutput'] is! Map) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load locations');
+    }
+    return Map<String, dynamic>.from(body['responseOutput'] as Map);
+  }
+
+  /// Sends one RST call (create, update, assign, accept, RCA / material,
+  /// completion, close, delete). [fields] is the multipart text fields (the
+  /// JSON in the field the endpoint reads), or a plain JSON [jsonBody] for the
+  /// calls the web sends as JSON. [files] is [(field, path)]. Returns the
+  /// server's answer (the new failure number for a create).
+  Future<String?> sendRstCall(
+      String endpoint, {
+        Map<String, String>? fields,
+        Map<String, dynamic>? jsonBody,
+        List<http.MultipartFile> files = const [],
+      }) async {
+    final headers = await _authHeaders();
+    final http.Response response;
+    if (jsonBody != null) {
+      response = await _apiClient.post(endpoint, headers: headers, body: jsonBody);
+    } else {
+      response = await _apiClient.postMultipart(
+        endpoint,
+        headers: headers,
+        fields: fields ?? const {},
+        files: files,
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    failureLog('sendRstCall $endpoint response---$body');
+    if (body['responseCode'] == 200 ||
+        body['responseMessage'] == 'Success' ||
+        body['success'] == true) {
+      return (body['responseOutput'] ??
+          body['responseMessage'] ??
+          body['message'] ??
+          'Submitted successfully')
+          .toString();
+    }
+    throw Exception(
+        body['responseMessage'] ?? body['message'] ?? 'Submission failed');
+  }
   /// Returns the full RST failure response (rstFetchData + related lists)
   Future<RstFailureFullResponse> getRstFailureFullData(
       int notificationId) async {
