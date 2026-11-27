@@ -60,6 +60,7 @@ class LocalDatabaseService {
   Database? _rstStoreLocationDatabase;
   Database? _reasonForDelayDatabase;
   Database? _natureOfWorkDatabase;
+  Database? _rstFailureTypeDatabase;
   Database? _failureCategoryTypeDatabase;
   Database? _plantDatabase;
 
@@ -211,8 +212,14 @@ class LocalDatabaseService {
 
   Future<Database> get measurementDatabase async {
     if (_measurementDatabase != null) return _measurementDatabase!;
-    _measurementDatabase = await _openAssetDatabase('measurement_data.db', _copyMeasurementDatabaseFromAssets);
-    return _measurementDatabase!;
+    final db = await _openAssetDatabase('measurement_data.db', _copyMeasurementDatabaseFromAssets);
+    // 569,000 rows searched by ObjectNo: without an index every lookup scans
+    // them all (seconds on a phone), so the points of a functional location
+    // came late or not at all.
+    await _ensureMasterIndexes(
+        db, const ['CREATE INDEX IF NOT EXISTS idx_mp_objectno ON {t}(ObjectNo)']);
+    _measurementDatabase = db;
+    return db;
   }
 
   Future<Database> get priorityDatabase async {
@@ -438,6 +445,308 @@ class LocalDatabaseService {
     return _natureOfWorkDatabase!;
   }
 
+  Database? _rstFailureTypeAssetDatabase;
+
+  /// assets/RstFailureType.db: the RST Failure Type list (Train-Failure,
+  /// M&P-Activity ...), table RstFailureType (Id, Type, OrderId, IsActive).
+  Future<Database> get rstFailureTypeAssetDatabase async {
+    if (_rstFailureTypeAssetDatabase != null) return _rstFailureTypeAssetDatabase!;
+    _rstFailureTypeAssetDatabase = await _openAssetDatabase(
+        'RstFailureType_data.db', (targetPath) async {
+      try {
+        final byteData = await rootBundle.load('assets/RstFailureType.db');
+        await File(targetPath).writeAsBytes(
+            byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+            flush: true);
+      } catch (e) {
+        debugPrint('RstFailureType.db copy failed: $e');
+      }
+    });
+    return _rstFailureTypeAssetDatabase!;
+  }
+
+  Database? _partDFailureTypeAssetDatabase;
+
+  /// assets/PartDRstFailureType.db: table PartDRstFailureType
+  /// (ID, FailureType, Description, IsActive ...) - Part D Failure Type list.
+  Future<Database> get partDFailureTypeAssetDatabase async {
+    if (_partDFailureTypeAssetDatabase != null) return _partDFailureTypeAssetDatabase!;
+    _partDFailureTypeAssetDatabase =
+    await _openAssetDatabase('PartDRstFailureType_data.db', (targetPath) async {
+      try {
+        final byteData = await rootBundle.load('assets/PartDRstFailureType.db');
+        await File(targetPath).writeAsBytes(
+            byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+            flush: true);
+      } catch (e) {
+        debugPrint('PartDRstFailureType.db copy failed: $e');
+      }
+    });
+    return _partDFailureTypeAssetDatabase!;
+  }
+
+  Future<List<Map<String, dynamic>>> getPartDFailureTypeOptions() async {
+    try {
+      final db = await partDFailureTypeAssetDatabase;
+      final rows = await db.rawQuery(
+          'SELECT ID, FailureType FROM "PartDRstFailureType" '
+              'WHERE IFNULL(IsActive, 1) <> 0 ORDER BY ID');
+      return [
+        for (final r in rows)
+          if ((r['FailureType']?.toString() ?? '').trim().isNotEmpty)
+            {'id': r['ID'], 'name': r['FailureType'].toString().trim()}
+      ];
+    } catch (e) {
+      debugPrint('getPartDFailureTypeOptions error: $e');
+      return [];
+    }
+  }
+
+  /// Part D Object Part list from objectPart.db: [{id, name, group, code}].
+  Future<List<Map<String, dynamic>>> getObjectPartOptions() async {
+    try {
+      final db = await rstObjectPartDatabase;
+      final rows = await db.rawQuery(
+          'SELECT ID, SystemGroup, ObjectCode, ObjectDescr FROM "objectPart" '
+              'WHERE IFNULL(IsActive, 1) <> 0 ORDER BY ObjectDescr COLLATE NOCASE');
+      return [
+        for (final r in rows)
+          if ((r['ObjectDescr']?.toString() ?? '').trim().isNotEmpty)
+            {
+              'id': r['ID'],
+              'name': r['ObjectDescr'].toString().trim(),
+              'group': r['SystemGroup']?.toString(),
+              'code': r['ObjectCode']?.toString(),
+            }
+      ];
+    } catch (e) {
+      debugPrint('getObjectPartOptions error: $e');
+      return [];
+    }
+  }
+
+  /// Faults for one object part from faultMaster.db: those of the part's system
+  /// group that are either specific to its ObjectCode or generic (no ObjectCode).
+  Future<List<Map<String, dynamic>>> getFaultOptions({
+    String? systemGroup,
+    String? objectCode,
+  }) async {
+    try {
+      final db = await rstFaultMasterDatabase;
+      Future<List<Map<String, Object?>>> q(String cond, List<Object?> args) =>
+          db.rawQuery(
+              'SELECT ID, SystemGroup, FaultCode, FaultDescr FROM "faultMaster" '
+                  'WHERE IFNULL(IsActive, 1) <> 0$cond ORDER BY FaultDescr COLLATE NOCASE',
+              args);
+      final g = (systemGroup ?? '').trim();
+      final c = (objectCode ?? '').trim();
+      // Most specific first; never leave the dropdown empty.
+      var rows = <Map<String, Object?>>[];
+      // System-wise: every fault of the object part's system group.
+      if (g.isNotEmpty) {
+        rows = await q(' AND TRIM(SystemGroup) = ?', [g]);
+      }
+      if (rows.isEmpty && c.isNotEmpty) {
+        rows = await q(' AND TRIM(ObjectCode) = ?', [c]);
+      }
+      if (rows.isEmpty) rows = await q('', []);
+      debugPrint('getFaultOptions group=$g code=$c -> ${rows.length} faults');
+      return [
+        for (final r in rows)
+          if ((r['FaultDescr']?.toString() ?? '').trim().isNotEmpty)
+            {
+              'id': r['ID'],
+              'name': r['FaultDescr'].toString().trim(),
+              'group': r['SystemGroup']?.toString(),
+              'code': r['FaultCode']?.toString(),
+            }
+      ];
+    } catch (e) {
+      debugPrint('getFaultOptions error: $e');
+      return [];
+    }
+  }
+
+  Database? _sicTypeAssetDatabase;
+
+  /// assets/SICType.db: table SICType (SICTypeID, SICTypeDesc, IsActive ...).
+  Future<Database> get sicTypeAssetDatabase async {
+    if (_sicTypeAssetDatabase != null) return _sicTypeAssetDatabase!;
+    _sicTypeAssetDatabase =
+    await _openAssetDatabase('SICType_data.db', (targetPath) async {
+      try {
+        final byteData = await rootBundle.load('assets/SICType.db');
+        await File(targetPath).writeAsBytes(
+            byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+            flush: true);
+      } catch (e) {
+        debugPrint('SICType.db copy failed: $e');
+      }
+    });
+    return _sicTypeAssetDatabase!;
+  }
+
+  Database? _sicHeaderAssetDatabase;
+  Database? _sicItemAssetDatabase;
+
+  Future<Database> _openBundled(String file, String asset) =>
+      _openAssetDatabase(file, (targetPath) async {
+        try {
+          final byteData = await rootBundle.load(asset);
+          await File(targetPath).writeAsBytes(
+              byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
+              flush: true);
+        } catch (e) {
+          debugPrint('$asset copy failed: $e');
+        }
+      });
+
+  /// assets/SICHeaderMaster.db: SICHeaderMaster (HeaderId, SICTypeId, Description, IsActive).
+  Future<Database> get sicHeaderAssetDatabase async =>
+      _sicHeaderAssetDatabase ??=
+      await _openBundled('SICHeaderMaster_data.db', 'assets/SICHeaderMaster.db');
+
+  /// assets/SICItemMaster.db: SICItemMaster (LineItemId, HeaderId, Description,
+  /// IsDMR, IsTC, IsDMB, IsActive).
+  Future<Database> get sicItemAssetDatabase async =>
+      _sicItemAssetDatabase ??=
+      await _openBundled('SICItemMaster_data.db', 'assets/SICItemMaster.db');
+
+  /// The SIC type id for a type name (SICType.db), for rows that carry only the name.
+  Future<int?> getSicTypeIdByName(String name) async {
+    try {
+      final db = await sicTypeAssetDatabase;
+      final rows = await db.rawQuery(
+          'SELECT SICTypeID FROM "SICType" WHERE TRIM(SICTypeDesc) = TRIM(?) COLLATE NOCASE LIMIT 1',
+          [name]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['SICTypeID']}');
+    } catch (e) {
+      debugPrint('getSicTypeIdByName error: $e');
+      return null;
+    }
+  }
+
+  /// The checksheet sections (headers) of one SIC type, active only.
+  Future<List<Map<String, dynamic>>> getSicHeadersForType(int sicTypeId) async {
+    try {
+      final db = await sicHeaderAssetDatabase;
+      final rows = await db.rawQuery(
+          'SELECT HeaderId, Description FROM "SICHeaderMaster" '
+              'WHERE SICTypeId = ? AND IFNULL(IsActive, 1) <> 0 ORDER BY HeaderId',
+          [sicTypeId]);
+      return [
+        for (final r in rows)
+          {'headerId': r['HeaderId'], 'description': '${r['Description'] ?? ''}'.trim()}
+      ];
+    } catch (e) {
+      debugPrint('getSicHeadersForType error: $e');
+      return [];
+    }
+  }
+
+  /// The check items of the given headers, active only.
+  Future<List<Map<String, dynamic>>> getSicItemsForHeaders(List<int> headerIds) async {
+    if (headerIds.isEmpty) return [];
+    try {
+      final db = await sicItemAssetDatabase;
+      final marks = List.filled(headerIds.length, '?').join(',');
+      final rows = await db.rawQuery(
+          'SELECT LineItemId, HeaderId, Description, IsDMR, IsTC, IsDMB '
+              'FROM "SICItemMaster" WHERE HeaderId IN ($marks) AND IFNULL(IsActive, 1) <> 0 '
+              'ORDER BY HeaderId, LineItemId',
+          headerIds);
+      return [
+        for (final r in rows)
+          {
+            'lineItemId': r['LineItemId'],
+            'headerId': r['HeaderId'],
+            'description': '${r['Description'] ?? ''}'.trim(),
+            'hasDMR': '${r['IsDMR']}' == '1',
+            'hasTC': '${r['IsTC']}' == '1',
+            'hasDMB': '${r['IsDMB']}' == '1',
+          }
+      ];
+    } catch (e) {
+      debugPrint('getSicItemsForHeaders error: $e');
+      return [];
+    }
+  }
+
+  /// SIC Type options for Part B: [{id, name}], active only, sorted by name.
+  Future<List<Map<String, dynamic>>> getSicTypeOptions() async {
+    try {
+      final db = await sicTypeAssetDatabase;
+      final rows = await db.rawQuery(
+          'SELECT SICTypeID, SICTypeDesc FROM "SICType" '
+              'WHERE IFNULL(IsActive, 1) <> 0 ORDER BY SICTypeDesc COLLATE NOCASE');
+      return [
+        for (final r in rows)
+          if ((r['SICTypeDesc']?.toString() ?? '').trim().isNotEmpty)
+            {'id': r['SICTypeID'], 'name': r['SICTypeDesc'].toString().trim()}
+      ];
+    } catch (e) {
+      debugPrint('getSicTypeOptions error: $e');
+      return [];
+    }
+  }
+
+  /// RST Failure Type options: [{id, name}], active ones in their order.
+  Future<List<Map<String, dynamic>>> getRstFailureTypeOptions() async {
+    try {
+      final db = await rstFailureTypeAssetDatabase;
+      final rows = await db.rawQuery(
+          'SELECT Id, Type FROM "RstFailureType" '
+              'WHERE IFNULL(IsActive, 1) <> 0 ORDER BY IFNULL(OrderId, 9999), Id');
+      return [
+        for (final r in rows)
+          if ((r['Type']?.toString() ?? '').trim().isNotEmpty)
+            {'id': r['Id'], 'name': r['Type'].toString().trim()}
+      ];
+    } catch (e) {
+      debugPrint('getRstFailureTypeOptions error: $e');
+      return [];
+    }
+  }
+
+  /// Nature of Work rows with the failure type each belongs to
+  /// (natureOfWork.db: NatureWorkID, WorkName, NotificationTypeId).
+  Future<List<Map<String, dynamic>>> getNatureOfWorkRows() async {
+    try {
+      final db = await natureOfWorkDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return [];
+      final rows = await db.rawQuery(
+          'SELECT NatureWorkID, WorkName, NotificationTypeId FROM "$t" '
+              'WHERE IFNULL(Status, 1) <> 0 ORDER BY CAST(IFNULL(OrderId, 9999) AS INTEGER), NatureWorkID');
+      return [
+        for (final r in rows)
+          if ((r['WorkName']?.toString() ?? '').trim().isNotEmpty)
+            {
+              'id': r['NatureWorkID'],
+              'name': r['WorkName'].toString().trim(),
+              'typeId': r['NotificationTypeId'],
+            }
+      ];
+    } catch (e) {
+      debugPrint('getNatureOfWorkRows error: $e');
+      return [];
+    }
+  }
+
+  Future<Database> get rstFailureTypeDatabase async {
+    if (_rstFailureTypeDatabase != null) return _rstFailureTypeDatabase!;
+    _rstFailureTypeDatabase = await _openAssetDatabase('rstFailureType_data.db', (targetPath) async {
+      try {
+        final byteData = await rootBundle.load('assets/RstFailureType.db');
+        final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+        await File(targetPath).writeAsBytes(bytes, flush: true);
+      } catch (e) {
+        debugPrint('rstFailureTypeDatabase: could not copy RstFailureType.db: $e');
+      }
+    });
+    return _rstFailureTypeDatabase!;
+  }
+
   Future<Database> get failureCategoryTypeDatabase async {
     if (_failureCategoryTypeDatabase != null) return _failureCategoryTypeDatabase!;
     _failureCategoryTypeDatabase = await _openAssetDatabase('failure_categorytype_data.db', _copyFailureCategoryTypeDatabaseFromAssets);
@@ -449,7 +758,7 @@ class LocalDatabaseService {
 
     return await openDatabase(
       path,
-      version: 25,
+      version: 27,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
@@ -840,6 +1149,10 @@ class LocalDatabaseService {
         await _natureOfWorkDatabase!.close();
         _natureOfWorkDatabase = null;
       }
+      if (_rstFailureTypeDatabase != null) {
+        await _rstFailureTypeDatabase!.close();
+        _rstFailureTypeDatabase = null;
+      }
       if (_failureCategoryTypeDatabase != null) {
         await _failureCategoryTypeDatabase!.close();
         _failureCategoryTypeDatabase = null;
@@ -1068,6 +1381,10 @@ class LocalDatabaseService {
       // Station failure list cache (GetAllFailuresTransactionData)
       await _createFailureTables(db);
     }
+    if (oldVersion < 26) {
+      // OCC / FMC failure list, OCC lookups and the train set master
+      await _createFailureTables(db);
+    }
     if (oldVersion < 25) {
       // DepotMaster table (DCC depot picker)
       await _createFailureTables(db);
@@ -1101,6 +1418,11 @@ class LocalDatabaseService {
       } catch (e) {
         debugPrint("_onUpgrade: attempts column: $e");
       }
+    }
+
+    if (oldVersion < 27) {
+      // RST failure list (GetRstFailureTrasactionDetails)
+      await _createFailureTables(db);
     }
   }
 
@@ -1233,6 +1555,45 @@ class LocalDatabaseService {
         BusinessArea INTEGER,
         DepotName TEXT,
         DepotCode TEXT,
+        PlantId INTEGER,
+        IsActive INTEGER
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS OccFailureCache (
+        id INTEGER NOT NULL,
+        listType TEXT NOT NULL,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        pendingAction TEXT,
+        pendingError TEXT,
+        lastSyncedAt TEXT,
+        PRIMARY KEY (id, listType)
+      )
+      ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS RstFailureCache (
+        id INTEGER PRIMARY KEY,
+        notificationCode TEXT,
+        payload TEXT NOT NULL,
+        pendingAction TEXT,
+        pendingError TEXT,
+        lastSyncedAt TEXT
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS OccLookupCache (
+        cacheKey TEXT PRIMARY KEY,
+        payload TEXT NOT NULL,
+        savedAt TEXT
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS TrainSetMaster (
+        TrainSetId INTEGER PRIMARY KEY,
+        TrainSetName TEXT,
+        TrainSetCode TEXT,
         PlantId INTEGER,
         IsActive INTEGER
       )
@@ -3393,6 +3754,25 @@ class LocalDatabaseService {
     return out;
   }
 
+  /// The joint inspection screen saved offline for a failure and not sent yet
+  /// (what the user entered), or null.
+  Future<Map<String, dynamic>?> getPendingJiSubmitPayload(int notificationId) async {
+    final db = await database;
+    final rows = await db.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0',
+        whereArgs: ['JE'],
+        orderBy: 'id DESC');
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        if (p['action'] != 'jiSubmit') continue;
+        if (int.tryParse('${p['notificationId']}') != notificationId) continue;
+        if (p['payload'] is Map) return Map<String, dynamic>.from(p['payload'] as Map);
+      } catch (_) {}
+    }
+    return null;
+  }
+
   Future<void> deletePendingSubmission(int id) async {
     final db = await database;
     await db.delete('PendingFailureSubmissions', where: 'id = ?', whereArgs: [id]);
@@ -3450,6 +3830,123 @@ class LocalDatabaseService {
       return results.map((e) => LocationModel.fromJson(e)).toList();
     } catch (e) {
       debugPrint('getLocationsByBusinessArea error: $e');
+      return [];
+    }
+  }
+
+  /// Name of the data table of fun_loc.db.
+  Future<String?> _funLocTable(Database db) async {
+    final tables = await db.rawQuery("SELECT name FROM sqlite_master WHERE type='table'");
+    final names = tables
+        .map((t) => t['name'] as String)
+        .where((n) => n != 'sqlite_sequence' && n != 'android_metadata')
+        .toList();
+    return names.isEmpty ? null : names.first;
+  }
+
+  /// WHERE parts shared by the RST location filters (fun_loc.db columns
+  /// BusinessArea, WorkCenter, PlanningPlant, Location, Room, SubSystem).
+  ({String where, List<Object?> args}) _funLocWhere({
+    int? businessArea,
+    String? workCenter,
+    String? plant,
+    String? location,
+    String? room,
+    String? system,
+    bool? longCodes, // true: asset tags (>= 29 chars), false: superior (< 29)
+  }) {
+    final where = <String>[];
+    final args = <Object?>[];
+    void eq(String col, Object? v) {
+      if (v == null || '$v'.isEmpty) return;
+      // Text compare, trimmed and case-insensitive: the columns may hold
+      // numbers or text, with stray spaces.
+      where.add('UPPER(TRIM(CAST("$col" AS TEXT))) = UPPER(?)');
+      args.add('$v'.trim());
+    }
+
+    if (businessArea != null) {
+      where.add('TRIM(CAST("BusinessArea" AS TEXT)) = ?');
+      args.add('$businessArea'.trim());
+    }
+    eq('WorkCenter', workCenter);
+    eq('PlanningPlant', plant);
+    eq('Location', location);
+    eq('Room', room);
+    eq('TechObjectType', system);
+    if (longCodes != null) {
+      where.add(longCodes
+          ? 'LENGTH(TRIM("FuncLocation")) >= 29'
+          : 'LENGTH(TRIM("FuncLocation")) < 29');
+    }
+    return (where: where.isEmpty ? '' : ' WHERE ${where.join(' AND ')}', args: args);
+  }
+
+  /// Distinct values of one fun_loc.db column ([column] is one of PlanningPlant,
+  /// Location, Room, TechObjectType) under the given filters, sorted.
+  Future<List<String>> getFunctionalLocationDistinct(
+      String column, {
+        int? businessArea,
+        String? workCenter,
+        String? plant,
+        String? location,
+        String? room,
+        bool? longCodes,
+      }) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _funLocTable(db);
+      if (t == null) return [];
+      final w = _funLocWhere(
+          businessArea: businessArea,
+          workCenter: workCenter,
+          plant: plant,
+          location: location,
+          room: room,
+          longCodes: longCodes);
+      final rows = await db.rawQuery(
+          'SELECT DISTINCT TRIM(CAST("$column" AS TEXT)) AS v FROM "$t"${w.where} ORDER BY v',
+          w.args);
+      debugPrint('getFunctionalLocationDistinct($column): ${rows.length} rows, '
+          'where=${w.where} args=${w.args}');
+      return [
+        for (final r in rows)
+          if ((r['v']?.toString() ?? '').isNotEmpty) r['v'].toString()
+      ];
+    } catch (e) {
+      debugPrint('getFunctionalLocationDistinct($column) error: $e');
+      return [];
+    }
+  }
+
+  /// The functional locations that match every given filter.
+  Future<List<FunctionalLocationModel>> getFunctionalLocationsByFilters({
+    int? businessArea,
+    String? workCenter,
+    String? plant,
+    String? location,
+    String? room,
+    String? system,
+    bool? longCodes,
+  }) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _funLocTable(db);
+      if (t == null) return [];
+      final w = _funLocWhere(
+          businessArea: businessArea,
+          workCenter: workCenter,
+          plant: plant,
+          location: location,
+          room: room,
+          system: system,
+          longCodes: longCodes);
+      final rows = await db.rawQuery('SELECT * FROM "$t"${w.where}', w.args);
+      debugPrint('getFunctionalLocationsByFilters: ${rows.length} rows, '
+          'where=${w.where} args=${w.args}');
+      return rows.map((r) => FunctionalLocationModel.fromJson(r)).toList();
+    } catch (e) {
+      debugPrint('getFunctionalLocationsByFilters error: $e');
       return [];
     }
   }
@@ -4110,6 +4607,43 @@ class LocalDatabaseService {
     }
   }
 
+  /// Section Incharge maintenance form, department Rolling Stock: the Nature of
+  /// Work dropdown, straight from natureOfWork.db (active rows), so it works
+  /// without internet. [{label, value}] = WorkName / NatureWorkID.
+  Future<List<Map<String, String>>> getMaintenanceNatureOfWorkOptions() async {
+    try {
+      final db = await natureOfWorkDatabase;
+      final rows = await db.rawQuery(
+          'SELECT NatureWorkID, WorkName FROM natureOfWork WHERE Status = 1 ORDER BY NatureWorkID');
+      return [
+        for (final r in rows)
+          if ('${r['WorkName'] ?? ''}'.trim().isNotEmpty)
+            {'label': '${r['WorkName']}'.trim(), 'value': '${r['NatureWorkID']}'}
+      ];
+    } catch (e) {
+      debugPrint('getMaintenanceNatureOfWorkOptions error: $e');
+      return [];
+    }
+  }
+
+  /// The Failure Type dropdown of the same form, straight from
+  /// RstFailureType.db (active rows, in the table's own order).
+  Future<List<Map<String, String>>> getMaintenanceFailureTypeOptions() async {
+    try {
+      final db = await rstFailureTypeDatabase;
+      final rows = await db.rawQuery(
+          'SELECT Id, Type FROM RstFailureType WHERE IsActive = 1 ORDER BY CAST(OrderId AS INTEGER), Id');
+      return [
+        for (final r in rows)
+          if ('${r['Type'] ?? ''}'.trim().isNotEmpty)
+            {'label': '${r['Type']}'.trim(), 'value': '${r['Id']}'}
+      ];
+    } catch (e) {
+      debugPrint('getMaintenanceFailureTypeOptions error: $e');
+      return [];
+    }
+  }
+
   Future<List<FailureCategoryTypeModel>> getFailureCategoryTypes() async {
     try {
       final db = await failureCategoryTypeDatabase;
@@ -4358,6 +4892,22 @@ class LocalDatabaseService {
       return rows.isEmpty ? null : rows.first;
     } catch (e) {
       debugPrint('getFailureFunctionalLocationRow error: $e');
+      return null;
+    }
+  }
+
+  /// Id of a functional location from its code (the OCC lists send the code
+  /// only); null when it is not in the local master data.
+  Future<int?> getFailureFunctionalLocationIdByCode(String code) async {
+    try {
+      final db = await funLocDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return null;
+      final rows = await db.rawQuery(
+          'SELECT FuncLocId FROM "$t" WHERE FuncLocation = ? LIMIT 1', [code.trim()]);
+      return rows.isEmpty ? null : int.tryParse('${rows.first['FuncLocId']}');
+    } catch (e) {
+      debugPrint('getFailureFunctionalLocationIdByCode error: $e');
       return null;
     }
   }
@@ -5140,6 +5690,28 @@ class LocalDatabaseService {
     return _stationAckPending(db);
   }
 
+  /// Depot failures (DCC) with an Acknowledge / Re-Open / Close waiting to be
+  /// sent: {failure id: {sid, error, action}}.
+  Future<Map<int, Map<String, dynamic>>> getDepotActionPending() async {
+    final db = await database;
+    final out = <int, Map<String, dynamic>>{};
+    final rows = await db.query('PendingFailureSubmissions',
+        where: 'failureType = ? AND synced = 0', whereArgs: ['DepotAck']);
+    for (final r in rows) {
+      try {
+        final p = jsonDecode(r['payload'] as String) as Map;
+        final id = int.tryParse('${p['id']}');
+        if (id == null) continue;
+        out[id] = {
+          'sid': r['id'],
+          'error': r['syncError'],
+          'action': p['action'],
+        };
+      } catch (_) {}
+    }
+    return out;
+  }
+
   Future<Map<int, Map<String, dynamic>>> _stationAckPending(DatabaseExecutor ex) async {
     final out = <int, Map<String, dynamic>>{};
     final rows = await ex.query('PendingFailureSubmissions',
@@ -5342,6 +5914,16 @@ class LocalDatabaseService {
     record['encryptedId'] = token;
     await db.update('SiFailureCache', {'payload': jsonEncode(record)},
         where: 'notificationId = ?', whereArgs: [notificationId]);
+  }
+
+  /// A failure the server deleted: removed from the local copy and list.
+  Future<void> deleteSiFailureLocal(int notificationId) async {
+    final db = await database;
+    await db.delete('SiFailureCache',
+        where: 'notificationId = ?', whereArgs: [notificationId]);
+    await db.delete('FailureList',
+        where: 'id = ? AND failureType = ?',
+        whereArgs: [notificationId, 'Maintenance']);
   }
 
   Future<void> clearSiFailurePending(int notificationId) async {
@@ -5745,6 +6327,372 @@ class LocalDatabaseService {
         where: _depotEntryWhere, whereArgs: _depotEntryArgs(sid));
   }
 
+  // ===========================================================================
+  // OCC failure lists (GetAllFailuresTransactionData: occFailures for the Chief
+  // Controller, fmcFailures for FMC / TPC / CSS / RSC). Each row keeps the whole
+  // record: {failure, documents, histories, assignHistories}. An update waiting
+  // to be sent is marked in pendingAction.
+  // ===========================================================================
+
+  Future<void> replaceOccFailureCache(
+      String listType, List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('OccFailureCache',
+          where: 'listType = ? AND pendingAction IS NULL', whereArgs: [listType]);
+      await _insertOccRecords(txn, listType, records);
+    });
+  }
+
+  Future<void> upsertOccFailureCache(
+      String listType, List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertOccRecords(txn, listType, records);
+    });
+  }
+
+  Future<void> _insertOccRecords(DatabaseExecutor txn, String listType,
+      List<Map<String, dynamic>> records) async {
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['failure'];
+      final id = f is Map ? int.tryParse('${f['id']}') : null;
+      if (id == null) continue;
+      // Insert when new, then refresh the record: the pending marker of a
+      // queued update survives (and no UPSERT syntax, older Android SQLite).
+      final payload = jsonEncode(r);
+      final code = f['failureId']?.toString();
+      batch.rawInsert(
+        'INSERT OR IGNORE INTO OccFailureCache '
+        '(id, listType, notificationCode, payload, lastSyncedAt) VALUES (?, ?, ?, ?, ?)',
+        [id, listType, code, payload, now],
+      );
+      batch.rawUpdate(
+        'UPDATE OccFailureCache SET notificationCode = ?, payload = ?, lastSyncedAt = ? '
+        'WHERE id = ? AND listType = ?',
+        [code, payload, now, id, listType],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Rows of one list: {record, pendingAction, pendingError}.
+  Future<List<Map<String, dynamic>>> getOccFailureCache(String listType) async {
+    final db = await database;
+    final rows = await db.query('OccFailureCache',
+        where: 'listType = ?', whereArgs: [listType], orderBy: 'id DESC');
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        out.add({
+          'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
+          'pendingAction': r['pendingAction'],
+          'pendingError': r['pendingError'],
+        });
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> getOccFailureCacheRow(int id) async {
+    final db = await database;
+    final rows = await db.query('OccFailureCache',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setOccPending(int id, String action, {String? error}) async {
+    final db = await database;
+    await db.update('OccFailureCache',
+        {'pendingAction': action, 'pendingError': error ?? ''},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearOccPending(int id) async {
+    final db = await database;
+    await db.update('OccFailureCache', {'pendingAction': null, 'pendingError': null},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearOccFailureCache() async {
+    final db = await database;
+    await db.delete('OccFailureCache');
+  }
+
+  // Offline OCC creates are in FailureList (failureType OccOffline) with ids
+  // -(submissionId * 10).
+  static const String _occEntryWhere = 'failureType = ? AND id <= ? AND id > ?';
+  List<Object?> _occEntryArgs(int sid) =>
+      ['OccOffline', -(sid * 10), -(sid * 10 + 10)];
+
+  Future<void> markOccOfflineEntries(int sid,
+      {required bool failed, String? error}) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'statusName': failed ? 'Sync Failed' : 'Pending Sync',
+        'syncStatus': failed ? 'failed' : 'offline',
+        'remarks': failed ? (error ?? '') : '',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: _occEntryWhere,
+      whereArgs: _occEntryArgs(sid),
+    );
+  }
+
+  Future<void> deleteOccOfflineEntries(int sid) async {
+    final db = await database;
+    await db.delete('FailureList',
+        where: _occEntryWhere, whereArgs: _occEntryArgs(sid));
+  }
+
+  /// A saved server answer the OCC forms need offline (Reported To, Line,
+  /// Reported By, Train Operator lists), per key.
+  Future<void> saveOccLookup(String key, Map<String, dynamic> value) async {
+    final db = await database;
+    await db.insert(
+      'OccLookupCache',
+      {
+        'cacheKey': key,
+        'payload': jsonEncode(value),
+        'savedAt': DateTime.now().toIso8601String(),
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<Map<String, dynamic>?> getOccLookup(String key) async {
+    final db = await database;
+    final rows = await db.query('OccLookupCache',
+        where: 'cacheKey = ?', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+  // ===========================================================================
+  // RST failure list (GetRstFailureTrasactionDetails). Each row keeps the whole
+  // record: {failure, documents, history, sicDetails, ...}. An action waiting
+  // to be sent is marked in pendingAction. Offline RST creates are in
+  // FailureList (failureType RstOffline) with ids -(submissionId * 10).
+  // ===========================================================================
+
+  Future<void> replaceRstFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await txn.delete('RstFailureCache', where: 'pendingAction IS NULL');
+      await _insertRstRecords(txn, records);
+    });
+  }
+
+  Future<void> upsertRstFailureCache(List<Map<String, dynamic>> records) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      await _insertRstRecords(txn, records);
+    });
+  }
+
+  Future<void> _insertRstRecords(
+      DatabaseExecutor txn, List<Map<String, dynamic>> records) async {
+    final now = DateTime.now().toIso8601String();
+    final batch = txn.batch();
+    for (final r in records) {
+      final f = r['failure'];
+      final id = f is Map ? int.tryParse('${f['notificationId']}') : null;
+      if (id == null) continue;
+      final payload = jsonEncode(r);
+      final code = f['notificationCode']?.toString();
+      batch.rawInsert(
+        'INSERT OR IGNORE INTO RstFailureCache '
+            '(id, notificationCode, payload, lastSyncedAt) VALUES (?, ?, ?, ?)',
+        [id, code, payload, now],
+      );
+      // The pending marker of a queued action survives the refresh.
+      batch.rawUpdate(
+        'UPDATE RstFailureCache SET notificationCode = ?, payload = ?, lastSyncedAt = ? '
+            'WHERE id = ?',
+        [code, payload, now, id],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Rows: {record, pendingAction, pendingError}, newest failure first.
+  Future<List<Map<String, dynamic>>> getRstFailureCache() async {
+    final db = await database;
+    final rows = await db.query('RstFailureCache', orderBy: 'id DESC');
+    final out = <Map<String, dynamic>>[];
+    for (final r in rows) {
+      try {
+        out.add({
+          'record': Map<String, dynamic>.from(jsonDecode(r['payload'] as String) as Map),
+          'pendingAction': r['pendingAction'],
+          'pendingError': r['pendingError'],
+        });
+      } catch (_) {}
+    }
+    return out;
+  }
+
+  Future<Map<String, dynamic>?> getRstFailureCacheRow(int id) async {
+    final db = await database;
+    final rows = await db.query('RstFailureCache',
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (rows.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(rows.first['payload'] as String) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Replaces the stored record of one failure (the screen shows the offline
+  /// edit at once); the pending marker is kept.
+  Future<void> saveRstFailureRecord(int id, Map<String, dynamic> record) async {
+    final db = await database;
+    await db.update('RstFailureCache', {'payload': jsonEncode(record)},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<String?> getRstPendingAction(int id) async {
+    final db = await database;
+    final rows = await db.query('RstFailureCache',
+        columns: ['pendingAction'], where: 'id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : rows.first['pendingAction'] as String?;
+  }
+
+  Future<void> setRstPending(int id, String action, {String? error}) async {
+    final db = await database;
+    await db.update('RstFailureCache',
+        {'pendingAction': action, 'pendingError': error ?? ''},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearRstPending(int id) async {
+    final db = await database;
+    await db.update('RstFailureCache', {'pendingAction': null, 'pendingError': null},
+        where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<void> clearRstFailureCache() async {
+    final db = await database;
+    await db.delete('RstFailureCache');
+  }
+
+  static const String _rstEntryWhere = 'failureType = ? AND id <= ? AND id > ?';
+  List<Object?> _rstEntryArgs(int sid) =>
+      ['RstOffline', -(sid * 10), -(sid * 10 + 10)];
+
+  Future<List<Map<String, dynamic>>> getRstOfflineEntries() async {
+    final db = await database;
+    return db.query('FailureList',
+        where: 'failureType = ?', whereArgs: ['RstOffline'], orderBy: 'id ASC');
+  }
+
+  Future<void> markRstOfflineEntries(int sid,
+      {required bool failed, String? error}) async {
+    final db = await database;
+    await db.update(
+      'FailureList',
+      {
+        'statusName': failed ? 'Sync Failed' : 'Pending Sync',
+        'syncStatus': failed ? 'failed' : 'offline',
+        'remarks': failed ? (error ?? '') : '',
+        'lastSyncedAt': DateTime.now().toIso8601String(),
+      },
+      where: _rstEntryWhere,
+      whereArgs: _rstEntryArgs(sid),
+    );
+  }
+
+  Future<void> deleteRstOfflineEntries(int sid) async {
+    final db = await database;
+    await db.delete('FailureList',
+        where: _rstEntryWhere, whereArgs: _rstEntryArgs(sid));
+  }
+
+  Future<void> clearOccLookups() async {
+    final db = await database;
+    await db.delete('OccLookupCache');
+  }
+
+  /// Copies the bundled trainMaster.db into the app database (once, when the
+  /// table is empty), so the Train Set list works offline. Called at login /
+  /// sync and before the list is read.
+  Future<void> ensureTrainSetMaster() async {
+    try {
+      final db = await database;
+      final count = Sqflite.firstIntValue(
+              await db.rawQuery('SELECT COUNT(*) FROM TrainSetMaster')) ??
+          0;
+      if (count > 0) return;
+      final byteData = await rootBundle.load('assets/trainMaster.db');
+      final bytes = byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes);
+      final temp = join(await getDatabasesPath(), 'trainmaster_import.db');
+      await File(temp).writeAsBytes(bytes, flush: true);
+      final src = await openDatabase(temp, readOnly: true);
+      try {
+        final table = await _firstUserTable(src);
+        if (table == null) {
+          debugPrint('ensureTrainSetMaster: no table in trainMaster.db');
+          return;
+        }
+        final rows = await src.query(table);
+        final batch = db.batch();
+        for (final r in rows) {
+          batch.insert(
+            'TrainSetMaster',
+            {
+              'TrainSetId': r['TrainSetId'],
+              'TrainSetName': r['TrainSetName'],
+              'TrainSetCode': r['TrainSetCode'],
+              'PlantId': r['PlantId'],
+              'IsActive': r['IsActive'],
+            },
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+        await batch.commit(noResult: true);
+        debugPrint('ensureTrainSetMaster: ${rows.length} train sets imported');
+      } finally {
+        await src.close();
+        try {
+          await File(temp).delete();
+        } catch (_) {}
+      }
+    } catch (e) {
+      debugPrint('ensureTrainSetMaster error: $e');
+    }
+  }
+
+  /// Active train sets of a business area (plants 1201, 1202 belong to business
+  /// area 1200): [{TrainSetId, TrainSetName}].
+  Future<List<Map<String, Object?>>> getTrainSetsByBusinessArea(int businessArea) async {
+    try {
+      await ensureTrainSetMaster();
+      final db = await database;
+      final area = (businessArea ~/ 100) * 100;
+      return await db.query('TrainSetMaster',
+          columns: ['TrainSetId', 'TrainSetName'],
+          where: '(PlantId / 100) * 100 = ? AND IsActive = 1',
+          whereArgs: [area],
+          orderBy: 'TrainSetId');
+    } catch (e) {
+      debugPrint('getTrainSetsByBusinessArea error: $e');
+      return [];
+    }
+  }
+
   Future<void> clearSiFailureCache() async {
     final db = await database;
     await db.delete('SiFailureCache');
@@ -5800,6 +6748,70 @@ class LocalDatabaseService {
     } catch (e) {
       debugPrint('getUserRoleDeptRows error: $e');
       return [];
+    }
+  }
+
+  /// Makes the user's rows in UserMaster match the roles / departments the
+  /// login returned (the server's current answer): a right missing here is
+  /// added, a right the server no longer gives is removed. Without this a
+  /// stale bundled copy hides a role or department added after it was built.
+  /// [rights]: [{roleId, roleDescr, deptId, deptName}].
+  Future<void> reconcileUserRights(
+      int userId, int? businessArea, List<Map<String, Object?>> rights) async {
+    final valid = [
+      for (final r in rights)
+        if (int.tryParse('${r['roleId']}') != null &&
+            int.tryParse('${r['deptId']}') != null)
+          r
+    ];
+    if (valid.isEmpty) return; // never wipe the user because of an empty answer
+    try {
+      final db = await userDatabase;
+      final t = await _firstUserTable(db);
+      if (t == null) return;
+      final existing = await db.query('"$t"',
+          where: 'UserId = ? AND BusinessArea IS ?',
+          whereArgs: [userId, businessArea]);
+      final have = {
+        for (final e in existing) '${e['RoleId']}-${e['DeptId']}',
+      };
+      final want = {
+        for (final r in valid) '${r['roleId']}-${r['deptId']}',
+      };
+      final template = existing.isNotEmpty
+          ? Map<String, Object?>.from(existing.first)
+          : ((await db.query('"$t"',
+                      where: 'UserId = ?', whereArgs: [userId], limit: 1))
+                  .firstOrNull ??
+              <String, Object?>{'UserId': userId});
+      final now = DateTime.now().toIso8601String();
+      final batch = db.batch();
+      for (final key in have.difference(want)) {
+        final parts = key.split('-');
+        batch.delete('"$t"',
+            where: 'UserId = ? AND BusinessArea IS ? AND RoleId = ? AND DeptId = ?',
+            whereArgs: [userId, businessArea, parts[0], parts[1]]);
+      }
+      final added = <String>{};
+      for (final r in valid) {
+        final key = '${r['roleId']}-${r['deptId']}';
+        if (have.contains(key) || !added.add(key)) continue;
+        batch.insert('"$t"', {
+          ...template,
+          'UserId': userId,
+          'RoleId': int.parse('${r['roleId']}'),
+          'RoleDescr': r['roleDescr'],
+          'DeptId': int.parse('${r['deptId']}'),
+          'DeptName': r['deptName'],
+          'BusinessArea': businessArea,
+          'UpdatedOn': now,
+        });
+      }
+      await batch.commit(noResult: true);
+      debugPrint('reconcileUserRights: user $userId added=${added.length} '
+          'removed=${have.difference(want).length}');
+    } catch (e) {
+      debugPrint('reconcileUserRights error: $e');
     }
   }
 

@@ -1,7 +1,9 @@
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'dart:async';
+import 'dart:io';
 
 import 'package:get/get.dart';
+import 'package:http/http.dart' as http;
 
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
@@ -55,6 +57,10 @@ class SiOfflineService {
       case 'jiAdd':
       case 'jiSubmit':
         return 'Joint Inspection';
+      case 'occCreate':
+        return 'OCC Failure';
+      case 'occUpdate':
+        return 'OCC Update';
       default:
         return action ?? '';
     }
@@ -139,7 +145,8 @@ class SiOfflineService {
 
   /// The edit form of an existing failure, saved offline. The change is also
   /// applied to the local copy so the details show it.
-  Future<void> queueUpdate(Map<String, dynamic> payload) async {
+  Future<void> queueUpdate(Map<String, dynamic> payload,
+      {List<String> files = const []}) async {
     final notificationId = int.tryParse('${payload['NotificationId']}') ?? 0;
     final patch = <String, dynamic>{};
     payload.forEach((key, value) {
@@ -151,14 +158,15 @@ class SiOfflineService {
     await _queue(
         action: 'update',
         notificationId: notificationId,
-        args: {'payload': payload},
+        args: {'payload': payload, if (files.isNotEmpty) 'files': files},
         patch: patch);
   }
 
   /// A new maintenance failure saved offline. Returns the queue id (the list
   /// entry uses -id).
   Future<int> queueCreate(Map<String, dynamic> formData,
-      {Map<String, dynamic> labels = const {}}) async {
+      {Map<String, dynamic> labels = const {},
+      List<String> files = const []}) async {
     // [labels] are the names shown on the form (not sent to the server); the
     // details screen uses them to show the failure while it is offline.
     return _db.insertPendingSubmission({
@@ -167,6 +175,8 @@ class SiOfflineService {
       'queuedBy': await AuthManager().getUserId(),
       'formData': formData,
       'labels': labels,
+      // Pictures picked on the form, kept on the device until it is sent.
+      if (files.isNotEmpty) 'files': files,
     }, queueType);
   }
 
@@ -203,12 +213,37 @@ class SiOfflineService {
         final payload = Map<String, dynamic>.from(p['payload'] as Map);
         // The edit form may have been saved with the numeric id.
         payload['NotificationCode'] = await encryptedIdFor(notificationId: nid);
-        await _service.updateMaintenanceFailure(payload);
+        final kept = p['files'] is List ? p['files'] as List : const [];
+        final parts = <http.MultipartFile>[];
+        for (final path in kept) {
+          if (await File('$path').exists()) {
+            parts.add(await http.MultipartFile.fromPath('beforImage', '$path'));
+          }
+        }
+        await _service.updateMaintenanceFailure(payload, files: parts);
+        for (final path in kept) {
+          try {
+            await File('$path').delete();
+          } catch (_) {}
+        }
         return true;
       case 'create':
+        final saved = p['files'] is List ? p['files'] as List : const [];
+        final parts = <http.MultipartFile>[];
+        for (final path in saved) {
+          if (await File('$path').exists()) {
+            parts.add(await http.MultipartFile.fromPath('beforImage', '$path'));
+          }
+        }
         final r = await _service.submitMaintenanceNotificationForm(
-            Map<String, dynamic>.from(p['formData'] as Map));
+            Map<String, dynamic>.from(p['formData'] as Map),
+            files: parts);
         lastCreatedNumber = r['responseOutput']?.toString();
+        for (final path in saved) {
+          try {
+            await File('$path').delete();
+          } catch (_) {}
+        }
         return true;
       default:
         return false;

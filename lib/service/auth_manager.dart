@@ -6,6 +6,7 @@ import '../feature/auth_login/model/login_response.dart';
 import 'network_service/app_urls.dart';
 import 'network_service/api_client.dart';
 import 'local_database_service.dart';
+import '../feature/failure/service/failure_image_cache.dart';
 
 class AuthManager {
   // Singleton instance
@@ -258,6 +259,10 @@ class AuthManager {
       await db.clearJeFailureCache();
       await db.clearJeJointCache();
       await db.clearDepotFailureCache();
+      await db.clearOccFailureCache();
+      await db.clearOccLookups();
+      await FailureImageCache.clear();
+      await db.setAppSetting('failureImagesPending', '');
       await db.setAppSetting('failureTxnLastSync', '');
       await db.setAppSetting('failureTxnUserId', '');
       await db.setAppSetting('failureTxnFullNeeded', '1');

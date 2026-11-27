@@ -1,3 +1,4 @@
+import 'dart:io' show File;
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ import '../service/failure_service.dart';
 import '../service/si_offline_service.dart';
 import '../service/je_offline_service.dart';
 import '../service/station_overlay.dart';
+import '../service/depot_offline_service.dart';
 import '../service/je_overlay.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/network_errors.dart';
@@ -146,10 +148,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         (selectedFmecaSystem.value ?? '').isEmpty) {
       errors.add("System is required.");
     }
-    if (fmecaSubsystemList.isNotEmpty &&
-        (selectedFmecaSubsystem.value ?? '').isEmpty) {
-      errors.add("Sub System is required.");
-    }
+    // (The Station Controller form has no Sub System field.)
 
     // FMECA validation for Section Incharge
     if (isSectionIncharge) {
@@ -263,7 +262,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         "System": (selectedFmecaSystem.value ?? '').isNotEmpty
             ? selectedFmecaSystem.value
             : systemController.text.trim(),
-        "SubSystem": selectedFmecaSubsystem.value ?? '',
+        "SubSystem": '',
         "TrainId": trainIdController.text.trim(),
         "ActualFailureOccuranceDate": DateFormat("dd/MM/yyyy HH:mm")
             .format(selectedFailureOccurrenceDate.value!),
@@ -334,6 +333,31 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
             int.tryParse(rescuedDurationController.text.trim());
       }
 
+      // The images picked on the form (not the ones that came from the server).
+      final imagePaths = <String>[];
+      final files = <http.MultipartFile>[];
+      for (final f in beforeFiles) {
+        final path = f['path']?.toString() ?? '';
+        if (path.isEmpty || f['isNetwork'] == true) continue;
+        final part = await http.MultipartFile.fromPath('beforImage', path,
+            filename: f['name']?.toString());
+        if (part.length > 1024 * 1024) {
+          // Same 1 MB limit as the form shows (and the web).
+          EasyLoading.dismiss();
+          isSubmitting.value = false;
+          FailureToast.show(
+            'Validation Error',
+            '${f['name']} is larger than 1 MB.',
+            backgroundColor: AppColors.red.withValues(alpha: 0.9),
+            colorText: AppColors.white1,
+            duration: const Duration(seconds: 3),
+          );
+          return;
+        }
+        imagePaths.add(path);
+        files.add(part);
+      }
+
       // Try to submit to API, if fails save locally for offline sync
       try {
         failureLog("createStationFailure: Attempting API submission");
@@ -341,8 +365,8 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
             "createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
         failureLog("createStationFailure: Request payload: $body");
         final failureNo = await _failureService
-            .createStationFailure(body)
-            .timeout(const Duration(seconds: 45));
+            .createStationFailure(body, files: files)
+            .timeout(Duration(seconds: files.isEmpty ? 45 : 90));
         failureLog("createStationFailure: API success, failureNo: $failureNo");
 
         // Keep what was typed: the server's list does not return all of it.
@@ -417,7 +441,11 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         // Save to local database for later sync
         try {
           final dbService = LocalDatabaseService();
-          final id = await dbService.insertPendingSubmission(body, 'Station');
+          // The images are kept with the app (the picker's copies can go) and
+          // sent with the failure; '_files' is taken out before it is sent.
+          final keptImages = await DepotOfflineService.keepFiles(imagePaths);
+          final id = await dbService.insertPendingSubmission(
+              {...body, if (keptImages.isNotEmpty) '_files': keptImages}, 'Station');
           failureLog("createStationFailure: Saved locally with id: $id");
 
           // Verify it was saved
@@ -756,16 +784,41 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
 
       failureLog("Maintenance Form Submission Request: $requestBody");
 
+      // The pictures picked on the form (1 MB each, as the form says).
+      final imagePaths = <String>[];
+      final imageParts = <http.MultipartFile>[];
+      for (final f in beforeFiles) {
+        final path = f['path']?.toString() ?? '';
+        if (path.isEmpty || f['isNetwork'] == true) continue;
+        final part = await http.MultipartFile.fromPath('beforImage', path,
+            filename: f['name']?.toString());
+        if (part.length > 1024 * 1024) {
+          EasyLoading.dismiss();
+          isSubmitting.value = false;
+          FailureToast.show(
+            'Validation Error',
+            '${f['name']} is larger than 1 MB.',
+            backgroundColor: AppColors.red.withValues(alpha: 0.9),
+            colorText: AppColors.white1,
+            duration: const Duration(seconds: 3),
+          );
+          return;
+        }
+        imagePaths.add(path);
+        imageParts.add(part);
+      }
+
       Map<String, dynamic> response;
       try {
         response = await _failureService
-            .submitMaintenanceNotificationForm(requestBody)
-            .timeout(const Duration(seconds: 45));
+            .submitMaintenanceNotificationForm(requestBody, files: imageParts)
+            .timeout(const Duration(seconds: 90));
       } catch (e) {
         if (!isNetworkError(e)) rethrow;
         // No connection: save the failure locally (shown in the list with an
         // orange dot) and send it when internet returns.
-        await _saveMaintenanceOffline(requestBody, int.tryParse(deptId) ?? 0);
+        await _saveMaintenanceOffline(requestBody, int.tryParse(deptId) ?? 0,
+            imagePaths: imagePaths);
         EasyLoading.dismiss();
         isSubmitting.value = false;
         refreshFailureListAfterSubmission(false);
@@ -813,9 +866,13 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
   /// Queues a maintenance failure created without internet and adds it to the
   /// list (orange dot, negative id = -queueId) until it is sent.
   Future<void> _saveMaintenanceOffline(
-      Map<String, dynamic> requestBody, int deptId) async {
+      Map<String, dynamic> requestBody, int deptId,
+      {List<String> imagePaths = const []}) async {
     final db = LocalDatabaseService();
-    final queueId = await SiOfflineService().queueCreate(requestBody, labels: {
+    final keptImages = await DepotOfflineService.keepFiles(imagePaths);
+    final queueId = await SiOfflineService().queueCreate(requestBody,
+        files: keptImages,
+        labels: {
       'funcLocation': selectedFunctionalLocation.value ?? '',
       'equipmentName': selectedEquipmentNumber.value ?? '',
       'locationName': selectedLocation.value ?? '',
@@ -882,17 +939,19 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       errors.add("Notification Type is required.");
     }
 
-    if (isServiceAffected.value) {
+    // Not compulsory for a failure the Section Incharge did not create.
+    final checkService = !siDepartmentLocked.value;
+    if (checkService && isServiceAffected.value) {
       if (trainDelayMinController.text.trim().isEmpty) errors.add("Train Delay in Min is required.");
       if (trainDelayNosController.text.trim().isEmpty) errors.add("Train Delay (NOS) is required.");
       if (trainCancelNosController.text.trim().isEmpty) errors.add("Train Cancel (NOS) is required.");
       if (trainWithdrawalNosController.text.trim().isEmpty) errors.add("Train Withdrawal (NOS) is required.");
       if (trainReplaceNosController.text.trim().isEmpty) errors.add("Train Replace (NOS) is required.");
     }
-    if (isPassengerDeboarding.value && trainDeboardedNosController.text.trim().isEmpty) {
+    if (checkService && isPassengerDeboarding.value && trainDeboardedNosController.text.trim().isEmpty) {
       errors.add("Train Deboarded (NOS) is required.");
     }
-    if (isPassengerAffected.value) {
+    if (checkService && isPassengerAffected.value) {
       if (numberOfPassengerAffectedController.text.trim().isEmpty) errors.add("Number Of Passenger Affected is required.");
       if (trappedDurationController.text.trim().isEmpty) errors.add("Trapped Duration is required.");
       if (rescuedDurationController.text.trim().isEmpty) errors.add("Rescued Duration is required.");
@@ -910,7 +969,7 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
         errors.add("Train Running KM is required.");
       }
     }
-    if ((deptId == 13 || deptId == 16) && isServiceAffected.value && selectedSystemDowntime.value == null) {
+    if (checkService && (deptId == 13 || deptId == 16) && isServiceAffected.value && selectedSystemDowntime.value == null) {
       errors.add("System Downtime is required.");
     }
 
@@ -973,7 +1032,12 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       final payload = <String, dynamic>{
         'NotificationCode': notificationCode,
         'NotificationId': resolveNotificationId(),
-        'Description': failureDescriptionController.text.trim(),
+        // No new description typed: the failure keeps its latest one.
+        'Description': failureDescriptionController.text.trim().isNotEmpty ||
+                !isSectionIncharge ||
+                notificationDescriptionHistoryList.isEmpty
+            ? failureDescriptionController.text.trim()
+            : (notificationDescriptionHistoryList.last.description ?? '').trim(),
         'NatureOfWorkId': natureId,
         'TrainRunningKM': deptId == 3 ? double.tryParse(trainRunningKmController.text.trim()) : null,
         'NotificationTypeId': failureTypeId,
@@ -1014,16 +1078,41 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       };
 
       failureLog('Maintenance update payload: $payload');
+      // Pictures added on this form (the ones already on the server are not
+      // sent again): 1 MB each, as the form says.
+      final imagePaths = <String>[];
+      final imageParts = <http.MultipartFile>[];
+      for (final f in beforeFiles) {
+        final path = f['path']?.toString() ?? '';
+        if (path.isEmpty || f['isNetwork'] == true || !File(path).existsSync()) {
+          continue;
+        }
+        final part = await http.MultipartFile.fromPath('beforImage', path,
+            filename: f['name']?.toString());
+        if (part.length > 1024 * 1024) {
+          EasyLoading.dismiss();
+          isSubmitting.value = false;
+          FailureToast.show('Validation Error',
+              '${f['name']} is larger than 1 MB.',
+              backgroundColor: AppColors.red.withValues(alpha: 0.9),
+              colorText: AppColors.white1,
+              duration: const Duration(seconds: 3));
+          return;
+        }
+        imagePaths.add(path);
+        imageParts.add(part);
+      }
       Map<String, dynamic> response;
       var savedOffline = false;
       try {
         response = await _failureService
-            .updateMaintenanceFailure(payload)
-            .timeout(const Duration(seconds: 45));
+            .updateMaintenanceFailure(payload, files: imageParts)
+            .timeout(Duration(seconds: imageParts.isEmpty ? 45 : 90));
       } catch (e) {
         if (!isNetworkError(e)) rethrow;
         // No connection: keep the change locally, it is sent when internet returns.
-        await SiOfflineService().queueUpdate(payload);
+        await SiOfflineService().queueUpdate(payload,
+            files: await DepotOfflineService.keepFiles(imagePaths));
         savedOffline = true;
         response = {
           'responseMessage':
@@ -1795,7 +1884,12 @@ on GetxController, FailureFormState, FailureMaterialLogic, FailureRcaLogic {
       EasyLoading.dismiss();
       // Keep what the JE filled (Under Observation / In-Process, RCA, ...): the
       // failure opens with it again.
-      if (isJE) await JeOverlay.save(resolveNotificationId(), payload);
+      if (isJE) {
+        await JeOverlay.save(resolveNotificationId(), payload);
+        // The server now holds the material rows: their ids are kept so the
+        // next submit updates them instead of adding them again.
+        await JeOfflineService().refreshServerLists(resolveNotificationId());
+      }
       // The server decides what stays in the JE inbox (a closed failure leaves
       // it): the next list load downloads the lists again to show exactly that.
       if (isJE && Get.isRegistered<MasterDataSyncService>()) {

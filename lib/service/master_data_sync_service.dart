@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show File;
 import 'dart:math';
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
@@ -19,9 +20,15 @@ import 'network_service/network_errors.dart';
 import '../feature/failure/service/si_offline_service.dart';
 import '../feature/failure/service/je_offline_service.dart';
 import '../feature/failure/service/depot_offline_service.dart';
+import '../feature/failure/service/occ_offline_service.dart';
+import '../feature/failure/service/failure_image_cache.dart';
 import '../feature/failure/service/station_overlay.dart';
 import '../service/auth_manager.dart';
 import 'network_service/app_urls.dart';
+
+import '../feature/failure/service/rst_offline_service.dart';
+import '../feature/failure/service/rst_lookups.dart';
+import '../feature/failure/controller/rst_list_controller.dart';
 
 class MasterDataSyncService extends GetxController {
   bool _syncInProgress = false;
@@ -165,11 +172,72 @@ class MasterDataSyncService extends GetxController {
         });
   }
 
+  Future<bool>? _rstSyncRunning;
+
+  /// RST has its own call (GetRstFailureTrasactionDetails) and its own local
+  /// copy: only the RST screens, login and the sync button ask for it, so the
+  /// other failure lists never trigger it (and it never triggers theirs).
+  Future<bool> syncRstFailures() {
+    return _rstSyncRunning ??= _syncRstTransactions().whenComplete(() {
+      _rstSyncRunning = null;
+    });
+  }
+
+  // RST failures the server stops listing (a closed one) are never mentioned by
+  // the incremental sync: after a sent action the next sync takes everything.
+  static const String _rstFullNeededKey = 'rstTxnFullNeeded';
+
+  /// Downloads the RST failures of the logged-in user into the local copy (the
+  /// RST list and details work offline). Same full / incremental rule as the
+  /// other failure lists. Returns false if the server could not be reached.
+  Future<bool> _syncRstTransactions() async {
+    const userKey = 'rstTxnUserId';
+    try {
+      final userId = await AuthManager().getUserId() ?? '';
+      // A different user on this device must not see the previous user's copy.
+      if (await _dbService.getAppSetting(userKey) != userId) {
+        await _dbService.clearRstFailureCache();
+        await _dbService.setAppSetting(userKey, userId);
+      }
+      // Always syncType ALL ({"userId":..,"syncType":"ALL"}): the copy is
+      // replaced with what the server lists (a closed failure drops out), and
+      // a failure with a change waiting to be sent is kept.
+      final res = await _failureService
+          .getRstFailureTransactions()
+          .timeout(const Duration(seconds: 90));
+      await _dbService.replaceRstFailureCache(res.records);
+      await _dbService.setAppSetting(_rstFullNeededKey, '');
+      debugPrint('syncRstTransactions: ALL sync done, rst=${res.records.length}');
+      // The RST forms' dropdown lists, saved for offline use.
+      try {
+        final rows = await _dbService.getRstFailureCache();
+        String? anyId;
+        if (rows.isNotEmpty) {
+          final f = rows.first['record']['failure'];
+          anyId = (f['notificationEncryptId'] ?? f['id'] ?? f['notificationId'])
+              ?.toString();
+        }
+        await RstLookups(failureService: _failureService)
+            .prefetch(anyFailureId: anyId)
+            .timeout(const Duration(seconds: 40));
+      } catch (e) {
+        debugPrint('syncRstTransactions: lookups not saved: $e');
+      }
+      return true;
+    } catch (e) {
+      debugPrint('syncRstTransactions: failed, keeping the local copy: $e');
+      return false;
+    }
+  }
+
   // The incremental sync only brings what changed: a failure the server stops
   // listing (a closed one leaves the Junior Engineer inbox) is never mentioned,
   // so it stays in the local copy. After such an action this flag makes the
   // next sync download everything and replace the local copy.
   static const String _fullSyncNeededKey = 'failureTxnFullNeeded';
+  // Which lists the stored copy holds (raise it when a list is added).
+  static const String _txnLayoutKey = 'failureTxnLayout';
+  static const String _txnLayout = '2';
 
   Future<void> markFullSyncNeeded() =>
       _dbService.setAppSetting(_fullSyncNeededKey, '1');
@@ -186,15 +254,32 @@ class MasterDataSyncService extends GetxController {
         await _dbService.clearJeFailureCache();
         await _dbService.clearJeJointCache();
         await _dbService.clearDepotFailureCache();
+        await _dbService.clearOccFailureCache();
+        await _dbService.clearOccLookups();
         await _dbService.setAppSetting(lastSyncKey, '');
         await _dbService.setAppSetting(userKey, userId);
       }
       final last = await _dbService.getAppSetting(lastSyncKey);
       final fullNeeded = await _dbService.getAppSetting(_fullSyncNeededKey) == '1';
-      final incremental = !forceAll && !fullNeeded && (last ?? '').isNotEmpty;
+      // The copy is only incremental once a full sync of this layout was done:
+      // a list added later (OCC / FMC) has nothing stored before that.
+      final layoutOk = await _dbService.getAppSetting(_txnLayoutKey) == _txnLayout;
+      final incremental =
+          !forceAll && !fullNeeded && layoutOk && (last ?? '').isNotEmpty;
 
+      // The kept date has no time, and the server's own date may be a day
+      // ahead of ours: ask from one day earlier so a failure created later the
+      // same day (or near midnight) is never missed. Rows are stored by id, so
+      // the overlap only repeats what is already stored.
+      String? since;
+      if (incremental) {
+        final day = DateTime.tryParse(last!);
+        since = day == null
+            ? last
+            : DateFormat('yyyy-MM-dd').format(day.subtract(const Duration(days: 1)));
+      }
       final res = await _failureService
-          .getFailureTransactions(lastSyncDate: incremental ? last : null)
+          .getFailureTransactions(lastSyncDate: since)
           .timeout(Duration(seconds: incremental ? 12 : 90));
       if (incremental) {
         await _dbService.upsertStationFailureCache(res.stationRecords);
@@ -202,14 +287,23 @@ class MasterDataSyncService extends GetxController {
         await _dbService.upsertJeFailureCache(res.jeRecords);
         await _dbService.upsertJeJointCache(res.jiRecords);
         await _dbService.upsertDepotFailureCache(res.depotRecords);
+        await _dbService.upsertOccFailureCache('OCC', res.occRecords);
+        await _dbService.upsertOccFailureCache('FMC', res.fmcRecords);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords, ...res.jeRecords, ...res.jiRecords]);
       } else {
         await _dbService.replaceStationFailureCache(res.stationRecords);
         await _dbService.replaceSiFailureCache(res.siRecords);
         await _dbService.replaceJeFailureCache(res.jeRecords);
         await _dbService.replaceJeJointCache(res.jiRecords);
         await _dbService.replaceDepotFailureCache(res.depotRecords);
+        await _dbService.replaceOccFailureCache('OCC', res.occRecords);
+        await _dbService.replaceOccFailureCache('FMC', res.fmcRecords);
+        _prefetchImages([...res.depotRecords, ...res.occRecords, ...res.fmcRecords, ...res.stationRecords, ...res.siRecords, ...res.jeRecords, ...res.jiRecords]);
       }
-      if (!incremental) await _dbService.setAppSetting(_fullSyncNeededKey, '');
+      if (!incremental) {
+        await _dbService.setAppSetting(_fullSyncNeededKey, '');
+        await _dbService.setAppSetting(_txnLayoutKey, _txnLayout);
+      }
       final downloaded = DateTime.tryParse(res.downloadedAt ?? '')?.toUtc();
       await _dbService.setAppSetting(
           lastSyncKey,
@@ -217,11 +311,35 @@ class MasterDataSyncService extends GetxController {
       debugPrint('syncFailureTransactions: ${incremental ? 'incremental' : 'full'} '
           'sync done, station=${res.stationRecords.length} '
           'si=${res.siRecords.length} je=${res.jeRecords.length} '
-          'joint=${res.jiRecords.length} depot=${res.depotRecords.length}');
+          'joint=${res.jiRecords.length} depot=${res.depotRecords.length} '
+          'occ=${res.occRecords.length} fmc=${res.fmcRecords.length}');
+      await _cacheOccLookups();
       return true;
     } catch (e) {
       debugPrint('syncFailureTransactions: failed, keeping the local copy: $e');
       return false;
+    }
+  }
+
+  /// OCC / FMC users need the Reported To, Line, Reported By and Train Operator
+  /// lists on the OCC forms while offline: saved once (the forms refresh them
+  /// whenever the server is reached).
+  Future<void> _cacheOccLookups() async {
+    try {
+      final role = Get.isRegistered<SessionController>()
+          ? Get.find<SessionController>().selectedRole.value?.roleDescr ?? ''
+          : '';
+      if (!SessionController.isOccFailureCreatorRole(role) &&
+          !SessionController.isOccDelegateRole(role)) {
+        return;
+      }
+      if (await _dbService.getOccLookup(OccOfflineService.lookupKey) != null) return;
+      final lookups = await _failureService
+          .getOccDeptLocationLookups()
+          .timeout(const Duration(seconds: 10));
+      await _dbService.saveOccLookup(OccOfflineService.lookupKey, lookups);
+    } catch (e) {
+      debugPrint('_cacheOccLookups: not saved: $e');
     }
   }
 
@@ -230,6 +348,7 @@ class MasterDataSyncService extends GetxController {
   Future<void> syncMasterAndPending() async {
     await syncMasterDataFromAPI();
     await syncFailureTransactions();
+    await syncRstFailures();
     await syncPendingSubmissions(force: true);
   }
 
@@ -292,6 +411,7 @@ class MasterDataSyncService extends GetxController {
     // Bundled depots for the DCC picker are taken in at login, before the server
     // is asked, so they are there even when the sync cannot run.
     await _dbService.ensureDepotMaster();
+    await _dbService.ensureTrainSetMaster();
     await _executeSyncTask('Syncing master data from server...', () async {
       try {
         var stored = int.tryParse(await _dbService.getAppSetting(_rowVersionKey) ?? '');
@@ -329,6 +449,8 @@ class MasterDataSyncService extends GetxController {
           login = false; // the next pages: after the version just received
         }
 
+        if (isLogin) await _reconcileLoginRights();
+
         // Reload master data controller
         await Get.find<GlobalMasterDataController>().reloadMasterData();
         syncStatus.value = totalUpdates == 0
@@ -346,6 +468,62 @@ class MasterDataSyncService extends GetxController {
       }
     });
     debugPrint("syncMasterDataFromAPI: FINISHED");
+  }
+
+  /// Saves the pictures of the depot and OCC failures on the device in the background,
+  /// so they can be seen without internet.
+  static const String _pendingImagesKey = 'failureImagesPending';
+
+  void _prefetchImages(List<Map<String, dynamic>> records) {
+    final urls = <String>{
+      for (final r in records)
+        for (final key in const ['documents', 'siDoc', 'jeDoc', 'jointInspectionDoc'])
+          if (r[key] is List)
+            for (final d in r[key] as List)
+              if (d is Map && '${d['fileName'] ?? ''}'.trim().isNotEmpty)
+                // The same address the screens build (no leading slash).
+                '${d['fileName']}'.trim().startsWith('http')
+                    ? '${d['fileName']}'.trim()
+                    : '${AppUrls.imageUrl}${'${d['fileName']}'.trim().replaceFirst(RegExp(r'^/+'), '')}'
+    };
+    () async {
+      try {
+        // The pictures an earlier sync could not save are tried again now.
+        final kept = await _dbService.getAppSetting(_pendingImagesKey);
+        if ((kept ?? '').isNotEmpty) {
+          urls.addAll((jsonDecode(kept!) as List).map((e) => '$e'));
+        }
+        final failed = await FailureImageCache.prefetch(urls);
+        await _dbService.setAppSetting(_pendingImagesKey, jsonEncode(failed));
+      } catch (e) {
+        debugPrint('_prefetchImages: $e');
+      }
+    }();
+  }
+
+  /// The login answer lists the roles / departments the user holds now. They
+  /// are written into the local user table (what the drawer and offline mode
+  /// read), then the drawer lists are read again.
+  Future<void> _reconcileLoginRights() async {
+    try {
+      final userId = int.tryParse(await AuthManager().getUserId() ?? '');
+      if (userId == null) return;
+      final login = await AuthManager().getRoleAndDeptMaster();
+      await _dbService.reconcileUserRights(userId, await AuthManager().getBusinessArea(), [
+        for (final r in login)
+          {
+            'roleId': r.roleId,
+            'roleDescr': r.roleDescr,
+            'deptId': r.deptId,
+            'deptName': r.deptName,
+          }
+      ]);
+      if (Get.isRegistered<SessionController>()) {
+        await Get.find<SessionController>().refreshRoleDeptFromLocal();
+      }
+    } catch (e) {
+      debugPrint('syncMasterDataFromAPI: login rights: $e');
+    }
   }
 
   /// Writes the lists of one response into the local master tables; returns
@@ -524,12 +702,23 @@ class MasterDataSyncService extends GetxController {
       final siOffline = SiOfflineService(failureService: _failureService);
       final jeOffline = JeOfflineService(failureService: _failureService);
       final depotOffline = DepotOfflineService(failureService: _failureService);
+      final occOffline = OccOfflineService(failureService: _failureService);
+      var occSynced = 0; // OCC failures (create / update): sent and failed
+      var occFailed = 0;
+      final occNumbers = <String>[];
+      final rstOffline = RstOfflineService(failureService: _failureService);
+      var rstSynced = 0; // RST failures (create / assign / work details ...)
+      var rstFailed = 0;
+      final rstNumbers = <String>[];
       var depotSynced = 0; // DCC depot failures: sent and failed
       var depotFailed = 0;
       final depotNumbers = <String>[];
       final syncedNumbers = <String>[]; // real failure numbers of Station failures
       var stationSynced = 0;
       var stationFailed = 0;
+      var depotActSynced = 0; // DCC Acknowledge / Re-Open / Close: sent and failed
+      var depotActFailed = 0;
+      final depotActNumbers = <String>[];
       var ackSynced = 0; // Station Controller Acknowledge: sent and failed
       var ackFailed = 0;
       final ackNumbers = <String>[];
@@ -556,9 +745,23 @@ class MasterDataSyncService extends GetxController {
             continue;
           }
           try {
+            // Images saved with the failure (not part of the data sent).
+            final savedImages =
+                (payload.remove('_files') as List? ?? const []).map((e) => '$e').toList();
+            final imageParts = <http.MultipartFile>[];
+            for (final path in savedImages) {
+              if (await File(path).exists()) {
+                imageParts.add(await http.MultipartFile.fromPath('beforImage', path));
+              }
+            }
             final no = await _failureService
-                .createStationFailure(payload)
-                .timeout(const Duration(seconds: 60));
+                .createStationFailure(payload, files: imageParts)
+                .timeout(Duration(seconds: imageParts.isEmpty ? 60 : 120));
+            for (final path in savedImages) {
+              try {
+                await File(path).delete();
+              } catch (_) {}
+            }
             await StationOverlay.save(no, await StationOverlay.build(payload));
             await _dbService.deletePendingSubmission(sid);
             // The real failure comes back with the next list sync.
@@ -580,6 +783,62 @@ class MasterDataSyncService extends GetxController {
                 DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
             stationFailed++;
             debugPrint('syncPendingSubmissions: station failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
+        // DCC: Acknowledge (Accept / Deny), Re-Open or Close of a depot failure
+        // saved offline.
+        if (submission['failureType'] == 'DepotAck') {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+
+          Future<void> failIt(String reason) async {
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            _retryAfter[sid] = DateTime.now()
+                .add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            depotActFailed++;
+            debugPrint('syncPendingSubmissions: depot action $sid failed ($n): $reason');
+          }
+
+          try {
+            final response = await _failureService
+                .updateDepotStatus(
+                  id: int.tryParse('${payload['id']}') ?? 0,
+                  action: payload['depotAction']?.toString() ?? '',
+                  description: payload['remark']?.toString() ?? '',
+                  statusId: int.tryParse('${payload['statusId']}') ?? 202,
+                )
+                .timeout(const Duration(seconds: 60));
+            final ok = response['responseCode'] == 200 ||
+                '${response['responseMessage']}'.toLowerCase() == 'success';
+            if (ok) {
+              await _dbService.deletePendingSubmission(sid);
+              _retryAfter.remove(sid);
+              syncedCount++;
+              depotActSynced++;
+              resync = true; // a closed failure leaves the list: reload it all
+              final no = payload['failureNo']?.toString() ?? '';
+              if (no.isNotEmpty) depotActNumbers.add(no);
+            } else {
+              await failIt('${response['responseMessage'] ?? 'The server did not accept it'}');
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break;
+            }
+            await failIt(e.toString().replaceFirst('Exception: ', ''));
           }
           continue;
         }
@@ -684,6 +943,9 @@ class MasterDataSyncService extends GetxController {
                 await _dbService.deleteSiCreateEntry(sid);
                 final no = siOffline.lastCreatedNumber?.trim() ?? '';
                 if (no.isNotEmpty) siCreatedNumbers.add(no);
+              } else if (nid > 0 && action == 'delete') {
+                // Deleted on the server: it also leaves the local list.
+                await _dbService.deleteSiFailureLocal(nid);
               } else if (nid > 0) {
                 await _dbService.clearSiFailurePending(nid);
               }
@@ -744,6 +1006,119 @@ class MasterDataSyncService extends GetxController {
                 DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
             depotFailed++;
             debugPrint('syncPendingSubmissions: depot failure $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
+        // OCC failure created / updated offline (Chief Controller, FMC, TPC, CSS, RSC).
+        if (submission['failureType'] == OccOfflineService.queueType) {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final action = payload['action']?.toString() ?? '';
+          final failureId = int.tryParse('${payload['failureId']}') ?? 0;
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+          try {
+            final no = await occOffline
+                .replay(payload)
+                .timeout(const Duration(seconds: 90));
+            await _dbService.deletePendingSubmission(sid);
+            if (action == OccOfflineService.actionCreate) {
+              // The real failure comes back with the next list sync.
+              await _dbService.deleteOccOfflineEntries(sid);
+            } else if (failureId > 0) {
+              await _dbService.clearOccPending(failureId);
+            }
+            _retryAfter.remove(sid);
+            syncedCount++;
+            occSynced++;
+            resync = true;
+            if (action == OccOfflineService.actionCreate && (no ?? '').trim().isNotEmpty) {
+              occNumbers.add(no!.trim());
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break; // still offline: the rest waits
+            }
+            // The server answered with an error: keep it, show why.
+            final reason = e.toString().replaceFirst('Exception: ', '');
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            if (action == OccOfflineService.actionCreate) {
+              await _dbService.markOccOfflineEntries(sid, failed: true, error: reason);
+            } else if (failureId > 0) {
+              await _dbService.setOccPending(failureId, action, error: reason);
+            }
+            _retryAfter[sid] =
+                DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            occFailed++;
+            debugPrint('syncPendingSubmissions: OCC submission $sid failed ($n): $reason');
+          }
+          continue;
+        }
+        // RST failure created / changed offline (PPIO, Junior Engineer).
+        if (submission['failureType'] == RstOfflineService.queueType) {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final action = payload['action']?.toString() ?? '';
+          final failureId = int.tryParse('${payload['notificationId']}') ?? 0;
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+          try {
+            final no = await rstOffline
+                .replay(payload)
+                .timeout(const Duration(seconds: 90));
+            await _dbService.deletePendingSubmission(sid);
+            if (action == RstOfflineService.actionCreate) {
+              // The real failure comes back with the next list sync.
+              await _dbService.deleteRstOfflineEntries(sid);
+            } else if (failureId > 0) {
+              await _dbService.clearRstPending(failureId);
+            }
+            _retryAfter.remove(sid);
+            syncedCount++;
+            rstSynced++;
+            resync = true;
+            if (action == RstOfflineService.actionClose ||
+                action == RstOfflineService.actionDelete) {
+              await _dbService.setAppSetting(_rstFullNeededKey, '1');
+            }
+            if (action == RstOfflineService.actionCreate && (no ?? '').trim().isNotEmpty) {
+              rstNumbers.add(no!.trim());
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break; // still offline: the rest waits
+            }
+            // The server answered with an error: keep it, show why.
+            final reason = e.toString().replaceFirst('Exception: ', '');
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            if (action == RstOfflineService.actionCreate) {
+              await _dbService.markRstOfflineEntries(sid, failed: true, error: reason);
+            } else if (failureId > 0) {
+              await _dbService.setRstPending(failureId, action, error: reason);
+            }
+            _retryAfter[sid] =
+                DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            rstFailed++;
+            debugPrint('syncPendingSubmissions: RST submission $sid failed ($n): $reason');
           }
           continue;
         }
@@ -853,6 +1228,22 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
+      if (depotActSynced > 0 || depotActFailed > 0) {
+        final lines = <String>[
+          if (depotActSynced > 0)
+            '$depotActSynced depot update${depotActSynced == 1 ? '' : 's'} synced'
+                '${depotActNumbers.isEmpty ? '' : ': ${depotActNumbers.join(', ')}'}',
+          if (depotActFailed > 0)
+            '$depotActFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          depotActFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: depotActFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
       if (ackSynced > 0 || ackFailed > 0) {
         final lines = <String>[
           if (ackSynced > 0)
@@ -886,22 +1277,54 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
-      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced) {
+      if (occSynced > 0 || occFailed > 0) {
+        final lines = <String>[
+          if (occSynced > 0)
+            '$occSynced offline OCC failure${occSynced == 1 ? '' : 's'} synced'
+                '${occNumbers.isEmpty ? '' : ': ${occNumbers.join(', ')}'}',
+          if (occFailed > 0)
+            '$occFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          occFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: occFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
+      if (rstSynced > 0 || rstFailed > 0) {
+        final lines = <String>[
+          if (rstSynced > 0)
+            '$rstSynced RST submission${rstSynced == 1 ? '' : 's'} synced'
+                '${rstNumbers.isEmpty ? '' : ': ${rstNumbers.join(', ')}'}',
+          if (rstFailed > 0)
+            '$rstFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          rstFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: rstFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
+      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced + occSynced + depotActSynced +rstSynced) {
         Get.snackbar(
           'Sync Complete',
-          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced} pending submissions',
+          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced - occSynced - depotActSynced-rstSynced} pending submissions',
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
       }
-      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0) {
+      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0 || occFailed > 0 || depotActFailed > 0 || rstFailed>0) {
         debugPrint("syncPendingSubmissions: Reloading lists after offline submissions");
         // Bring the server's state of what was just sent (a dropped action gets a
         // full reload so its local change disappears).
         await syncFailureTransactions(forceAll: resync);
         // A list screen that is open shows the new state right away. (The lists
         // are registered by type and tag, so both are needed to find them.)
-        for (final tag in const ['Station', 'Maintenance', 'JE', 'Depot']) {
+        for (final tag in const ['Station', 'Maintenance', 'JE', 'Depot', 'OCC']) {
           try {
             if (Get.isRegistered<FailureListController>(tag: tag)) {
               await Get.find<FailureListController>(tag: tag).fetchFailures();
@@ -909,6 +1332,14 @@ class MasterDataSyncService extends GetxController {
           } catch (e) {
             debugPrint("Could not refresh $tag list: $e");
           }
+        }
+        try {
+          if (rstSynced > 0 || rstFailed > 0) await syncRstFailures();
+          if (Get.isRegistered<RstListController>()) {
+            await Get.find<RstListController>().fetchRstList();
+          }
+        } catch (e) {
+          debugPrint("Could not refresh the RST list: $e");
         }
       }
     });

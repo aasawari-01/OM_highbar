@@ -18,6 +18,7 @@ import '../service/station_overlay.dart';
 import '../../../service/network_service/network_errors.dart';
 import '../service/si_normalize.dart';
 import '../service/depot_offline_service.dart';
+import '../service/occ_offline_service.dart';
 import '../../../service/master_data_sync_service.dart';
 
 enum JEFailureListTab { inbox, jointInspection }
@@ -612,40 +613,9 @@ class FailureListController extends GetxController {
     }
   }
 
-  /// FMC inbox: online first, cached copy when offline.
-  Future<void> _fetchFmcFailures() async {
-    const cacheKey = 'FMC_list';
-    try {
-      final rows = await _failureService.getOccFailureInbox();
-      final items = <FailureItem>[];
-      for (final r in rows) {
-        try {
-          items.add(_fmcItemFromRow(r));
-        } catch (e) {
-          failureLog('_fetchFmcFailures: skipped bad row: $e');
-        }
-      }
-      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-      failures.assignAll(items);
-      await _dbService.clearFailureList(cacheKey);
-      if (items.isNotEmpty) {
-        await _dbService.insertFailureList(
-            items.map((e) => e.toJson()).toList(), cacheKey);
-      } else {
-        errorMessage.value = 'No failures found.';
-      }
-    } catch (e) {
-      failureLog('_fetchFmcFailures: API failed, using local copy: $e');
-      isOfflineMode.value = true;
-      final local = await _dbService.getFailureList(cacheKey);
-      if (local.isNotEmpty) {
-        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
-      } else {
-        errorMessage.value =
-        'No data available. Please check your internet connection.';
-      }
-    }
-  }
+  /// FMC / TPC / CSS / RSC inbox: from the stored copy of
+  /// GetAllFailuresTransactionData (fmcFailures), so it also works offline.
+  Future<void> _fetchFmcFailures() => _fetchOccStoredFailures('FMC');
 
   /// GetAllFailuresTransactionData station row -> the shape FailureItem reads
   /// for station list items. That API sends no encrypted failure id, so the
@@ -668,6 +638,15 @@ class FailureListController extends GetxController {
         v is bool ? v : (text == 'Yes' ? true : (text == 'No' ? false : null));
     int? count(dynamic v) => v is bool ? null : asInt(v);
 
+    // The sync sends the location with the sub location added ("Khapari -
+    // SASA"); the Location field is the location alone.
+    String? locationOnly(dynamic loc, dynamic sub) {
+      final l = loc?.toString().trim();
+      final s = sub?.toString().trim() ?? '';
+      if (l == null || s.isEmpty || !l.endsWith(' - $s')) return l;
+      return l.substring(0, l.length - s.length - 3).trim();
+    }
+
     final row = {
       'id': asInt(f['id']),
       'syncStatus': 'synced',
@@ -675,7 +654,7 @@ class FailureListController extends GetxController {
       'failureCreationId': f['failureCreationId']?.toString() ?? f['id']?.toString(),
       'failureDescription': f['failureDescription'],
       'funcationLocation': f['functionalLocation'],
-      'location': f['location'],
+      'location': locationOnly(f['location'], f['subLocation']),
       'subLocation': f['subLocation'],
       'departmentName': f['departmentName'],
       'priority': f['priority'],
@@ -693,16 +672,23 @@ class FailureListController extends GetxController {
       'carriedOutRemarks': f['carriedOutRemarks'],
       'trainId': f['trainId']?.toString(),
       'system': f['system'],
+      // Added by the server as the status moves on (e.g. work completed).
+      'subSystems': f['subSystems'] ?? f['subSystem'],
+      'freq': asInt(f['freq'] ?? f['frequency']),
       'isTripAffected': flag(f['isTripAffected'], f['tripAffected']),
       'tripDelayUpline': asInt(f['tripDelayUpline']),
       'tripDelayDownline': asInt(f['tripDelayDownline']),
-      'tripCancel': count(f['tripCancel']),
+      // The sync names the counts noOfTranCancel / noOfTrainDeboarded /
+      // noOfPassengerAffected (tripCancel is only a yes/no flag there).
+      'tripCancel': count(f['tripCancel']) ?? asInt(f['noOfTranCancel']),
       'isTrainReplace': f['isTrainReplace'] is bool ? f['isTrainReplace'] : null,
       'trainReplace': asInt(f['trainReplace']),
       'isTrainDeboarded': f['isTrainDeboarded'] is bool ? f['isTrainDeboarded'] : null,
-      'trainDeboarded': count(f['trainDeboarded']),
+      'trainDeboarded': count(f['trainDeboarded']) ??
+          asInt(f['noOfTrainDeboarded'] ?? f['noofTrainDeboarded']),
       'isPassengerAffected': flag(f['isPassengerAffected'], f['passengerAffected']),
-      'numberOfPassengerAffected': asInt(f['numberOfPassengerAffected']),
+      'numberOfPassengerAffected':
+          asInt(f['numberOfPassengerAffected'] ?? f['noOfPassengerAffected']),
       'trappedDuration': asInt(f['trappedDuration']),
       'rescusedDuration': asInt(f['rescusedDuration']),
       'trainDelayInMin': asInt(f['trainDelayInMin']),
@@ -803,6 +789,22 @@ class FailureListController extends GetxController {
 
   // Queue id of an offline Station entry: -(submissionId * 10 + index), older
   // entries use the plain submission id.
+  /// Queue entry of an OCC failure: a failure created offline carries it in its
+  /// id; an update waiting to be sent is found by the failure it belongs to.
+  Future<int> _occSubmissionIdOf(FailureItem f) async {
+    final id = f.id ?? 0;
+    if (id < 0) return (-id) ~/ 10;
+    for (final s in await _dbService.getPendingSubmissions()) {
+      final payload = s['payload'];
+      if (s['failureType'] == OccOfflineService.queueType &&
+          payload is Map &&
+          int.tryParse('${payload['failureId']}') == id) {
+        return int.tryParse('${s['id']}') ?? 0;
+      }
+    }
+    return 0;
+  }
+
   int _submissionIdOf(FailureItem f) {
     final id = f.id ?? 0;
     return id < 0 ? (-id) ~/ 10 : id;
@@ -810,6 +812,27 @@ class FailureListController extends GetxController {
 
   /// Retry of a Station failure the server refused.
   Future<void> retryOfflineFailure(FailureItem f) async {
+    if (failureType.toLowerCase() == 'occ') {
+      final occSid = await _occSubmissionIdOf(f);
+      if (occSid <= 0) return;
+      await _dbService.resetSubmissionAttempts(occSid);
+      if ((f.id ?? 0) < 0) {
+        await _dbService.markOccOfflineEntries(occSid, failed: false);
+      } else if (f.pendingAction != null) {
+        await _dbService.setOccPending(f.id!, f.pendingAction!);
+      }
+      await fetchFailures();
+      await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
+      return;
+    }
+    if (failureType.toLowerCase() == 'depot' && f.pendingAction != null) {
+      // An Acknowledge / Re-Open / Close of a depot failure that is on the server.
+      final waiting = (await _dbService.getDepotActionPending())[f.id];
+      if (waiting != null) await _dbService.resetSubmissionAttempts(waiting['sid'] as int);
+      await fetchFailures();
+      await Get.find<MasterDataSyncService>().syncPendingSubmissions(force: true);
+      return;
+    }
     if (failureType.toLowerCase() == 'depot') {
       final depotSid = _submissionIdOf(f);
       if (depotSid <= 0) return;
@@ -836,6 +859,25 @@ class FailureListController extends GetxController {
 
   /// Removes an offline Station failure (and what is waiting to be sent).
   Future<void> discardOfflineFailure(FailureItem f) async {
+    if (failureType.toLowerCase() == 'occ') {
+      final occSid = await _occSubmissionIdOf(f);
+      if (occSid <= 0) return;
+      await _dbService.deletePendingSubmission(occSid);
+      if ((f.id ?? 0) < 0) {
+        await _dbService.deleteOccOfflineEntries(occSid);
+      } else {
+        await _dbService.clearOccPending(f.id!);
+      }
+      await fetchFailures();
+      return;
+    }
+    if (failureType.toLowerCase() == 'depot' && f.pendingAction != null) {
+      // The failure goes back to what the server has: the buttons show again.
+      final waiting = (await _dbService.getDepotActionPending())[f.id];
+      if (waiting != null) await _dbService.deletePendingSubmission(waiting['sid'] as int);
+      await fetchFailures();
+      return;
+    }
     if (failureType.toLowerCase() == 'depot') {
       final depotSid = _submissionIdOf(f);
       if (depotSid <= 0) return;
@@ -893,40 +935,70 @@ class FailureListController extends GetxController {
     await fetchFailures();
   }
 
-  /// OCC role list (OCCMaintainance/getFailureList, action FailureList):
-  /// online first, cached copy when offline.
-  Future<void> _fetchOccRoleFailures() async {
-    const cacheKey = 'OCC_role_list';
-    try {
-      final rows = await _failureService.getOccFailureInbox(action: 'FailureList');
-      final items = <FailureItem>[];
-      for (final r in rows) {
-        try {
-          items.add(_fmcItemFromRow(r));
-        } catch (e) {
-          failureLog('_fetchOccRoleFailures: skipped bad row: $e');
-        }
-      }
-      items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
-      failures.assignAll(items);
-      await _dbService.clearFailureList(cacheKey);
-      if (items.isNotEmpty) {
-        await _dbService.insertFailureList(
-            items.map((e) => e.toJson()).toList(), cacheKey);
-      } else {
-        errorMessage.value = 'No failures found.';
-      }
-    } catch (e) {
-      failureLog('_fetchOccRoleFailures: API failed, using local copy: $e');
+  /// OCC role list: from the stored copy of GetAllFailuresTransactionData
+  /// (occFailures), so it also works offline.
+  Future<void> _fetchOccRoleFailures() => _fetchOccStoredFailures('OCC');
+
+  /// [listType] 'OCC' (Chief Controller, occFailures) or 'FMC' (FMC / TPC /
+  /// CSS / RSC, fmcFailures). Failures created offline and not sent yet are
+  /// listed first (orange dot); an update waiting to be sent shows a
+  /// "Pending" chip.
+  Future<void> _fetchOccStoredFailures(String listType) async {
+    final synced = await Get.find<MasterDataSyncService>().syncFailureTransactions();
+    if (!synced) {
+      failureLog('_fetchOccStoredFailures: server not reached, using local copy');
       isOfflineMode.value = true;
-      final local = await _dbService.getFailureList(cacheKey);
-      if (local.isNotEmpty) {
-        failures.assignAll(local.map((e) => FailureItem.fromJson(e)).toList());
-      } else {
-        errorMessage.value =
-        'No data available. Please check your internet connection.';
+    }
+
+    final items = <FailureItem>[];
+    for (final r in await _dbService.getOccFailureCache(listType)) {
+      try {
+        final record = Map<String, dynamic>.from(r['record'] as Map);
+        final f = _occRowFromTransaction(Map<String, dynamic>.from(record['failure'] as Map));
+        final action = '${r['pendingAction'] ?? ''}';
+        final error = '${r['pendingError'] ?? ''}'.trim();
+        items.add(_fmcItemFromRow(
+          f,
+          syncStatus: action.isEmpty ? null : (error.isEmpty ? 'offline' : 'failed'),
+          pendingAction: action.isEmpty ? null : action,
+          remarks: error.isEmpty ? null : error,
+        ));
+      } catch (e) {
+        failureLog('_fetchOccStoredFailures: skipped bad row: $e');
       }
     }
+    items.sort((a, b) => (b.id ?? 0).compareTo(a.id ?? 0));
+
+    // Created offline and not sent yet ('failed' = the server refused it).
+    final pending = <FailureItem>[];
+    if (listType == 'OCC') {
+      for (final r in await _dbService.getFailureList(OccOfflineService.listKey)) {
+        if (r['syncStatus'] == 'offline' || r['syncStatus'] == 'failed') {
+          try {
+            pending.add(FailureItem.fromJson(r));
+          } catch (_) {}
+        }
+      }
+      // Newest submission first (ids are -(submissionId * 10)).
+      pending.sort((a, b) => (a.id ?? 0).compareTo(b.id ?? 0));
+    }
+    failures.assignAll([...pending, ...items]);
+    if (failures.isEmpty) {
+      errorMessage.value = isOfflineMode.value
+          ? 'No data available. Please sync with internet connection.'
+          : 'No failures found.';
+    }
+  }
+
+  /// occFailures / fmcFailures row -> what _fmcItemFromRow reads. The sync
+  /// sends no encrypted id (failureCreationId), so the numeric id stands in.
+  Map<String, dynamic> _occRowFromTransaction(Map<String, dynamic> f) {
+    final row = Map<String, dynamic>.from(f);
+    final creation = '${row['failureCreationId'] ?? ''}'.trim();
+    if (creation.isEmpty) row['failureCreationId'] = '${row['id']}';
+    row['actualFailureOccuranceDate'] = depotDate(row['actualFailureOccuranceDate']);
+    row['createdDate'] = depotDate(row['createdDate'] ?? row['createdSystemDate']);
+    return row;
   }
 
   /// DCC depot failures of the selected depot, from the stored copy of
@@ -946,11 +1018,22 @@ class FailureListController extends GetxController {
       isOfflineMode.value = true;
     }
 
+    final depotActions = await _dbService.getDepotActionPending();
     final items = <FailureItem>[];
     for (final r in await _dbService.getDepotFailureCache(depotId)) {
       try {
         final f = _depotRowFromTransaction(Map<String, dynamic>.from(r['depotFailures'] as Map));
-        items.add(_fmcItemFromRow(f, creationType: 'Depot'));
+        // An Acknowledge / Re-Open / Close saved offline: shown as waiting (or
+        // failed, with why).
+        final waiting = depotActions[int.tryParse('${f['id']}')];
+        final error = '${waiting?['error'] ?? ''}'.trim();
+        items.add(_fmcItemFromRow(
+          f,
+          creationType: 'Depot',
+          syncStatus: waiting == null ? null : (error.isEmpty ? 'offline' : 'failed'),
+          pendingAction: waiting == null ? null : '${waiting['action']}',
+          remarks: error.isEmpty ? null : error,
+        ));
       } catch (e) {
         failureLog('_fetchDepotFailures: skipped bad row: $e');
       }
@@ -1009,7 +1092,11 @@ class FailureListController extends GetxController {
   }
 
   /// Maps one inbox row without strict casts (the row shape is not fixed).
-  FailureItem _fmcItemFromRow(Map<String, dynamic> m, {String creationType = 'OCC'}) {
+  FailureItem _fmcItemFromRow(Map<String, dynamic> m,
+      {String creationType = 'OCC',
+      String? syncStatus,
+      String? pendingAction,
+      String? remarks}) {
     String? s(String k) {
       final v = m[k]?.toString().trim();
       return (v == null || v.isEmpty || v == 'null') ? null : v;
@@ -1053,7 +1140,9 @@ class FailureListController extends GetxController {
       creationType == 'Depot' ? first(['occRequestStatusName']) : null,
       createdByName: s('createdByName'),
       currentlyWith: s('currentlyWith'),
-      syncStatus: 'online',
+      syncStatus: syncStatus ?? 'online',
+      pendingAction: pendingAction,
+      remarks: remarks,
       lastSyncedAt: DateTime.now().toIso8601String(),
     );
   }
@@ -1076,10 +1165,10 @@ class FailureListController extends GetxController {
 
   /// JE lists are ordered purely by recency (not grouped by creation type, or
   /// a new OCC failure would always sit below older Manual / Station / Depot
-  /// ones): JE Inbox newest first, Joint Inspection Inbox oldest first.
+  /// ones): JE Inbox and Joint Inspection Inbox newest first.
   void _sortJeFailures(List<FailureItem> items) {
-    final oldestFirst =
-        selectedJETab.value == JEFailureListTab.jointInspection;
+    // Both tabs: newest first (a new joint inspection shows at the top).
+    const oldestFirst = false;
     items.sort((a, b) {
       final byRecency = _recencyKey(a).compareTo(_recencyKey(b));
       return oldestFirst ? byRecency : -byRecency;
@@ -1158,23 +1247,67 @@ class FailureListController extends GetxController {
   /// DCC depot list: Re-open / Close (web: updateDepotAcknowledgeStatus).
   Future<void> reOpenDepotFailure(int id, String remark, {String? failureNo}) =>
       _updateDepotStatus(id, 'UPDATE_REOPEN_OCC_DEPOT', remark,
+          kind: 'reopen',
+          failureNo: failureNo,
           successMessage: 'Failure No.${failureNo ?? id} re-open successfully.');
 
   Future<void> closeDepotFailure(int id, {String? failureNo}) =>
       _updateDepotStatus(id, 'UPDATE_CLOSED_OCC_DEPOT', 'Closed Request',
+          kind: 'close',
+          failureNo: failureNo,
           successMessage: 'Failure No.${failureNo ?? id} closed successfully.');
 
+  /// Acknowledge accept (StatusId 197) / deny (198), like the web depot list.
+  Future<void> acknowledgeDepotFailure(int id, String remark,
+          {required bool accept, String? failureNo}) =>
+      _updateDepotStatus(id, 'UPDATE_Acknowledge_OCC_DEPOT', remark,
+          kind: 'acknowledge',
+          failureNo: failureNo,
+          statusId: accept ? 197 : 198,
+          successMessage:
+              'Failure No.${failureNo ?? id} acknowledge ${accept ? 'accepted' : 'denied'} successfully.');
+
+  /// Sends a DCC action (Acknowledge / Re-Open / Close). Without a connection
+  /// it is saved on the device and sent when internet returns.
   Future<void> _updateDepotStatus(int id, String action, String description,
-      {required String successMessage, int statusId = 202}) async {
+      {required String successMessage,
+      int statusId = 202,
+      String kind = 'update',
+      String? failureNo}) async {
     try {
       isLoading.value = true;
       errorMessage.value = '';
-      final response = await _failureService.updateDepotStatus(
-        id: id,
-        action: action,
-        description: description,
-        statusId: statusId,
-      );
+      Map<String, dynamic> response;
+      try {
+        response = await _failureService
+            .updateDepotStatus(
+              id: id,
+              action: action,
+              description: description,
+              statusId: statusId,
+            )
+            .timeout(const Duration(seconds: 30));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: keep it and send it when internet returns.
+        await _dbService.insertPendingSubmission({
+          'action': kind,
+          'id': id,
+          'depotAction': action,
+          'statusId': statusId,
+          'remark': description,
+          'failureNo': failureNo ?? id.toString(),
+          'queuedBy': await AuthManager().getUserId(),
+        }, 'DepotAck');
+        FailureToast.show(
+          'Saved Offline',
+          'Your action for Failure No.${failureNo ?? id} is saved. It is sent when the internet is back.',
+          backgroundColor: AppColors.orangeColor,
+          colorText: AppColors.white1,
+        );
+        await fetchFailures();
+        return;
+      }
       final ok = response['responseCode'] == 200 ||
           response['responseMessage']?.toString().toLowerCase() == 'success';
       if (ok) {
@@ -1374,6 +1507,11 @@ class FailureListController extends GetxController {
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
+        // Re-open / Close: the server replaces the failure, so download the
+        // whole list again and drop the old one from the local copy.
+        if (submitStatus == null && Get.isRegistered<MasterDataSyncService>()) {
+          await Get.find<MasterDataSyncService>().markFullSyncNeeded();
+        }
         fetchFailures(); // Refresh list
       } else {
         errorMessage.value =

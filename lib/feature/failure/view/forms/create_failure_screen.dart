@@ -1,4 +1,6 @@
 import 'package:om_mobile/feature/failure/view/shared/attachment_cropper.dart';
+import 'package:om_mobile/feature/failure/view/shared/failure_cached_image.dart';
+import 'package:om_mobile/feature/failure/view/shared/failure_image_viewer.dart';
 import 'package:path/path.dart' as p;
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
@@ -22,6 +24,7 @@ import '../../../../utils/widgets/cust_dropdown.dart';
 import '../../../../utils/widgets/cust_multi_dropdown.dart';
 import '../../../../utils/widgets/cust_loader.dart';
 import '../../../../utils/widgets/cust_popup.dart';
+import '../../controller/failure_list_controller.dart';
 import '../../../../utils/widgets/cust_section.dart';
 import '../../../../utils/widgets/cust_text.dart';
 import '../../../../utils/widgets/cust_textfield.dart';
@@ -281,6 +284,12 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   }
 
   void _handleCancel() {
+    // Station Controller viewing a created station failure: view only, nothing
+    // can be changed, so there is nothing to lose.
+    if (_isStationControllerView) {
+      Navigator.pop(context);
+      return;
+    }
     if (_hasUnsavedChanges()) {
       Get.dialog(
         CustPopup(
@@ -331,7 +340,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     } else if (_isOccUpdate) {
       // FMC user opening an OCC failure that was assigned to them.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        controller.loadOccFailureForUpdate(widget.failureNo!);
+        controller.loadOccFailureForUpdate(widget.failureNo!,
+            item: widget.failureItem);
       });
     } else if (widget.failureNo != null) {
       if (widget.isFromJointInspection) {
@@ -344,7 +354,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           widget.isUpdate) {
         // Editing a rejected station failure: API dropdowns, then the failure.
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          controller.loadStationFailureForUpdate(widget.failureNo!);
+          controller.loadStationFailureForUpdate(widget.failureNo!,
+              item: widget.failureItem);
         });
       } else if (widget.failureType == 'Station' &&
           controller.isStationController) {
@@ -510,7 +521,19 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   /// Web rule: Service Affected + its dependent values are editable only
   /// when statusId == 1 (isHideStationRequest is true in the normal flow).
   bool get _maintenanceServiceEditable =>
-      !_isExistingMaintenance || _maintenanceStatusId == 1;
+      (!_isExistingMaintenance || _maintenanceStatusId == 1) &&
+      // Section Incharge, failure from Station / Depot / OCC: shown as the
+      // server has it, not editable.
+      !controller.siDepartmentLocked.value;
+
+  /// Those fields are not compulsory for that failure (no star, no check).
+  String _svcLabel(String label) =>
+      controller.siDepartmentLocked.value ? label : '$label *';
+
+  String? _svcRequired(String? value, String fieldName) =>
+      controller.siDepartmentLocked.value
+          ? null
+          : _requiredText(value, fieldName);
 
 // ---------------------------------------------------------
 // JE Change Notification
@@ -893,7 +916,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
     if (_isOccUpdate) {
       // Once FMC / TPC / CSS / RSC assign the failure to a department it is
       // no longer theirs to edit: show the read-only view.
-      return controller.occDelegateReadOnly
+      // The OCC role gets the same read-only view for a failure reported to
+      // another role, or once it is closed.
+      final closed = (controller.mainStatusName.value ?? '')
+          .toLowerCase()
+          .contains('close');
+      return controller.occDelegateReadOnly ||
+              controller.occRoleViewOnly ||
+              (controller.isOccRoleUser && closed)
           ? _buildOccAssignedView(context)
           : _buildOccUpdateForm(context);
     }
@@ -1088,8 +1118,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     hintText: "Enter Sub Location",
                   ),
                   const SizedBox(height: AppConstants.elementSpacing),
-                  // System / Sub System of the chosen functional location (API).
-                  _occSystemSubsystemFields(),
+                  // System of the chosen functional location (API); the
+                  // Station Controller form has no Sub System.
+                  _occSystemSubsystemFields(showSubsystem: false),
                   const SizedBox(height: AppConstants.elementSpacing),
                   CustomTextField(
                     label: "Train Id",
@@ -1103,9 +1134,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     selectedDateTime:
                     controller.selectedFailureOccurrenceDate.value,
                     enabled: _maintenanceOpenOr202Editable,
+                    lastDate: DateTime.now(),
+                    blockFutureTime: true,
                     onDateTimeSelected: (dt) {
                       if (!_maintenanceOpenOr202Editable) return;
-                      controller.selectedFailureOccurrenceDate.value = dt;
+                      // Today's date with a time still to come is not allowed.
+                      controller.selectedFailureOccurrenceDate.value =
+                          (dt != null && dt.isAfter(DateTime.now()))
+                              ? DateTime.now()
+                              : dt;
                     },
                     validator: (val) {
                       if (controller.selectedFailureOccurrenceDate.value ==
@@ -1452,6 +1489,40 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         file))
                         .toList(),
                   )),
+                  // Pictures the failure already has (update of an existing
+                  // station failure).
+                  Obx(() {
+                    if (controller.beforeImagesList.isEmpty) {
+                      return const SizedBox.shrink();
+                    }
+                    return Align(
+                      alignment: Alignment.centerLeft,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            CustText.body("Uploaded Images"),
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: controller.beforeImagesList
+                                  .map<Widget>((file) {
+                                final path = '${file['path']}';
+                                final onDevice = path.startsWith('/') &&
+                                    File(path).existsSync();
+                                return FailureCachedImage(
+                                    path.startsWith('http') || onDevice
+                                        ? path
+                                        : "${AppUrls.imageUrl}${path.replaceFirst(RegExp(r'^/+'), '')}");
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  }),
                 ],
               ),
             ),
@@ -1527,14 +1598,22 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       child: CustDropdown(
                         label: "Department *",
                         hint: "Select...",
-                        items: controller.departmentList
+                        // Station / Depot / OCC failure: only its own department.
+                        items: controller.siDepartmentLocked.value &&
+                            controller.selectedDepartment.value != null
+                            ? [controller.selectedDepartment.value!]
+                            : controller.departmentList
                             .map((e) => e.label ?? '')
                             .toList(),
                         selectedValue:
                         controller.selectedDepartment.value,
-                        enabled: _maintenanceOpenOr202Editable,
+                        enabled: _maintenanceOpenOr202Editable &&
+                            !controller.siDepartmentLocked.value,
                         onChanged: (value) async {
-                          if (!_maintenanceOpenOr202Editable) return;
+                          if (!_maintenanceOpenOr202Editable ||
+                              controller.siDepartmentLocked.value) {
+                            return;
+                          }
                           await controller.onDepartmentChanged(value);
                         },
                         validator: (val) =>
@@ -1708,8 +1787,13 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   selectedDateTime:
                   controller.selectedFailureOccurrenceDate.value,
                   enabled: _maintenanceOpenOr202Editable,
+                  lastDate: DateTime.now(),
+                  blockFutureTime: true,
                   onDateTimeSelected: (dt) =>
-                  controller.selectedFailureOccurrenceDate.value = dt,
+                  controller.selectedFailureOccurrenceDate.value =
+                      (dt != null && dt.isAfter(DateTime.now()))
+                          ? DateTime.now()
+                          : dt,
                   validator: (val) {
                     if (controller.selectedFailureOccurrenceDate.value ==
                         null) {
@@ -1735,14 +1819,40 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 const SizedBox(height: AppConstants.elementSpacing),
                 // Always shown: editable while the failure can be edited (new,
                 // status 1 or 202), read-only once it was assigned or later.
-                CustomTextField(
-                  label: "Failure Description",
-                  controller: controller.failureDescriptionController,
-                  hintText: "Enter failure description",
-                  maxLines: 4,
-                  maxLength: 500,
-                  enabled: _maintenanceOpenOr202Editable,
-                ),
+                Obx(() {
+                  // Section Incharge: earlier descriptions (who / when) above,
+                  // then a box for the new description.
+                  final showHistory = controller.isSectionIncharge &&
+                      controller.notificationDescriptionHistoryList.isNotEmpty;
+                  if (!showHistory) {
+                    return CustomTextField(
+                      label: "Failure Description",
+                      controller: controller.failureDescriptionController,
+                      hintText: "Enter failure description",
+                      maxLines: 4,
+                      maxLength: 500,
+                      enabled: _maintenanceOpenOr202Editable,
+                    );
+                  }
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CustText.formLabel("Failure Description:"),
+                      const SizedBox(height: AppConstants.labelSpacing),
+                      _occDescriptionHistory(),
+                      if (_maintenanceOpenOr202Editable) ...[
+                        const SizedBox(height: AppConstants.elementSpacing),
+                        CustomTextField(
+                          label: "Add Description",
+                          controller: controller.failureDescriptionController,
+                          hintText: "Enter your description",
+                          maxLines: 4,
+                          maxLength: 500,
+                        ),
+                      ],
+                    ],
+                  );
+                }),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDropdown(
                   label: "Notification Type *",
@@ -1903,14 +2013,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Delay in Min. *",
+                          label: _svcLabel("Train Delay in Min."),
                           controller:
                           controller.trainDelayMinController,
                           keyboardType: TextInputType.number,
                           hintText: "Enter delay in minutes",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Delay in Min",
                               ),
@@ -1923,7 +2033,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Delay (NOS) *",
+                          label: _svcLabel("Train Delay (NOS)"),
                           controller:
                           controller.trainDelayNosController,
                           keyboardType: TextInputType.number,
@@ -1931,7 +2041,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains delayed",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Delay (NOS)",
                               ),
@@ -1949,7 +2059,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Cancel (NOS) *",
+                          label: _svcLabel("Train Cancel (NOS)"),
                           controller:
                           controller.trainCancelNosController,
                           keyboardType: TextInputType.number,
@@ -1957,7 +2067,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains cancelled",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Cancel (NOS)",
                               ),
@@ -1970,7 +2080,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Withdrawal (NOS) *",
+                          label: _svcLabel("Train Withdrawal (NOS)"),
                           controller:
                           controller.trainWithdrawalNosController,
                           keyboardType: TextInputType.number,
@@ -1978,7 +2088,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains withdrawn",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Withdrawal (NOS)",
                               ),
@@ -1996,7 +2106,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Train Replace (NOS) *",
+                          label: _svcLabel("Train Replace (NOS)"),
                           controller:
                           controller.trainReplaceNosController,
                           keyboardType: TextInputType.number,
@@ -2004,7 +2114,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter number of trains replaced",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) =>
-                              _requiredText(
+                              _svcRequired(
                                 val,
                                 "Train Replace (NOS)",
                               ),
@@ -2018,7 +2128,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
                         Expanded(
                           child: CustDateTimePicker(
-                            label: "System Downtime *",
+                            label: _svcLabel("System Downtime"),
                             hint: "DD/MM/YYYY hh:mm",
                             selectedDateTime:
                             controller.selectedSystemDowntime.value,
@@ -2030,7 +2140,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                   .value = dt;
                             },
                             validator: (val) {
-                              if (controller
+                              if (!controller.siDepartmentLocked.value &&
+                                  controller
                                   .selectedSystemDowntime
                                   .value ==
                                   null) {
@@ -2086,7 +2197,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         top: AppConstants.elementSpacing,
                       ),
                       child: CustomTextField(
-                        label: "Train Deboarded (NOS) *",
+                        label: _svcLabel("Train Deboarded (NOS)"),
                         controller:
                         controller.trainDeboardedNosController,
                         keyboardType: TextInputType.number,
@@ -2094,7 +2205,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         "Enter number of trains deboarded",
                         enabled: _maintenanceServiceEditable,
                         validator: (val) =>
-                            _requiredText(
+                            _svcRequired(
                               val,
                               "Train Deboarded (NOS)",
                             ),
@@ -2105,19 +2216,41 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             }),
           ),
           // Web: SIC Required is displayed when Department == 3.
-          // It is read-only for the existing Maintenance failure.
+          // OHE Required goes with it (Rolling Stock). Both can be changed
+          // while the failure is still editable; otherwise they are read-only.
           Obx(() {
             if (controller.departmentId.value != 3) {
               return const SizedBox.shrink();
             }
-            return CustSection(
-              title: "SIC Required",
-              trailing: YesNoToggle(
-                enabled: false,
-                value: controller.isSicRequired.value,
-                onChanged: (_) {},
-              ),
-              child: const SizedBox.shrink(),
+            final editable = _maintenanceOpenOr202Editable &&
+                !controller.siDepartmentLocked.value;
+            return Column(
+              children: [
+                CustSection(
+                  title: "OHE Required",
+                  trailing: YesNoToggle(
+                    enabled: editable,
+                    value: controller.isOheRequired.value,
+                    onChanged: (val) {
+                      if (!editable) return;
+                      controller.isOheRequired.value = val;
+                    },
+                  ),
+                  child: const SizedBox.shrink(),
+                ),
+                CustSection(
+                  title: "SIC Required",
+                  trailing: YesNoToggle(
+                    enabled: editable,
+                    value: controller.isSicRequired.value,
+                    onChanged: (val) {
+                      if (!editable) return;
+                      controller.isSicRequired.value = val;
+                    },
+                  ),
+                  child: const SizedBox.shrink(),
+                ),
+              ],
             );
           }),
           Obx(() {
@@ -2160,7 +2293,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     children: [
                       Expanded(
                         child: CustomTextField(
-                          label: "Number Of Passenger Affected *",
+                          label: _svcLabel("Number Of Passenger Affected"),
                           controller:
                           controller.passengersAffectedCountController,
                           keyboardType: TextInputType.number,
@@ -2168,7 +2301,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                           "Enter Number Of Passenger Affected",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) {
-                            if (controller.isPassengerAffected.value &&
+                            if (!controller.siDepartmentLocked.value &&
+                                controller.isPassengerAffected.value &&
                                 (val == null || val.trim().isEmpty)) {
                               return "Number Of Passenger Affected is required";
                             }
@@ -2181,13 +2315,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ),
                       Expanded(
                         child: CustomTextField(
-                          label: "Trapped Duration *",
+                          label: _svcLabel("Trapped Duration"),
                           controller:
                           controller.trappedDurationController,
                           hintText: "Enter Trapped Duration",
                           enabled: _maintenanceServiceEditable,
                           validator: (val) {
-                            if (controller.isPassengerAffected.value &&
+                            if (!controller.siDepartmentLocked.value &&
+                                controller.isPassengerAffected.value &&
                                 (val == null || val.trim().isEmpty)) {
                               return "Trapped Duration is required";
                             }
@@ -2201,13 +2336,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     height: AppConstants.elementSpacing,
                   ),
                   CustomTextField(
-                    label: "Rescued Duration *",
+                    label: _svcLabel("Rescued Duration"),
                     controller:
                     controller.rescuedDurationController,
                     hintText: "Enter Rescued Duration",
                     enabled: _maintenanceServiceEditable,
                     validator: (val) {
-                      if (controller.isPassengerAffected.value &&
+                      if (!controller.siDepartmentLocked.value &&
+                                controller.isPassengerAffected.value &&
                           (val == null || val.trim().isEmpty)) {
                         return "Rescued Duration is required";
                       }
@@ -2223,7 +2359,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
             final showMeasurement =
                 controller.showMeasurementButton.value;
 
-            if (!showMeasurement) {
+            // Section Incharge does not add readings here (he only ticks the
+            // points in the section below).
+            if (!showMeasurement || controller.isSectionIncharge) {
               return const SizedBox.shrink();
             }
 
@@ -2318,12 +2456,14 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
           // ------------------------------------------------------------
           // Read-only sections (same conditions as JE failure view)
           // ------------------------------------------------------------
-          // PTW
-          // PTW
-          if (_isExistingMaintenance &&
-              _maintenanceStatusId != 1 &&
-              _maintenanceStatusId != 202)
-            CustSection(
+          // PTW — only when PTW is required / number is filled
+          Obx(() {
+            final hasPtw = controller.isPtwRequired.value ||
+                controller.ptwNumberController.text.trim().isNotEmpty;
+            if (!_isExistingMaintenance || !hasPtw) {
+              return const SizedBox.shrink();
+            }
+            return CustSection(
               title: "PTW Required?",
               trailing: YesNoToggle(
                 enabled: false,
@@ -2336,8 +2476,9 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 label: "PTW Number",
                 enabled: false,
               ),
-            ),
-          // Failure Rectification Details (RCA)
+            );
+          }),
+          // Failure Rectification Details (RCA) — unchanged
           Obx(() {
             if (controller.rcaDetailsList.isEmpty) {
               return const SizedBox.shrink();
@@ -2354,15 +2495,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ),
             );
           }),
-          // Failure Type
+          // Failure Type — only when a type is selected
           Obx(() {
-            final type = controller.selectedMaterialType.value ?? '';
-            final showFailureType =
-                (_isExistingMaintenance &&
-                    _maintenanceStatusId != 1 &&
-                    _maintenanceStatusId != 202) ||
-                    type.isNotEmpty;
-            if (!showFailureType) return const SizedBox.shrink();
+            final type = (controller.selectedMaterialType.value ?? '').trim();
+            if (type.isEmpty) return const SizedBox.shrink();
             return CustSection(
               title: "Failure Type",
               child: Column(
@@ -2377,7 +2513,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     enabled: false,
                     onChanged: (_) {},
                   ),
-                  if (type == "Other") ...[
+                  if (type == "Other" &&
+                      controller.failureTypeController.text.trim().isNotEmpty) ...[
                     const SizedBox(height: AppConstants.elementSpacing),
                     CustomTextField(
                       label: "Remark",
@@ -2389,7 +2526,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               ),
             );
           }),
-          // Spare Part Replace (only for Hardware failure type)
+          // Spare Part Replace (only for Hardware failure type) — unchanged
           Obx(() {
             if (controller.selectedMaterialType.value != "Hardware") {
               return const SizedBox.shrink();
@@ -2407,49 +2544,37 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   : _buildReplacedMaterialTable(enabled: false),
             );
           }),
-          // Material Dismantle
+          // Material Dismantle — only when dismantle data exists
           Obx(() {
-            final showMaterialDismantle =
-                _isExistingMaintenance ||
-                    controller.dismantleMaterialsList.isNotEmpty;
-            if (!showMaterialDismantle) {
+            if (controller.dismantleMaterialsList.isEmpty) {
               return const SizedBox.shrink();
             }
             return CustSection(
               title: "Material Dismantle",
               trailing: YesNoToggle(
                 enabled: false,
-                value: controller.isMaterialDismantle.value,
+                value: true,
                 onChanged: (_) {},
               ),
-              child: controller.isMaterialDismantle.value
-                  ? _buildDismantleMaterialTable(enabled: false)
-                  : const SizedBox.shrink(),
+              child: _buildDismantleMaterialTable(enabled: false),
             );
           }),
-          // Joint Inspection
+          // Joint Inspection — only when inspection entries exist
           Obx(() {
-            final showJointInspection =
-                (_isExistingMaintenance &&
-                    _maintenanceStatusId != 1 &&
-                    _maintenanceStatusId != 202) ||
-                    controller.isJointInspection.value ||
-                    controller.jointInspectionHistoryList.isNotEmpty;
-            if (!showJointInspection) {
+            if (controller.jointInspectionHistoryList.isEmpty) {
               return const SizedBox.shrink();
             }
             return CustSection(
               title: "Joint Inspection",
               trailing: YesNoToggle(
                 enabled: false,
-                value: controller.isJointInspection.value,
+                value: true,
                 onChanged: (_) {},
               ),
-              child: controller.jointInspectionHistoryList.isEmpty
-                  ? const SizedBox.shrink()
-                  : _buildJointInspectionTable(enabled: false),
+              child: _buildJointInspectionTable(enabled: false),
             );
           }),
+
           // Closure: rectification details, user status and dates
           Obx(() {
             final hasClosure =
@@ -2462,11 +2587,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     controller.selectedFailureAttendedDate.value != null ||
                     controller.selectedActualFailureRectifiedDate.value !=
                         null;
-            final showClosure =
-                (_isExistingMaintenance &&
-                    _maintenanceStatusId != 1 &&
-                    _maintenanceStatusId != 202) ||
-                    hasClosure;
+            final showClosure = hasClosure;
             if (!showClosure) return const SizedBox.shrink();
             return CustSection(
               title: "Failure Rectification Details",
@@ -2950,6 +3071,24 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       ),
                       const SizedBox(height: AppConstants.elementSpacing),
                       CustomTextField(
+                        label: "System",
+                        controller: controller.systemController,
+                        enabled: false,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                        label: "Sub System",
+                        controller: controller.subsystemController,
+                        enabled: false,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
+                        label: "Failure Frequency of Gear (Last 12 Months)",
+                        controller: controller.fmecaFrequencyController,
+                        enabled: false,
+                      ),
+                      const SizedBox(height: AppConstants.elementSpacing),
+                      CustomTextField(
                         label: "Person Responsible",
                         controller:
                         controller.personResponsibleDisplayController,
@@ -3081,6 +3220,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             controller: controller.subsystemController,
                             enabled: false,
                           ),
+                          if (controller.isJE) ...[
+                            const SizedBox(
+                                height: AppConstants.elementSpacing),
+                            CustomTextField(
+                              label: "Failure Frequency of Gear (Last 12 Months)",
+                              controller: controller.fmecaFrequencyController,
+                              enabled: false,
+                            ),
+                          ],
                           const SizedBox(
                               height: AppConstants.elementSpacing),
                           Obx(() {
@@ -3514,7 +3662,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         label: "PTW Number *",
                         keyboardType: TextInputType.number,
                         hintText: "Enter PTW Number",
-                        enabled: !controller.isFormDisabled,
+                        enabled: !controller.isFormDisabled &&
+                            !_isJointInspectionFlow,
                         validator: (val) {
                           if (controller.isPtwRequired.value &&
                               (val == null || val.trim().isEmpty)) {
@@ -3539,7 +3688,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                         CustomTextField(
                           controller: controller.subsystemController,
                           label: "Subsystem *",
-                          enabled: !controller.isFormDisabled,
+                          // JE: the subsystem comes from the failure, read-only.
+                          enabled: !controller.isFormDisabled && !controller.isJE,
                         ),
                         const SizedBox(height: AppConstants.elementSpacing),
                         Obx(() => CustDropdown(
@@ -3744,6 +3894,8 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   title: "Attachments",
                   child: Column(
                     children: [
+                      // Joint inspection edit: only the uploaded pictures show.
+                      if (!_isJointInspectionFlow) ...[
                       Row(
                         children: [
                           CustText.body("After ",
@@ -3800,6 +3952,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             .toList(),
                       )),
                       const SizedBox(height: AppConstants.sectionSpacing),
+                      ],
                       Obx(() {
                         final hasImages =
                             controller.beforeImagesList.isNotEmpty ||
@@ -4417,6 +4570,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 horizontal: AppConstants.screenPadding),
             child: _buildFailureNumberDisplay(),
           ),
+          Obx(() => controller.occRoleViewOnly
+              ? Padding(
+            padding: const EdgeInsets.fromLTRB(
+                AppConstants.screenPadding,
+                AppConstants.elementSpacing,
+                AppConstants.screenPadding,
+                0),
+            child: CustText.body(
+              "Reported to ${controller.selectedOccReportedTo.value ?? 'another role'}. "
+                  "Only that role can update this failure.",
+              color: AppColors.orangeColor,
+            ),
+          )
+              : const SizedBox.shrink()),
           CustSection(
             title: "Failure Information",
             trailing: _buildExpandCollapseButton(),
@@ -4665,7 +4832,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
   /// System and Sub System: read-only text when the functional location maps
   /// to a single pair, otherwise dropdowns (web behaviour).
-  Widget _occSystemSubsystemFields() {
+  Widget _occSystemSubsystemFields({bool showSubsystem = true}) {
     return Obx(() {
       final systemReadOnly = controller.fmecaSystemReadOnly.value;
       final subReadOnly = controller.fmecaSubsystemReadOnly.value;
@@ -4709,8 +4876,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
       return Column(
         children: [
           system,
-          const SizedBox(height: AppConstants.elementSpacing),
-          subSystem,
+          if (showSubsystem) ...[
+            const SizedBox(height: AppConstants.elementSpacing),
+            subSystem,
+          ],
         ],
       );
     });
@@ -4751,9 +4920,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               spacing: 8,
               runSpacing: 8,
               children: list
-                  .map<Widget>(
-                      (file) => _buildUploadedImagePreview(file['path']!))
-                  .toList(),
+                  .map<Widget>((file) {
+                final path = '${file['path']}';
+                // A file on this device (failure not sent yet) or a server picture.
+                final onDevice = !path.startsWith('http') &&
+                    path.startsWith('/') &&
+                    File(path).existsSync();
+                return FailureCachedImage(path.startsWith('http') || onDevice
+                    ? path
+                    : "${AppUrls.imageUrl}${path.replaceFirst(RegExp(r'^/+'), '')}");
+              }).toList(),
             ),
           ],
         ),
@@ -4960,6 +5136,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   controller.selectedFailureOccurrenceDate.value,
                   enabled: controller.isOccRoleUser,
                   lastDate: DateTime.now(),
+                  blockFutureTime: true,
                   onDateTimeSelected: (dt) => controller.isOccRoleUser
                       ? controller.selectedFailureOccurrenceDate.value = dt
                       : null,
@@ -5181,10 +5358,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       onChanged: (v) => controller.selectedPriority.value = v,
                       requiredName: "Priority",
                     ),
-                    controller.isOccRoleUser
-                        ? _departmentMultiField((v) =>
-                        controller.onOccCreateDepartmentsChanged(v))
-                        : _occDropdown(
+                    _occDropdown(
                       label: "Department *",
                       options: controller.departmentList,
                       selected: controller.selectedDepartment,
@@ -5310,6 +5484,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     selectedDateTime:
                     controller.selectedFailureOccurrenceDate.value,
                     lastDate: DateTime.now(),
+                    blockFutureTime: true,
                     onDateTimeSelected: (dt) =>
                     controller.selectedFailureOccurrenceDate.value = dt,
                     validator: (val) {
@@ -5470,6 +5645,15 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
         return (s == 'null') ? '' : s;
       }
 
+      // First of the given keys that has a value ('' when none has).
+      String first(List<String> keys) {
+        for (final k in keys) {
+          final s = v(k);
+          if (s.isNotEmpty) return s;
+        }
+        return '';
+      }
+
       Widget field(String label, String value, {int maxLines = 1}) =>
           CustomTextField(
             label: label,
@@ -5515,6 +5699,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   gap,
                   field("System", v('system')),
                   gap,
+                  // Empty when the server sends nothing (no equipment number yet).
+                  field("Sub System",
+                      first(['subSystem', 'subsystem', 'subSystems'])),
+                  gap,
+                  field("Equipment Number",
+                      first(['equipmentNumber', 'equipmentName', 'equipNo'])),
+                  gap,
+                  field("Failure Frequency of Gear (Last 12 Months)",
+                      first(['frequency', 'freq', 'failureFrequency'])),
+                  gap,
                   field("Actual Failure Occurrence",
                       v('actualFailureOccuranceDate')),
                   gap,
@@ -5527,26 +5721,6 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                       v('failureCategoryTypeName')),
                   gap,
                   field("Status", v('statusName')),
-                ],
-              ),
-            ),
-            CustSection(
-              title: "Trip Affected",
-              isVisible: d['isTripAffected'] == true,
-              trailing: CustText.body(yesNo('isTripAffected'),
-                  fontWeightName: FontWeight.w600),
-              child: Column(
-                children: [
-                  _occRow(field("Trip Delay Upline (NOS)", v('tripDelayUpline')),
-                      field("Trip Cancel (NOS)", v('tripCancel'))),
-                  gap,
-                  _occRow(
-                      field("Trip Delay Downline (NOS)", v('tripDelayDownline')),
-                      field("Trip Delay in Min.", v('trainDelayInMin'))),
-                  gap,
-                  _occRow(
-                      field("Trip Withdrawal (NOS)", v('noOfTranWithdrawal')),
-                      field("Train Replace (NOS)", v('trainReplace'))),
                 ],
               ),
             ),
@@ -5572,21 +5746,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   spacing: 12,
                   runSpacing: 12,
                   children: controller.depotImages
-                      .map<Widget>((url) => ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.network(
-                      url,
-                      width: 100,
-                      height: 100,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => Container(
-                        width: 100,
-                        height: 100,
-                        color: Colors.grey.shade200,
-                        child: const Icon(Icons.broken_image),
-                      ),
-                    ),
-                  ))
+                      .map<Widget>((url) => FailureCachedImage(url))
                       .toList(),
                 ),
               ),
@@ -5752,6 +5912,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     selectedDateTime:
                     controller.selectedFailureOccurrenceDate.value,
                     lastDate: DateTime.now(),
+                    blockFutureTime: true,
                     onDateTimeSelected: (dt) =>
                     controller.selectedFailureOccurrenceDate.value = dt,
                     validator: (val) {
@@ -5959,15 +6120,82 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 Obx(() => CustomTextField(
                     label: "Current Status",
                     controller: TextEditingController(
-                        text: controller.mainStatusName.value ?? ''),
+                        text: controller.stationCurrentStatus.value.isNotEmpty
+                            ? controller.stationCurrentStatus.value
+                            : controller.mainStatusName.value ?? ''),
                     enabled: false)),
                 const SizedBox(height: AppConstants.elementSpacing),
-                CustomTextField(
-                  label: "Failure Description",
-                  controller: controller.failureDescriptionController,
-                  maxLines: 3,
-                  enabled: false,
-                ),
+                Obx(() {
+                  final history = controller.notificationDescriptionHistoryList;
+                  if (history.isEmpty) {
+                    return CustomTextField(
+                      label: "Failure Description",
+                      controller: controller.failureDescriptionController,
+                      maxLines: 3,
+                      enabled: false,
+                    );
+                  }
+                  // Every description added on the failure, as for the other roles.
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CustText.formLabel("Failure Description:"),
+                      const SizedBox(height: AppConstants.labelSpacing),
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade50,
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.grey.shade200),
+                        ),
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: history.length,
+                          separatorBuilder: (context, index) =>
+                              Divider(height: 1, color: Colors.grey.shade200),
+                          itemBuilder: (context, index) {
+                            final item = history[index];
+                            return Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CustText(
+                                    name: item.description ?? "",
+                                    size: 13,
+                                    color: AppColors.textDarkPrimary,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    mainAxisAlignment:
+                                        MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      Expanded(
+                                        child: CustText(
+                                          name: item.createdBy ?? "Unknown User",
+                                          size: 11,
+                                          color: AppColors.textDarkSecondary,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 8),
+                                      CustText(
+                                        name: item.createdOn ?? "",
+                                        size: 11,
+                                        color: AppColors.textDarkSecondary,
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  );
+                }),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustomTextField(
                     label: "Location",
@@ -5995,6 +6223,16 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                             enabled: false)),
                   ],
                 ),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                    label: "Subsystem",
+                    controller: controller.subsystemController,
+                    enabled: false),
+                const SizedBox(height: AppConstants.elementSpacing),
+                CustomTextField(
+                    label: "Failure Frequency of Gear (Last 12 Months)",
+                    controller: controller.fmecaFrequencyController,
+                    enabled: false),
                 const SizedBox(height: AppConstants.elementSpacing),
                 Obx(() => CustDateTimePicker(
                   label: "Actual Failure Occurrence",
@@ -6174,16 +6412,197 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     spacing: 8,
                     runSpacing: 8,
                     children: controller.beforeImagesList
-                        .map<Widget>(
-                          (file) => _buildUploadedImagePreview(file['path']!),
-                    )
-                        .toList(),
+                        .map<Widget>((file) {
+                      final path = '${file['path']}';
+                      // A file on this device (failure not sent yet), or a server
+                      // picture, kept on the device once loaded.
+                      final onDevice = path.startsWith('/') && File(path).existsSync();
+                      return FailureCachedImage(path.startsWith('http') || onDevice
+                          ? path
+                          : "${AppUrls.imageUrl}${path.replaceFirst(RegExp(r'^/+'), '')}");
+                    }).toList(),
                   ),
                 ],
               ),
             );
           }),
+          // Acknowledge, on the same rule as the list: Work Complete, nothing
+          // waiting to be sent.
+          Obx(() {
+            final item = widget.failureItem;
+            // Read first: an Obx that reads no observable is a GetX error (it
+            // happened when the failure had an action waiting to be sent).
+            final statusName =
+                (controller.mainStatusName.value ?? '').trim().toLowerCase();
+            final canAcknowledge = item != null &&
+                item.pendingAction == null &&
+                statusName == 'work complete';
+            if (!canAcknowledge) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.all(AppConstants.screenPadding),
+              child: ActionChip(
+                label: const Text('Acknowledge',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                onPressed: () => _showStationAcknowledgePopup(item),
+                backgroundColor: AppColors.white1,
+                labelStyle: const TextStyle(color: AppColors.green),
+                side: const BorderSide(color: AppColors.green),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+              ),
+            );
+          }),
         ],
+      ),
+    );
+  }
+
+  /// Acknowledge (Accept / Deny) of a station failure from its view: the same
+  /// call as the list's Acknowledge.
+  void _showStationAcknowledgePopup(FailureItem failure) {
+    final remarkController = TextEditingController();
+    final notifCode = failure.notificationCode ??
+        failure.failureNo ??
+        failure.id.toString();
+    String? remarkError;
+
+    Future<void> submit(String status, String remark) async {
+      Get.back(); // acknowledge popup
+      if (!Get.isRegistered<FailureListController>(tag: 'Station')) return;
+      await Get.find<FailureListController>(tag: 'Station').acknowledgeFailure(
+          failure.id ?? 0, remark, status,
+          failureNo: notifCode);
+      if (mounted) Get.back(result: true); // back to the list
+    }
+
+    void confirm(String status, String message) {
+      final remark = remarkController.text.trim();
+      if (status == 'deny' && remark.isEmpty) return;
+      Get.dialog(
+        CustPopup(
+          title: "Confirm",
+          message: message,
+          icon: status == 'accept'
+              ? TablerIcons.circle_check
+              : TablerIcons.alert_triangle,
+          iconColor:
+              status == 'accept' ? AppColors.green : AppColors.orangeColor,
+          confirmText: status == 'accept' ? "Accept" : "Deny",
+          cancelText: "Cancel",
+          onCancel: () => Get.back(),
+          onConfirm: () async {
+            Get.back(); // confirm dialog
+            await submit(status, remark);
+          },
+        ),
+      );
+    }
+
+    Get.dialog(
+      CustPopup(
+        title: "Acknowledge For Failure",
+        showIcon: true,
+        icon: TablerIcons.circle_check,
+        iconColor: AppColors.green,
+        onCancel: () => Get.back(),
+        customContent: StatefulBuilder(
+          builder: (context, setPopupState) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: CustText(
+                    name: "Acknowledge For Failure",
+                    size: AppConstants.headerSize,
+                    color: AppColors.textMutedLight,
+                    fontWeightName: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Center(
+                  child: CustText(
+                    name: "Failure No: $notifCode",
+                    size: 13,
+                    color: AppColors.orangeColor,
+                    fontWeightName: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                CustText(
+                  name: "Remark *",
+                  size: AppConstants.formLabelSize,
+                  fontWeightName: FontWeight.w500,
+                ),
+                const SizedBox(height: 8),
+                CustomTextField(
+                  controller: remarkController,
+                  hintText: "Enter remark",
+                  maxLines: 3,
+                  maxLength: 250,
+                  onChanged: (val) {
+                    if (remarkError != null && val.trim().isNotEmpty) {
+                      setPopupState(() => remarkError = null);
+                    }
+                  },
+                ),
+                if (remarkError != null) ...[
+                  const SizedBox(height: 4),
+                  Text(remarkError!,
+                      style:
+                          const TextStyle(color: AppColors.red, fontSize: 12)),
+                ],
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    Expanded(
+                      child: CustOutlineButton(
+                        name: "Close",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        onSelected: (_) => Get.back(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: CustButton(
+                        name: "Deny",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        color1: AppColors.red,
+                        color2: AppColors.red,
+                        onSelected: (_) {
+                          if (remarkController.text.trim().isEmpty) {
+                            setPopupState(
+                                () => remarkError = "Please enter remark.");
+                            return;
+                          }
+                          confirm('deny',
+                              "Do you want acknowledge deny failure?");
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: CustButton(
+                        name: "Accept",
+                        size: double.infinity,
+                        sHeight: 36,
+                        fontSize: 14,
+                        color1: AppColors.green,
+                        color2: AppColors.green,
+                        onSelected: (_) => confirm('accept',
+                            "Do you want acknowledge accept failure?"),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -6290,21 +6709,26 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
   }
 
   Widget _buildUploadedImagePreview(String path) {
-    return Container(
-      width: 100,
-      height: 100,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Image.network(
-          "${AppUrls.baseUrl.replaceAll('/api/', '/')}$path",
-          fit: BoxFit.cover,
-          errorBuilder: (context, error, stackTrace) =>
-          const Icon(Icons.broken_image, color: Colors.grey),
+    // A picture kept on this device (failure created offline, not sent yet).
+    if (!path.startsWith('http') && File(path).existsSync()) {
+      return FailureCachedImage(path);
+    }
+    final url = path.startsWith('http')
+        ? path
+        : "${AppUrls.baseUrl.replaceAll('/api/', '/')}${path.replaceFirst(RegExp(r'^/+'), '')}";
+    // Tap opens the picture in full view.
+    return GestureDetector(
+      onTap: () => FailureImageViewer.show(url),
+      child: Container(
+        width: 100,
+        height: 100,
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(8),
         ),
+        // The picture is saved on the device the first time it loads, so it
+        // shows again without internet.
+        child: FailureCachedImage(url),
       ),
     );
   }
@@ -6328,7 +6752,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
 
   void _showUploadPopup(List<Map<String, dynamic>> targetList) {
     Get.dialog(
-      Dialog(
+      Builder(builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 40),
         child: Container(
@@ -6343,7 +6767,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               Align(
                 alignment: Alignment.topRight,
                 child: GestureDetector(
-                  onTap: () => Get.back(),
+                  onTap: () => Navigator.of(dialogContext).pop(),
                   child:
                   const Icon(Icons.close, color: AppColors.black, size: 24),
                 ),
@@ -6356,13 +6780,20 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     icon: TablerIcons.camera,
                     onTap: () async {
                       try {
-                        Get.back();
+                        Navigator.of(dialogContext).pop();
                         final ImagePicker picker = ImagePicker();
                         final XFile? image =
                         await picker.pickImage(source: ImageSource.camera);
                         if (image != null) {
                           final path = await AttachmentCropper.crop(image.path);
                           final sizeInMb = await File(path).length() / (1024 * 1024);
+                          if (sizeInMb > 1) {
+                            FailureToast.error(
+                                'File too large. Maximum allowed size is 1 MB.',
+                                title: 'Attachment',
+                                icon: Icons.file_present_outlined);
+                            return;
+                          }
                           targetList.add({
                             'name': path == image.path ? image.name : p.basename(path),
                             'size': '${sizeInMb.toStringAsFixed(1)} MB',
@@ -6381,12 +6812,21 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                     icon: TablerIcons.paperclip,
                     onTap: () async {
                       try {
-                        Get.back();
+                        Navigator.of(dialogContext).pop();
                         final FilePickerResult? result =
-                        await FilePicker.platform.pickFiles();
+                        await FilePicker.platform.pickFiles(
+                          type: FileType.custom,
+                          allowedExtensions: AttachmentCropper.allowedExtensions,
+                          allowMultiple: true,
+                        );
                         if (result != null) {
+                          var rejected = 0;
+                          var tooLarge = 0;
                           for (var file in result.files) {
-                            // Images can be cropped; other files are kept as they are.
+                            if (!AttachmentCropper.isAllowed(file.name)) {
+                              rejected++;
+                              continue;
+                            }
                             final picked = file.path;
                             final path = picked == null
                                 ? null
@@ -6395,6 +6835,10 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                                 ? file.size
                                 : await File(path).length();
                             final sizeInMb = bytes / (1024 * 1024);
+                            if (sizeInMb > 1) {
+                              tooLarge++;
+                              continue;
+                            }
                             targetList.add({
                               'name': path == null || path == picked
                                   ? file.name
@@ -6402,6 +6846,17 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                               'size': '${sizeInMb.toStringAsFixed(1)} MB',
                               'path': path,
                             });
+                          }
+                          if (tooLarge > 0) {
+                            FailureToast.error(
+                                'File too large. Maximum allowed size is 1 MB.',
+                                title: 'Attachment',
+                                icon: Icons.file_present_outlined);
+                          }
+                          if (rejected > 0) {
+                            FailureToast.warning(
+                                '$rejected file${rejected == 1 ? '' : 's'} not added. ${AttachmentCropper.allowedHint}',
+                                title: 'Attachment');
                           }
                         }
                       } catch (e) {
@@ -6419,11 +6874,17 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                 color: AppColors.textMutedLight,
                 fontWeightName: FontWeight.w600,
               ),
+              const SizedBox(height: 4),
+              CustText.body(
+                "Allowed: JPG, PNG images only",
+                size: 12,
+                color: AppColors.textMutedLight,
+              ),
               const SizedBox(height: AppConstants.labelSpacing),
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 
@@ -7237,6 +7698,7 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CustDropdown(
+                  key: ValueKey('spareMat${controller.spareDropdownReset.value}'),
                   label: "Material Code & Description *",
                   hint: "Select...",
                   items: controller.materialMasterList
@@ -7250,6 +7712,35 @@ class _CreateFailureScreenState extends State<CreateFailureScreen>
                   ),
                   onChanged: (v) {
                     if (controller.isFormDisabled) return;
+                    // Junior Engineer: a material already added is refused as
+                    // soon as it is picked.
+                    if (controller.isJE && v != null) {
+                      final code = v.trim().toLowerCase();
+                      final dup = controller.replacedMaterialsList
+                          .asMap()
+                          .entries
+                          .any((e) =>
+                              e.key !=
+                                  controller.editingReplacedMaterialIndex.value &&
+                              '${e.value['materialCode'] ?? ''}'
+                                      .trim()
+                                      .toLowerCase() ==
+                                  code);
+                      if (dup) {
+                        Get.snackbar('Already added',
+                            'This material is already added. Select a different material.',
+                            snackPosition: SnackPosition.BOTTOM,
+                            backgroundColor: Colors.red,
+                            colorText: Colors.white);
+                        // Rebuild the dropdown so the refused pick is not
+                        // left showing in the field.
+                        // (After the picker has closed itself: rebuilding it
+                        // while open made the screen go back.)
+                        Future.delayed(const Duration(milliseconds: 400),
+                            () => controller.spareDropdownReset.value++);
+                        return;
+                      }
+                    }
                     controller.onSpareMaterialSelected(v);
                     // Unfocus all used qty fields
                     for (final focusNode

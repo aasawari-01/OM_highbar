@@ -121,4 +121,18 @@ class AppUrls {
   static const String getToeLoadDetails = 'Inspection/GetToeLoadDetails';
   static const String insertToeLoadInspection = 'Inspection/insertToeLoadInspection';
   static const String skipInspectionById = 'Inspection/SkipInspectionById';
+
+  // All RST failures of the user with their details (login sync, offline copy).
+  static const String getRstFailureTransactions = 'mobileAppAPI/GetRstFailureTrasactionDetails';
+  static const String getRstDetailsById = 'CorrectiveNotification/getRSTNotificationDetailsById';
+  static const String getRstDepartmentLists = 'CorrectiveNotification/getEquipmentListAndFunctinalListByDeptId';
+  static const String createRSTNotificationDetails = 'CorrectiveNotification/createRSTNotificationDetails';
+  static const String updateRSTNotificationDetails = 'CorrectiveNotification/UpdateRSTNotificationDetails';
+  static const String updateRSTNotificationAssignment = 'CorrectiveNotification/updateRSTNotificationAssignment';
+  static const String updateRSTNotificationDeleteStatus = 'CorrectiveNotification/updateRSTNotificationDeleteStatus';
+
+  /// IBL (power block) request made from the RST list: dropdown lists + create.
+  static const String getIblRequestDetails = 'IBLRequest/getIBLRequestDetails';
+  static const String insertIblRequest = 'IBLRequest/InsertIBLRequest';
+
 }

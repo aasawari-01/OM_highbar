@@ -272,6 +272,13 @@ mixin FailureFormState on GetxController {
   final selectedFailureOccurrenceDate = Rxn<DateTime>();
   final selectedFailureAttendedDate = Rxn<DateTime>();
   final selectedActualFailureRectifiedDate = Rxn<DateTime>();
+
+  /// Section Incharge: a failure that came from Station, Depot or OCC keeps the
+  /// department it was raised for (shown, not changeable), and its Service
+  /// Affected / Passenger data is shown as the server has it (not editable, not
+  /// compulsory). A Maintenance failure lets the Section Incharge pick any
+  /// department and fill those parts.
+  final siDepartmentLocked = false.obs;
   final selectedFailureCompletedDate = Rxn<DateTime>();
   final oldSerialDismantleDate = Rxn<DateTime>();
   final newSerialInstallationDate = Rxn<DateTime>();
@@ -288,6 +295,9 @@ mixin FailureFormState on GetxController {
   final notificationHistoryList = <NotificationActionHistory>[].obs;
   final notificationDescriptionHistoryList = <NotificationHistory>[].obs;
   final jointInspectionHistoryList = <JointInspectionHistory>[].obs;
+  // The server's currentStatus of a station failure (shown in the Station
+  // Controller view; the list shows statusName).
+  final stationCurrentStatus = ''.obs;
 
   // Inline "history at this Functional Location" (from getFunctionEqDetailsById
   // response's functionalHistory / functionalHistoryPrev). Distinct from the
@@ -419,7 +429,9 @@ mixin FailureFormState on GetxController {
   bool get isJointInspectionPending {
     if (_isPendingJointInspectionStatus(mainStatusName.value)) return true;
     return jointInspectionHistoryList.any(
-      (item) => _isPendingJointInspectionStatus(item.statusName),
+      // jiId < 0: added offline, not sent yet (the server marks it pending).
+      (item) =>
+          _isPendingJointInspectionStatus(item.statusName) || (item.jiId ?? 0) < 0,
     );
   }
 
@@ -428,5 +440,10 @@ mixin FailureFormState on GetxController {
   bool get isJointInspectionPendingStatus =>
       _isPendingJointInspectionStatus(mainStatusName.value);
 
-  bool get isFormDisabled => isJointInspectionPendingStatus;
+  // A Junior Engineer keeps editing his own failure (all but priority,
+  // department, system, subsystem, occurrence, person and frequency) until it
+  // is closed; a joint inspection pending only blocks the Closed status.
+  bool get isFormDisabled =>
+      isJointInspectionPendingStatus &&
+      (!isJE || isFromJointInspection.value);
 }

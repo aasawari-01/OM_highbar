@@ -1,5 +1,6 @@
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
+import 'package:om_mobile/feature/failure/service/occ_offline_service.dart';
 import 'package:dart_des/dart_des.dart';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -17,6 +18,7 @@ import '../../../core/models/measurement_point.dart';
 import '../../../core/models/root_cause.dart';
 import '../../../service/auth_manager.dart';
 import '../../../service/local_database_service.dart';
+import '../service/je_overlay.dart';
 import '../../../service/network_service/network_errors.dart';
 import '../../../service/master_data_sync_service.dart';
 import '../../../service/network_service/app_urls.dart';
@@ -152,6 +154,23 @@ class CreateFailureController extends GetxController
   /// Read-only "OCC Failure Details" shown to Section Incharge and JE when a
   /// failure originated from an OCC failure (label, value), empty otherwise.
   final occOriginDetails = <MapEntry<String, String>>[].obs;
+
+  // siDepartmentLocked: see FailureFormState.
+
+  void _applySiDepartmentLock({String? otherRequestFrom, String? creationType}) {
+    if (!isSectionIncharge) {
+      siDepartmentLocked.value = false;
+      return;
+    }
+    final from = (otherRequestFrom ?? '').trim().toLowerCase();
+    final created = (creationType ?? '').trim().toLowerCase();
+    // Everything the Section Incharge did not create by hand (creation type
+    // other than Manual) keeps its department.
+    siDepartmentLocked.value = from.contains('station') ||
+        from.contains('depot') ||
+        from.contains('occ') ||
+        (created.isNotEmpty && created != 'manual');
+  }
 
   void _applyOccOrigin(CreateVMModel model) {
     // Only failures that came from OCC; nothing for ordinary failures or ones
@@ -441,7 +460,9 @@ class CreateFailureController extends GetxController
 
       failureLog(
           "_initializeAllData: userList count after load = ${userList.length}");
-      await loadLookupDataForNewFailure();
+      // Station Controller: no online lookup here (the create form asks for
+      // its own lists when it needs them).
+      if (!isStationController) await loadLookupDataForNewFailure();
       // Auto-select logged-in user in "Failure Reported By" field
       await _autoSelectFailureReportedBy();
 
@@ -474,9 +495,13 @@ class CreateFailureController extends GetxController
       if (result.responseCode == 200 && result.responseOutput != null) {
         final output = result.responseOutput!;
         failureLog("naturee eof work==${output.getNatureOfWorkList}");
-        apiNatureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
-        failureLog("getNotificationTypeList==${output.getNotificationTypeList}");
-        apiNotificationTypeList.assignAll(output.getNotificationTypeList ?? []);
+        // Section Incharge: Nature of Work / Failure Type come from the local
+        // databases only (see _loadSiMaintenanceLocalLists), never the API.
+        if (!isSectionIncharge) {
+          apiNatureOfWorkList.assignAll(output.getNatureOfWorkList ?? []);
+          failureLog("getNotificationTypeList==${output.getNotificationTypeList}");
+          apiNotificationTypeList.assignAll(output.getNotificationTypeList ?? []);
+        }
         // Drop only the "Select User" placeholder row (value 0).
         apiPersonResponsibleList.assignAll((output.getUserList ?? const <LabelValue>[])
             .where((u) =>
@@ -883,16 +908,97 @@ class CreateFailureController extends GetxController
     departmentDisplayController.text = deptLabel;
     systemController.text = text(je['systems']);
     subsystemController.text = text(je['subSystems']);
-    locationDisplayController.text = text(je['locationName']);
+
+    // The failure as the server sent it (jEjointInspection) fills what the
+    // stored copy did not get under the names the app reads.
+    final raw = rec['jEjointInspection'] is Map
+        ? Map<String, dynamic>.from(rec['jEjointInspection'] as Map)
+        : <String, dynamic>{};
+    String firstText(List<dynamic> values) {
+      for (final v in values) {
+        final t = text(v).trim();
+        if (t.isNotEmpty && t.toLowerCase() != 'null') return t;
+      }
+      return '';
+    }
+
+    // System / Sub System / Failure Frequency of Gear (read-only): from the
+    // stored failure; what it lacks comes from the functional location master
+    // and from the same failure in the JE copy.
+    var sysText = firstText([je['systems'], je['system'], raw['system']]);
+    var subText = firstText([je['subSystems'], je['subSystem'], raw['subSystem']]);
+    var freqText = firstText([
+      je['freq'], je['frequency'], je['failureFrequency'],
+      raw['freq'], raw['frequency'], raw['failureFrequency'],
+    ]);
+    try {
+      final flId = int.tryParse(text(je['functionLocationId'])) ??
+          int.tryParse(text(raw['functionLocationId'])) ?? 0;
+      if ((sysText.isEmpty || subText.isEmpty) && flId > 0) {
+        final fl = await LocalDatabaseService().getFailureFunctionalLocationRow(flId);
+        if (sysText.isEmpty) sysText = text(fl?['TechObjectType']).trim();
+        if (subText.isEmpty) subText = text(fl?['SubSystem']).trim();
+      }
+      if (freqText.isEmpty) {
+        final jeRow = await LocalDatabaseService().findJeFailure(notificationId: nid);
+        final jf = jeRow?['record'] is Map ? (jeRow!['record'] as Map)['jeFailure'] : null;
+        if (jf is Map) {
+          freqText = firstText([jf['freq'], jf['frequency']]);
+        }
+      }
+    } catch (_) {}
+    systemController.text = sysText;
+    subsystemController.text = subText;
+    fmecaFrequencyController.text = freqText;
+    locationDisplayController.text =
+        firstText([je['locationName'], raw['locationTypeName']]);
     final funcLabel = text(je['functionalLocation']);
     functionalLocationDisplayController.text = funcLabel;
     if (funcLabel.isNotEmpty) selectedFunctionalLocation.value = funcLabel;
     final equipLabel = text(je['equipmentDescription']);
     equipmentDisplayController.text = equipLabel;
     if (equipLabel.isNotEmpty) selectedEquipmentNumber.value = equipLabel;
-    final person = text(je['assignedUserName']);
+    // Person responsible: the server sends the name ("Mr. A - 0000451"), or
+    // an id that the local user list resolves.
+    var person = firstText([je['assignedUserName']]);
+    if (person.isEmpty) {
+      final p = firstText([je['personResponsible'], raw['personResponsible']]);
+      final asId = int.tryParse(p);
+      person = asId == null
+          ? p
+          : (await LocalDatabaseService().getUserNameById(asId) ?? '');
+    }
     selectedPersonResponsible.value = person.isEmpty ? null : person;
     personResponsibleDisplayController.text = person;
+
+    // Pictures of the joint inspection (before / after / RCA), from the stored
+    // copy, so they show online and offline.
+    beforeImagesList.clear();
+    afterImagesList.clear();
+    rcaImagesList.clear();
+    for (final d in list('jointInspectionDoc').whereType<Map>()) {
+      final fileName = text(d['fileName']).trim();
+      if (fileName.isEmpty) continue;
+      // The full address (the same one the picture was saved under offline).
+      final url = fileName.startsWith('http')
+          ? fileName
+          : '${AppUrls.imageUrl}${fileName.replaceFirst(RegExp(r'^/+'), '')}';
+      final img = {
+        'name': fileName.split('/').last,
+        'path': url,
+        'isNetwork': true,
+      };
+      switch (text(d['documentType'])) {
+        case 'AFTER_NOT':
+          afterImagesList.add(img);
+          break;
+        case 'RCA_NOT':
+          rcaImagesList.add(img);
+          break;
+        default:
+          beforeImagesList.add(img);
+      }
+    }
 
     selectedFailureOccurrenceDate.value = _parseJeDate(je['actualFailureOccuranceOn']);
     selectedFailureAttendedDate.value = _parseJeDate(je['failureAttendedDate']);
@@ -914,6 +1020,8 @@ class CreateFailureController extends GetxController
     trainDeboardedNosController.text = text(je['noofTrainDeboarded']);
     isPassengerAffected.value = je['isPassengerAffected'] == true;
     numberOfPassengerAffectedController.text = text(je['noOfPassengerAffected']);
+    // The form's Number Of Passenger Affected box is this controller.
+    passengersAffectedCountController.text = text(je['noOfPassengerAffected']);
     trappedDurationController.text = text(je['trappedDuration']);
     rescuedDurationController.text = text(je['rescuedDuration']);
     isJointInspection.value = je['isJointInspectionReq'] == true;
@@ -982,7 +1090,42 @@ class CreateFailureController extends GetxController
           }
     ])));
     await filterRcaFailureCategoriesBySystem();
+    await _applyPendingJiSubmit(nid);
     errorMessage.value = "";
+  }
+
+  /// What the JE entered on the joint inspection screen offline and has not
+  /// sent yet (functional location, equipment, user's remark): shown again.
+  Future<void> _applyPendingJiSubmit(int nid) async {
+    if (nid <= 0) return;
+    try {
+      final p = await LocalDatabaseService().getPendingJiSubmitPayload(nid);
+      if (p == null) return;
+      final remark = '${p['UserRemark_JI'] ?? p['userRemark_JI'] ?? ''}'.trim();
+      if (remark.isNotEmpty) jiUserRemarkController.text = remark;
+
+      final flId = '${int.tryParse('${p['FunctionLocation_JI']}') ?? 0}';
+      final fl = flId == '0'
+          ? null
+          : functionalLocationList.firstWhereOrNull((e) => e.value == flId);
+      if (fl == null) return;
+      selectedJiFunctionalLocation.value = fl.label;
+      jiFunctionalLocationId.value = fl.value;
+      jiFunctionalLocation.value = fl.label;
+      await _loadJiEquipment(fl.value);
+
+      final eqId = '${int.tryParse('${p['EquipmentId_JI']}') ?? 0}';
+      final eq = eqId == '0'
+          ? null
+          : equipmentList.firstWhereOrNull((e) => e.value == eqId);
+      if (eq != null) {
+        selectedJiEquipmentNumber.value = eq.label;
+        jiEquipmentId.value = int.tryParse(eqId);
+        jiEquipmentNumber.value = eq.label;
+      }
+    } catch (e) {
+      failureLog('_applyPendingJiSubmit: $e');
+    }
   }
 
   /// Label for an id inside one of the {label,value} lists of the response.
@@ -1041,6 +1184,9 @@ class CreateFailureController extends GetxController
     if ((je['subSystem'] ?? '').toString().isNotEmpty) {
       subsystemController.text = je['subSystem'].toString();
     }
+    fmecaFrequencyController.text = (je['freq'] ?? je['frequency'] ??
+            je['failureFrequency'] ?? '')
+        .toString();
 
     // ---- location (API sends id "0" / "" when nothing chosen) ---------------
     locationDisplayController.text = je['locationTypeName']?.toString() ?? '';
@@ -1086,6 +1232,8 @@ class CreateFailureController extends GetxController
 
     isPassengerAffected.value = je['isPassengerAffected'] == true;
     numberOfPassengerAffectedController.text =
+        je['noOfPassengerAffected']?.toString() ?? '';
+    passengersAffectedCountController.text =
         je['noOfPassengerAffected']?.toString() ?? '';
     trappedDurationController.text = je['trappedDuration']?.toString() ?? '';
     rescuedDurationController.text = je['rescuedDuration']?.toString() ?? '';
@@ -1478,6 +1626,21 @@ class CreateFailureController extends GetxController
               : failureNo;
           notificationId.value = model.notificationId ?? 0;
           notificationCode.value = model.notificationCode ?? "";
+          // JE: the description typed in an update saved offline (not sent
+          // yet) is shown again in the box, to be edited.
+          if (isJE && notificationId.value > 0) {
+            try {
+              final ov = await JeOverlay.load(notificationId.value);
+              final typed = '${ov?['description'] ?? ''}'.trim();
+              if (typed.isNotEmpty) {
+                final row = await LocalDatabaseService()
+                    .findJeFailure(notificationId: notificationId.value);
+                if (row?['pendingAction'] != null) {
+                  failureDescriptionController.text = typed;
+                }
+              }
+            } catch (_) {}
+          }
           if (model.category != null && model.category!.trim().isNotEmpty) {
             failureCategory.value = model.category!.trim();
           }
@@ -1492,6 +1655,11 @@ class CreateFailureController extends GetxController
             failureLog("Subsystem set from model: '${model.subSystems}'");
           } else {
             failureLog("Subsystem is null or empty in model");
+          }
+          // JE view: Failure Frequency of Gear (Last 12 Months), read-only.
+          if (isJE) {
+            final freq = model.frequency ?? 0;
+            fmecaFrequencyController.text = freq > 0 ? '$freq' : '';
           }
 
           // Parse FailureRectificationJson after system/subsystem are populated
@@ -1716,7 +1884,9 @@ class CreateFailureController extends GetxController
                 orElse: () => LabelValue(label: null))
                 .label;
           }
-          if (matchedNotif == null || matchedNotif.isEmpty) {
+          // JE: the type comes only from the synced data; none there = empty.
+          final jeWithoutType = isJE && model.corrNotificationTypeId == null;
+          if (!jeWithoutType && (matchedNotif == null || matchedNotif.isEmpty)) {
             matchedNotif = corrNotificationTypeList
                 .firstWhere(
                     (e) => e.value == model.corrNotificationTypeId.toString(),
@@ -2222,15 +2392,18 @@ class CreateFailureController extends GetxController
   Future<void> loadStationFailureView(String id, FailureItem? item) async {
     // GetAllFailuresTransactionData rows carry only the numeric id; the
     // creation-by-id API needs the encrypted one, so use the row itself.
-    if (item != null &&
-        (item.syncStatus == 'offline' ||
-            item.syncStatus == 'failed' ||
-            RegExp(r'^\d+$').hasMatch(id))) {
+    // The Station Controller's list and details come only from the stored
+    // GetAllFailuresTransactionData copy: no online details API.
+    if (item != null) {
       await loadStationFailureDetailsFromData(item);
-      final numericId = int.tryParse(id);
-      if (numericId != null && item.syncStatus != 'offline') {
+      final numericId = int.tryParse(id) ?? item.id;
+      // A real (synced) failure with an action waiting still has its stored
+      // history and pictures; only a failure created offline (negative id)
+      // has none.
+      if (numericId != null && numericId > 0) {
         await _applyStationCachedHistory(numericId);
       }
+      await _applyStationPendingImages(item);
       return;
     }
     await loadStationFailureDetails(id, useCreationByIdApi: true);
@@ -2239,11 +2412,39 @@ class CreateFailureController extends GetxController
     }
   }
 
+  /// A station failure created offline and not sent yet: the pictures picked
+  /// on the form are kept on the device with the queued failure.
+  Future<void> _applyStationPendingImages(FailureItem item) async {
+    final id = item.id ?? 0;
+    if (id >= 0 || (item.syncStatus != 'offline' && item.syncStatus != 'failed')) {
+      return;
+    }
+    try {
+      // Offline entry ids are -(queue id * 10 + department index).
+      final queued = await LocalDatabaseService()
+          .getPendingSubmissionPayload((-id) ~/ 10);
+      final files = queued?['_files'];
+      if (files is! List) return;
+      final pictures = <Map<String, dynamic>>[
+        for (final f in files)
+          if ('$f'.trim().isNotEmpty)
+            {'name': '$f'.split('/').last, 'path': '$f', 'isNetwork': false}
+      ];
+      if (pictures.isNotEmpty) beforeImagesList.assignAll(pictures);
+    } catch (e) {
+      failureLog('_applyStationPendingImages error: $e');
+    }
+  }
+
   /// History / assignments of a station failure from the synced local copy.
   Future<void> _applyStationCachedHistory(int id) async {
     try {
       final rec = await LocalDatabaseService().getStationFailureCacheRow(id);
       if (rec == null) return;
+      final stored = rec['failure'];
+      if (stored is Map) {
+        stationCurrentStatus.value = (stored['currentStatus']?.toString() ?? '').trim();
+      }
       String? fmt(dynamic v) {
         final d = DateTime.tryParse(v?.toString() ?? '');
         return d == null ? v?.toString() : DateFormat('dd-MM-yyyy HH:mm:ss').format(d);
@@ -2277,6 +2478,18 @@ class CreateFailureController extends GetxController
       ))
           .toList();
       notificationHistoryList.assignAll(actions);
+
+      // The pictures sent with the failure (shown under "Uploaded Images").
+      final pictures = <Map<String, dynamic>>[
+        for (final d in (rec['documents'] as List? ?? const []).whereType<Map>())
+          if ('${d['fileName'] ?? ''}'.trim().isNotEmpty)
+            {
+              'name': '${d['fileName']}'.split('/').last,
+              'path': '${d['fileName']}'.trim(),
+              'isNetwork': true,
+            }
+      ];
+      if (pictures.isNotEmpty) beforeImagesList.assignAll(pictures);
     } catch (e) {
       failureLog('_applyStationCachedHistory error: $e');
     }
@@ -2304,6 +2517,7 @@ class CreateFailureController extends GetxController
             details['status'] ??
             details['statusDescription'] ??
             'Open';
+        stationCurrentStatus.value = (details['currentStatus']?.toString() ?? '').trim();
         failureDescriptionController.text = details['failureDescription'] ?? '';
         selectedDepartment.value = details['departmentName'];
         originalDepartmentId.value =
@@ -2322,6 +2536,12 @@ class CreateFailureController extends GetxController
         }
         subLocationController.text = details['subLocation'] ?? '';
         systemController.text = details['system'] ?? '';
+        if (isStationController) {
+          subsystemController.text =
+              (details['subSystems'] ?? details['subSystem'] ?? '').toString();
+          fmecaFrequencyController.text =
+              (details['freq'] ?? details['frequency'] ?? '').toString();
+        }
         trainIdController.text = details['trainId'] ?? '';
         await filterRcaFailureCategoriesBySystem();
 
@@ -2587,6 +2807,11 @@ class CreateFailureController extends GetxController
       try {
         await _failureService.updateStationFailure(payload);
         failureLog("steppppp");
+        // The server replaces this failure with a new one: the next sync
+        // downloads everything so the old one leaves the local list.
+        if (Get.isRegistered<MasterDataSyncService>()) {
+          await Get.find<MasterDataSyncService>().markFullSyncNeeded();
+        }
         Get.back(result: true);
         FailureToast.show(AppStrings.success, AppStrings.failureUpdated,
             backgroundColor: AppColors.green, colorText: AppColors.white1);
@@ -3989,6 +4214,7 @@ class CreateFailureController extends GetxController
   /// Measurement Reading button is only shown then.
   final siHasMeasurement = false.obs;
   int _siMeasCheckedFor = -1;
+  int _siMeasLoadingFor = -1;
 
   /// Loads the points when the functional location changes.
   Future<void> refreshSiMeasurementAvailability() async {
@@ -4000,7 +4226,15 @@ class CreateFailureController extends GetxController
       siHasMeasurement.value = false;
       return;
     }
-    await loadSiMeasurementPoints();
+    // The form asks again on every rebuild: one load per functional location
+    // at a time (parallel loads of the big table made each other fail).
+    if (funcId == _siMeasLoadingFor) return;
+    _siMeasLoadingFor = funcId;
+    try {
+      await loadSiMeasurementPoints();
+    } finally {
+      _siMeasLoadingFor = -1;
+    }
   }
 
   Future<void> loadSiMeasurementPoints() async {
@@ -4016,7 +4250,8 @@ class CreateFailureController extends GetxController
     siMeasurementRows.assignAll([
       for (final r in rows) {...r, 'checked': chosen.contains(r['measId'])},
     ]);
-    _siMeasCheckedFor = funcId;
+    // Nothing found is not remembered: it is looked up again next time.
+    _siMeasCheckedFor = rows.isEmpty ? -1 : funcId;
     siHasMeasurement.value = siMeasurementRows.isNotEmpty;
   }
 
@@ -4783,6 +5018,7 @@ class CreateFailureController extends GetxController
   Future<void> onApiDepartmentChanged(String? label,
       {bool keepSystem = false}) async {
     final none = label == null || label.isEmpty || label == 'Select';
+    selectedDepartments.clear(); // single choice: no leftover multi-pick
     selectedDepartment.value = none ? null : label;
     departmentId.value = none ? null : _apiIdFor(departmentList, label);
     selectedFunctionalLocation.value = null;
@@ -4926,10 +5162,54 @@ class CreateFailureController extends GetxController
   /// Edit of a rejected station failure: load the API lists, then the failure,
   /// then select the saved values by id (the details return names that can
   /// differ from the lookup labels, e.g. "Khapari" vs "KHP - Khapari").
-  Future<void> loadStationFailureForUpdate(String id) async {
+  Future<void> loadStationFailureForUpdate(String id,
+      {FailureItem? item}) async {
     await loadStationCreateDropdowns();
+    // The synced list row carries only the numeric id, which the details API
+    // does not accept: fill the form from the failure's own saved data.
+    if (item != null &&
+        (RegExp(r'^\d+$').hasMatch(id) ||
+            item.syncStatus == 'offline' ||
+            item.syncStatus == 'failed')) {
+      await loadStationFailureDetailsFromData(item);
+      await _stationDetailsFromCache(item);
+      await _applyStationSavedSelections();
+      // The pictures already on the failure (or kept for it on this device).
+      final numericId = int.tryParse(id);
+      if (numericId != null && item.syncStatus != 'offline') {
+        await _applyStationCachedHistory(numericId);
+      }
+      await _applyStationPendingImages(item);
+      return;
+    }
     await loadStationFailureDetails(id);
     await _applyStationSavedSelections();
+  }
+
+  /// The saved ids of a synced station failure, so the update form can select
+  /// the same department, location, functional location, priority and category.
+  Future<void> _stationDetailsFromCache(FailureItem item) async {
+    final d = <String, dynamic>{
+      'departmentId_1': item.departmentId_1,
+      'locationId': item.locationId,
+      'funcationLocationId': item.funcationLocationId,
+      'system': item.system,
+    };
+    try {
+      final rec = await LocalDatabaseService()
+          .getStationFailureCacheRow(item.id ?? 0);
+      final f = rec?['failure'];
+      if (f is Map) {
+        d['departmentId_1'] ??= f['departmentId'];
+        d['locationId'] ??= f['locationId'];
+        d['funcationLocationId'] ??= f['functionalLocationId'];
+        d['failureCategoryTypeId'] = f['failureCategoryTypeId'];
+        d['priorityId'] = f['priorityId'];
+      }
+    } catch (e) {
+      failureLog('_stationDetailsFromCache error: $e');
+    }
+    _stationDetails = d;
   }
 
   Future<void> _applyStationSavedSelections() async {
@@ -5079,10 +5359,29 @@ class CreateFailureController extends GetxController
   /// Priority, department, location, notification type and failure category
   /// from GetLookupCreateCorrNotification. Person responsible, functional
   /// location, system / sub system and equipment follow the selections.
+  /// Nature of Work (natureOfWork.db) and Failure Type (RstFailureType.db) of
+  /// the Section Incharge maintenance form: local data only, works offline.
+  Future<void> _loadSiMaintenanceLocalLists() async {
+    try {
+      final db = LocalDatabaseService();
+      final nature = await db.getMaintenanceNatureOfWorkOptions();
+      final types = await db.getMaintenanceFailureTypeOptions();
+      apiNatureOfWorkList.assignAll([
+        for (final e in nature) LabelValue(label: e['label'], value: e['value'])
+      ]);
+      apiNotificationTypeList.assignAll([
+        for (final e in types) LabelValue(label: e['label'], value: e['value'])
+      ]);
+    } catch (e) {
+      failureLog('_loadSiMaintenanceLocalLists: $e');
+    }
+  }
+
   Future<void> loadSectionInchargeDropdowns() async {
     pushLoading();
     try {
       await _loadSiLookups();
+      await _loadSiMaintenanceLocalLists();
       userList.assignAll([LabelValue(label: 'Select', value: '')]);
       if ((departmentId.value ?? 0) > 0) await _loadSiPersonResponsible();
     } catch (e) {
@@ -5843,6 +6142,7 @@ class CreateFailureController extends GetxController
     int? businessArea,
     String? functionalLocationId,
     String? workCenter,
+    bool localOnly = false,
   }) async {
     isEquipmentLoading.value = true;
     failureLog(
@@ -5868,7 +6168,9 @@ class CreateFailureController extends GetxController
     ];
 
     // Check API as fallback/enrichment if functionalLocationId is present
-    if (functionalLocationId != null && functionalLocationId.trim().isNotEmpty) {
+    if (!localOnly &&
+        functionalLocationId != null &&
+        functionalLocationId.trim().isNotEmpty) {
       final cleanCode = functionalLocationId.contains(' - ')
           ? functionalLocationId.split(' - ').first.trim()
           : functionalLocationId.trim();
@@ -5959,11 +6261,14 @@ class CreateFailureController extends GetxController
         final cleanCode = funcToLoad.contains(' - ')
             ? funcToLoad.split(' - ').first.trim()
             : funcToLoad.trim();
-        await loadEquipmentsOnDemand(functionalLocationId: cleanCode);
+        await loadEquipmentsOnDemand(
+            functionalLocationId: cleanCode, localOnly: true);
       }
       subLocationController.text = failureItem.subLocation ?? '';
       failureLog("failureItem.subLocation==${failureItem.subLocation}");
       systemController.text = failureItem.system ?? '';
+      subsystemController.text = failureItem.subSystems ?? '';
+      fmecaFrequencyController.text = failureItem.freq?.toString() ?? '';
       trainIdController.text = failureItem.trainId ?? '';
       await filterRcaFailureCategoriesBySystem();
 
@@ -6350,6 +6655,7 @@ class CreateFailureController extends GetxController
       }) async {
     encryptedId.value = failureNo;
     notificationId.value = 0;
+    siDepartmentLocked.value = false;
     pushLoading();
     try {
       isLoading.value = true;
@@ -6361,6 +6667,7 @@ class CreateFailureController extends GetxController
       } catch (e) {
         failureLog('SI details: lookups failed: $e');
       }
+      await _loadSiMaintenanceLocalLists();
 
       // Created offline: there is no server record yet, show what the list
       // row has.
@@ -6434,6 +6741,23 @@ class CreateFailureController extends GetxController
 
       mainStatusName.value = model.mainStatusName;
       _applyOccOrigin(model);
+      // The list row always says "Manual", so the creation type of the stored
+      // failure (Station / Depot / OCC / Manual) is read from the local copy.
+      String? storedCreation;
+      try {
+        final stored = await LocalDatabaseService().findSiFailure(
+            notificationId: model.notificationId, code: model.notificationCode);
+        final rec = stored?['record'];
+        final si = rec is Map ? rec['siFailure'] : null;
+        storedCreation = si is Map ? si['creationType']?.toString() : null;
+      } catch (_) {}
+      _applySiDepartmentLock(
+          otherRequestFrom: (model.otherRequestFrom ?? '').trim().isNotEmpty
+              ? model.otherRequestFrom
+              : item?.otherRequestFrom,
+          creationType: (storedCreation ?? '').trim().isNotEmpty
+              ? storedCreation
+              : item?.creationType);
       notificationHistoryList
           .assignAll(output.getNotificationActionUserHistory ?? []);
       notificationDescriptionHistoryList
@@ -6448,6 +6772,27 @@ class CreateFailureController extends GetxController
       ].toSet().join(',');
       _applyJeMeasurementPoints(output.measurementPoint);
       await loadSiMeasurementPoints();
+      // Points saved offline carry only the id: the point name, description and
+      // unit are taken from the local measurement master.
+      if (measurementPointsList.any((p) => '${p['measPointDesc'] ?? ''}'.isEmpty)) {
+        final master = {
+          for (final r in siMeasurementRows) '${r['measId']}': r,
+        };
+        measurementPointsList.assignAll([
+          for (final p in measurementPointsList)
+            if ('${p['measPointDesc'] ?? ''}'.isEmpty && master['${p['measId']}'] != null)
+              {
+                ...p,
+                'measPoint': _measurementText(master['${p['measId']}']!['measPoint']),
+                'measPointDesc':
+                    _measurementText(master['${p['measId']}']!['measPointDesc']),
+                'unitOfMeasurement':
+                    _measurementText(master['${p['measId']}']!['measRangeUnit']),
+              }
+            else
+              p,
+        ]);
+      }
 
       if ((model.frequency ?? 0) > 0) {
         fmecaFrequencyController.text = model.frequency.toString();
@@ -6460,6 +6805,13 @@ class CreateFailureController extends GetxController
       //   selectedEquipmentNumber.value = eqLabel;
 
       failureDescriptionController.text = model.description ?? '';
+      // Earlier descriptions are shown above (read-only); the box below is for
+      // the Section Incharge's own, new description.
+      if (isSectionIncharge &&
+          notificationDescriptionHistoryList.isNotEmpty &&
+          (model.statusId == 1 || model.statusId == 202)) {
+        failureDescriptionController.clear();
+      }
       subLocationController.text = model.locationFailure ?? '';
       selectedFailureOccurrenceDate.value =
       model.actualFailureOccuranceOn != null
@@ -6541,6 +6893,10 @@ class CreateFailureController extends GetxController
       // RCA, failure type, spare parts and dismantle the JE entered (read-only
       // for the Section Incharge).
       _applySiClosureData(model, output, result.failureRectificationJson);
+      // Created offline and not sent yet: the pictures kept on the device
+      // (added after the server pictures are read below).
+      final pendingCreateId =
+          offlineResult != null && item != null ? -(item.id ?? 0) : 0;
       selectedFailureAttendedDate.value =
       (model.failureAttendedDate ?? '').isNotEmpty
           ? _parseDate(model.failureAttendedDate!)
@@ -6571,7 +6927,23 @@ class CreateFailureController extends GetxController
       beforeImagesList.clear();
       afterImagesList.clear();
       rcaImagesList.clear();
-      for (final img in output.getImageBefor ?? const <Map<String, dynamic>>[]) {
+      var images = output.getImageBefor ?? const <Map<String, dynamic>>[];
+      // The local copy has no image list: ask the server for it (a failure
+      // that is not created offline).
+      if (images.isEmpty && offlineResult == null) {
+        try {
+          final remote = await _failureService.getMaintenanceFailureDetails([
+            failureNo,
+            item?.id?.toString() ?? '',
+            item?.notificationCode ?? '',
+            code ?? '',
+          ], allowLocal: false);
+          images = remote.responseOutput?.getImageBefor ?? images;
+        } catch (e) {
+          failureLog('SI details: could not load images: $e');
+        }
+      }
+      for (final img in images) {
         final fileName = img['fileName']?.toString() ?? '';
         if (fileName.isEmpty) continue;
         final imgMap = {
@@ -6587,6 +6959,32 @@ class CreateFailureController extends GetxController
         } else {
           beforeImagesList.add(imgMap);
         }
+      }
+      // Pictures kept on the device: of a failure created offline, or added by
+      // an update that is still waiting to be sent.
+      try {
+        final db = LocalDatabaseService();
+        final queueIds = <int>[
+          if (pendingCreateId > 0) pendingCreateId,
+          if ((model.notificationId ?? 0) > 0)
+            ...await db.getSiSubmissionIds(model.notificationId!),
+        ];
+        for (final queueId in queueIds) {
+          final queued = await db.getPendingSubmissionPayload(queueId);
+          final kept = queued?['files'];
+          if (kept is! List) continue;
+          for (final f in kept) {
+            final path = '$f'.trim();
+            if (path.isEmpty) continue;
+            beforeImagesList.add({
+              'name': path.split(RegExp(r'[\\/]')).last,
+              'path': path,
+              'isNetwork': false
+            });
+          }
+        }
+      } catch (e) {
+        failureLog('SI details: queued pictures failed: $e');
       }
     } catch (e, st) {
       errorMessage.value = 'Error: $e';
@@ -6730,6 +7128,8 @@ class CreateFailureController extends GetxController
   /// Fallback when the API returns no model: fill what the list row already has.
   Future<void> _populateMaintenanceFromListItem(FailureItem item) async {
     notificationCode.value = item.notificationCode ?? item.failureNo ?? '';
+    _applySiDepartmentLock(
+        otherRequestFrom: item.otherRequestFrom, creationType: item.creationType);
     // List fallback does not expose the numeric statusId, so keep the
     // default 0 (all status-sensitive fields remain disabled until the
     // detail API supplies the actual status).
@@ -6863,7 +7263,7 @@ class CreateFailureController extends GetxController
       // Category Type all come from this one API.
       Map<String, dynamic> deptLoc = <String, dynamic>{};
       try {
-        deptLoc = await _failureService.getOccDeptLocationLookups();
+        deptLoc = await _occLookups();
       } catch (e) {
         failureLog('loadOccCreateDropdowns: dept/location lookup failed: $e');
       }
@@ -6875,6 +7275,7 @@ class CreateFailureController extends GetxController
       }
       occLineList.assignAll(pick(deptLoc, ['getLineList']));
       occTrainSetList.assignAll(pick(deptLoc, ['getTrainSetList']));
+      await _occUseLocalTrainSets();
       occReportedToList.assignAll(pick(deptLoc, ['getRoleList']));
       occTrainOperatorList.assignAll(
           pick(deptLoc, ['getTrainOpeartorList', 'getTrainOperatorList']));
@@ -7364,7 +7765,25 @@ class CreateFailureController extends GetxController
           : '';
 
       failureLog('createOccFailure: payload $body, files=${files.length}');
-      final failureNo = await _failureService.createOccFailure(body, files: files);
+      String? failureNo;
+      try {
+        failureNo = await _failureService
+            .createOccFailure(body, files: files)
+            .timeout(const Duration(seconds: 60));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: kept and sent when internet returns.
+        await _saveOccOffline(
+          action: OccOfflineService.actionCreate,
+          body: body,
+          filePaths: _occLocalFilePaths(),
+        );
+        _refreshOccList();
+        EasyLoading.dismiss();
+        Get.back();
+        _occSavedOfflinePopup();
+        return;
+      }
 
       if (Get.isRegistered<FailureListController>(tag: 'OCC')) {
         Future.microtask(() async {
@@ -7502,7 +7921,24 @@ class CreateFailureController extends GetxController
     notificationCode.value = detail['failureId']?.toString() ?? '';
     mainStatusName.value = detail['statusName']?.toString();
     depotHistory.assignAll(history);
-    depotImages.clear();
+    // Pictures: the stored documents (server address, kept on the device once
+    // seen) or, for a failure not sent yet, the files saved with it.
+    final pictures = <String>[];
+    if (listId < 0) {
+      final queued = await db.getPendingSubmissionPayload((-listId) ~/ 10);
+      final files = queued?['files'];
+      if (files is List) pictures.addAll(files.map((e) => '$e').where((e) => e.isNotEmpty));
+    } else {
+      final rec = await db.getDepotFailureCacheRow(listId);
+      final docs = rec?['documents'];
+      if (docs is List) {
+        for (final e in docs) {
+          final f = e is Map ? e['fileName']?.toString() ?? '' : '';
+          if (f.isNotEmpty) pictures.add('${AppUrls.imageUrl}$f');
+        }
+      }
+    }
+    depotImages.assignAll(pictures);
     return true;
   }
 
@@ -7764,8 +8200,226 @@ class CreateFailureController extends GetxController
     return list.firstWhereOrNull((e) => e.value == v)?.label;
   }
 
+  // ── OCC: saved lookups, stored details and offline save ───────────────────
+
+  /// Reported To, Line, Train Set, Reported By and Train Operator lists: from
+  /// the server when it can be reached (and kept), otherwise the copy kept the
+  /// last time.
+  Future<Map<String, dynamic>> _occLookups() async {
+    final db = LocalDatabaseService();
+    try {
+      final fresh = await _failureService
+          .getOccDeptLocationLookups()
+          .timeout(const Duration(seconds: 10));
+      await db.saveOccLookup(OccOfflineService.lookupKey, fresh);
+      return fresh;
+    } catch (e) {
+      failureLog('_occLookups: server not reached, using the saved lists: $e');
+      return await db.getOccLookup(OccOfflineService.lookupKey) ??
+          <String, dynamic>{};
+    }
+  }
+
+  /// Train Set list from the bundled trainMaster.db (imported at login), for
+  /// the user's business area. Kept as it is when nothing is stored.
+  Future<void> _occUseLocalTrainSets() async {
+    final ba = await AuthManager().getBusinessArea() ?? 0;
+    final rows = await LocalDatabaseService().getTrainSetsByBusinessArea(ba);
+    if (rows.isEmpty) return;
+    occTrainSetList.assignAll([
+      for (final r in rows)
+        LabelValue(label: '${r['TrainSetName']}'.trim(), value: '${r['TrainSetId']}'),
+    ]);
+  }
+
+  /// Details of an OCC failure: the server's answer when it can be reached,
+  /// otherwise the stored copy (list sync) or, for a failure still waiting to
+  /// be sent, what was typed on the form.
+  Future<Map<String, dynamic>> _occDetailsOutput(String id, FailureItem? item) async {
+    final listId = item?.id ?? int.tryParse(id) ?? 0;
+    if (listId < 0) {
+      final pending = await _occPendingCreateOutput(listId, item);
+      if (pending != null) return pending;
+      throw Exception('Failure details not found');
+    }
+    try {
+      return await _failureService
+          .getOccFailureById(id)
+          .timeout(const Duration(seconds: 12));
+    } catch (e) {
+      failureLog('_occDetailsOutput: server did not answer, using the stored copy: $e');
+      final stored = await _occStoredOutput(listId);
+      if (stored != null) return stored;
+      rethrow;
+    }
+  }
+
+  Future<Map<String, dynamic>?> _occStoredOutput(int listId) async {
+    final db = LocalDatabaseService();
+    final rec = await db.getOccFailureCacheRow(listId);
+    if (rec == null || rec['failure'] is! Map) return null;
+    return {
+      ...(await db.getOccLookup(OccOfflineService.lookupKey) ?? <String, dynamic>{}),
+      'getFailureCreationDetails':
+          await _occNormalizeStored(Map<String, dynamic>.from(rec['failure'] as Map)),
+      'getNotificationHistory': rec['histories'] ?? const [],
+      'getNotificationActionUserHistory': rec['assignHistories'] ?? const [],
+      'getImageBefor': rec['documents'] ?? const [],
+    };
+  }
+
+  /// An OCC failure created offline: the form values that were queued.
+  Future<Map<String, dynamic>?> _occPendingCreateOutput(
+      int listId, FailureItem? item) async {
+    final db = LocalDatabaseService();
+    final queued = await db.getPendingSubmissionPayload((-listId) ~/ 10);
+    if (queued == null || queued['body'] is! Map) return null;
+    final body = Map<String, dynamic>.from(queued['body'] as Map);
+    final d = <String, dynamic>{
+      for (final e in body.entries)
+        '${e.key[0].toLowerCase()}${e.key.substring(1)}': e.value,
+      'id': listId,
+      'failureId': item?.notificationCode ?? item?.failureNo ?? '',
+      'statusName': 'Pending Sync',
+      'roleId': body['RoleId'],
+      'departmentId_1': body['DepartmentId_1'],
+      'funcationLocationId': body['FuncationLocationId_1'],
+      'funcationLocation': item?.functionalLocation ?? '',
+      'departmentName': item?.departmentName ?? '',
+    };
+    // The photos picked offline (kept on this device until sent).
+    final files = queued['files'];
+    return {
+      ...(await db.getOccLookup(OccOfflineService.lookupKey) ?? <String, dynamic>{}),
+      'getFailureCreationDetails': await _occNormalizeStored(d),
+      'getImageBefor': [
+        if (files is List)
+          for (final f in files)
+            if ('$f'.isNotEmpty) {'fileName': '$f', 'documentType': 'BEFORE_NOT'}
+      ],
+    };
+  }
+
+  /// The list sync sends yes/no as "Yes" / "False" text for some fields and
+  /// names the same value differently for OCC and FMC rows; the form reads one
+  /// shape (the details API's).
+  Future<Map<String, dynamic>> _occNormalizeStored(Map<String, dynamic> f) async {
+    final d = Map<String, dynamic>.from(f);
+    bool? flag(dynamic v) {
+      if (v is bool) return v;
+      switch ('$v'.trim().toLowerCase()) {
+        case 'true':
+        case 'yes':
+        case '1':
+          return true;
+        case 'false':
+        case 'no':
+        case '0':
+          return false;
+      }
+      return null;
+    }
+
+    for (final k in const [
+      'isTripAffected',
+      'isTrainReplace',
+      'isPassengerAffected',
+      'isTrainDeboarded'
+    ]) {
+      final b = flag(d[k]);
+      if (b != null) d[k] = b;
+    }
+    d['failureReportedbyId'] ??= d['failureReportedById'];
+    d['system'] ??= d['systems'];
+    d['subSystem'] ??= d['subSystems'] ?? d['subsystem'];
+    if (_occToInt(d['funcationLocationId']) == 0) {
+      final code = _occStr(d['funcationLocation']);
+      if (code.isNotEmpty) {
+        final id = await LocalDatabaseService().getFailureFunctionalLocationIdByCode(code);
+        if (id != null) d['funcationLocationId'] = id;
+      }
+    }
+    return d;
+  }
+
+  /// Picked files that are on this device (not the ones loaded from the server).
+  List<String> _occLocalFilePaths() => [
+        for (final f in beforeFiles)
+          if ((f['path']?.toString() ?? '').isNotEmpty && f['isNetwork'] != true)
+            f['path'].toString()
+      ];
+
+  void _refreshOccList() {
+    if (!Get.isRegistered<FailureListController>(tag: 'OCC')) return;
+    Future.microtask(() async {
+      try {
+        await Get.find<FailureListController>(tag: 'OCC').fetchFailures();
+      } catch (e) {
+        failureLog('OCC list refresh failed: $e');
+      }
+    });
+  }
+
+  void _occSavedOfflinePopup() {
+    showResultPopup(
+      title: 'Saved Offline',
+      message:
+          'Failure saved on this device. It is sent automatically when the internet is back, and you will be told when it is done.',
+      icon: Icons.cloud_off_outlined,
+      iconColor: AppColors.orangeColor,
+    );
+  }
+
+  /// Keeps an OCC create / update (and its images) until the internet is back.
+  /// A create also gets a "Pending Sync" entry in the list; an update marks the
+  /// failure it belongs to.
+  Future<void> _saveOccOffline({
+    required String action,
+    required Map<String, dynamic> body,
+    required List<String> filePaths,
+    int failureId = 0,
+  }) async {
+    final db = LocalDatabaseService();
+    final me = await AuthManager().getUserId() ?? '';
+    final kept = await OccOfflineService.keepFiles(filePaths);
+    final sid = await db.insertPendingSubmission({
+      'action': action,
+      'queuedBy': me,
+      'failureId': failureId,
+      'body': body,
+      'files': kept,
+    }, OccOfflineService.queueType);
+
+    if (action == OccOfflineService.actionUpdate) {
+      if (failureId > 0) await db.setOccPending(failureId, action);
+      return;
+    }
+    final departments = selectedDepartments.isNotEmpty
+        ? selectedDepartments.join(', ')
+        : (selectedDepartment.value ?? '');
+    await db.insertFailureList([
+      {
+        'id': -(sid * 10),
+        'failureNo': await OccOfflineService.offlineNumber(),
+        'failureDescription': body['FailureDescription'] ?? '',
+        'functionalLocation': selectedFunctionalLocation.value ?? '',
+        'statusName': 'Pending Sync',
+        'failureOccuranceDateTime': body['ActualFailureOccuranceDate'] ?? '',
+        'subLocation': body['SubLocation'] ?? '',
+        'system': body['System'] ?? '',
+        'locationName': selectedLocation.value ?? '',
+        'priority': selectedPriority.value ?? '',
+        'departmentName': departments,
+        'trainId': body['TrainId'] ?? '',
+        'lineName': selectedOccLine.value ?? '',
+        'creationType': 'OCC',
+        'syncStatus': 'offline',
+      }
+    ], OccOfflineService.listKey);
+  }
+
   /// Loads an OCC failure into the shared form state for the FMC user.
-  Future<void> loadOccFailureForUpdate(String id) async {
+  Future<void> loadOccFailureForUpdate(String id, {FailureItem? item}) async {
     encryptedId.value = id;
     occUpdateLoaded.value = false;
     pushLoading();
@@ -7774,7 +8428,7 @@ class CreateFailureController extends GetxController
       // CSS / RSC take them from the failure details response (below).
       if (!isFmcUser) await loadOccCreateDropdowns();
 
-      final output = await _failureService.getOccFailureById(id);
+      final output = await _occDetailsOutput(id, item);
       final raw = output['getFailureCreationDetails'];
       if (raw is! Map) {
         throw Exception('Failure details not found');
@@ -7786,6 +8440,7 @@ class CreateFailureController extends GetxController
         occReportedToList.assignAll(pick(['getRoleList']));
         occLineList.assignAll(pick(['getLineList']));
         occTrainSetList.assignAll(pick(['getTrainSetList']));
+        await _occUseLocalTrainSets();
         occTrainOperatorList
             .assignAll(pick(['getTrainOpeartorList', 'getTrainOperatorList']));
         occReportedByList.assignAll(pick(['getFailureReportedbyList']));
@@ -7987,7 +8642,15 @@ class CreateFailureController extends GetxController
       beforeImagesList.clear();
       afterImagesList.clear();
       rcaImagesList.clear();
-      for (final img in _occValues(output['getImageBefor'])) {
+      // The server's details may come without the pictures: the ones kept with
+      // the failure by the list sync are shown then.
+      var documents = _occValues(output['getImageBefor']);
+      if (documents.isEmpty) {
+        final stored = await LocalDatabaseService()
+            .getOccFailureCacheRow(item?.id ?? int.tryParse(id) ?? 0);
+        documents = _occValues(stored?['documents']);
+      }
+      for (final img in documents) {
         final fileName = _occStr(img['fileName']);
         if (fileName.isEmpty) continue;
         final entry = <String, dynamic>{
@@ -7996,16 +8659,16 @@ class CreateFailureController extends GetxController
           'isNetwork': true,
           'id': img['id'],
         };
-        switch (_occStr(img['documentType'])) {
-          case 'BEFORE_NOT':
-            beforeImagesList.add(entry);
-            break;
+        // Same rule as the other failure flows: any other type is a Before image.
+        switch (_occStr(img['documentType']).toUpperCase()) {
           case 'AFTER_NOT':
             afterImagesList.add(entry);
             break;
           case 'RCA_NOT':
             rcaImagesList.add(entry);
             break;
+          default:
+            beforeImagesList.add(entry);
         }
       }
 
@@ -8013,6 +8676,29 @@ class CreateFailureController extends GetxController
           _occValues(output['getNotificationHistory'])
               .map(NotificationHistory.fromJson)
               .toList());
+      // The list sync sends no description history: the failure's own
+      // description is the first (and only) entry then.
+      var firstDescription = _occStr(d['failureDescription']);
+      if (firstDescription.isEmpty) firstDescription = _occStr(d['description']);
+      if (firstDescription.isEmpty) firstDescription = _occStr(item?.failureDescription);
+      if (firstDescription.isEmpty && notificationDescriptionHistoryList.isEmpty) {
+        final stored = await LocalDatabaseService()
+            .getOccFailureCacheRow(item?.id ?? int.tryParse(id) ?? 0);
+        final f = stored?['failure'];
+        if (f is Map) firstDescription = _occStr(f['failureDescription']);
+      }
+      if (notificationDescriptionHistoryList.isEmpty && firstDescription.isNotEmpty) {
+        final created = DateTime.tryParse(_occStr(d['createdDate']));
+        notificationDescriptionHistoryList.add(NotificationHistory(
+          description: firstDescription,
+          createdBy: _occStr(d['failureReportedby']).isNotEmpty
+              ? _occStr(d['failureReportedby'])
+              : null,
+          createdOn: created != null
+              ? DateFormat('dd-MM-yyyy HH:mm').format(created)
+              : (_occStr(d['createdDate']).isEmpty ? null : _occStr(d['createdDate'])),
+        ));
+      }
       notificationHistoryList.assignAll(
           _occValues(output['getNotificationActionUserHistory'])
               .map(NotificationActionHistory.fromJson)
@@ -8149,6 +8835,24 @@ class CreateFailureController extends GetxController
       _occError(errors.first);
       return false;
     }
+    if ((originalFailureId.value ?? 0) < 0) {
+      _occError('This failure is waiting to be sent. You can update it once it is synced.');
+      return false;
+    }
+    // One saved action per failure: a second one would be sent on top of the
+    // first. The list's Retry / Discard deals with the waiting one.
+    final waiting = originalFailureId.value ?? 0;
+    for (final q in await LocalDatabaseService().getPendingSubmissions()) {
+      final payload = q['payload'];
+      if (q['failureType'] == OccOfflineService.queueType &&
+          payload is Map &&
+          payload['action'] == OccOfflineService.actionUpdate &&
+          int.tryParse('${payload['failureId']}') == waiting) {
+        _occError(
+            'An update for this failure is already waiting to be sent. Open the list to retry or discard it.');
+        return false;
+      }
+    }
 
     try {
       final files = <http.MultipartFile>[];
@@ -8272,7 +8976,26 @@ class CreateFailureController extends GetxController
       };
 
       failureLog('submitOccUpdate($kind): payload $body, files=${files.length}');
-      final result = await _failureService.createOccFailure(body, files: files);
+      String? result;
+      try {
+        result = await _failureService
+            .createOccFailure(body, files: files)
+            .timeout(const Duration(seconds: 60));
+      } catch (e) {
+        if (!isNetworkError(e)) rethrow;
+        // No connection: kept and sent when internet returns.
+        await _saveOccOffline(
+          action: OccOfflineService.actionUpdate,
+          body: body,
+          filePaths: _occLocalFilePaths(),
+          failureId: originalFailureId.value ?? 0,
+        );
+        _refreshOccList();
+        EasyLoading.dismiss();
+        Get.back(result: true);
+        _occSavedOfflinePopup();
+        return true;
+      }
 
       if (Get.isRegistered<FailureListController>(tag: 'OCC')) {
         Future.microtask(() async {

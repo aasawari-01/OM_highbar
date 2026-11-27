@@ -43,7 +43,7 @@ dependencies:
   flutter_tabler_icons: ^1.43.0
   intl: ^0.17.0
   image_picker: ^1.1.2
-  image_cropper: ^8.0.2
+  image_cropper: ^12.2.1
   get: ^4.7.2
   shared_preferences: ^2.5.4
   http: ^1.2.0
@@ -98,6 +98,8 @@ flutter:
     - assets/UserMaster.db
     - assets/failure_categorytype.db
     - assets/notificationType.db
+    - assets/natureOfWork.db
+    - assets/RstFailureType.db
     - assets/rootCause.db
     - assets/actiontaken.db
     - assets/causeOfFailure.db
@@ -110,6 +112,14 @@ flutter:
     - assets/OldRootCause.db
     - assets/StoreLocation.db
     - assets/DepotMaster.db
+    - assets/trainMaster.db
+    - assets/natureOfWork.db
+    - assets/RstFailureType.db
+    - assets/SICType.db
+    - assets/SICHeaderMaster.db
+    - assets/SICItemMaster.db
+    - assets/PartDRstFailureType.db
+    - assets/reasonForDelay.db
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

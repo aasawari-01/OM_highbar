@@ -1,6 +1,7 @@
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
+import 'dart:io' show File;
 import 'package:intl/intl.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:http/http.dart' as http;
@@ -97,14 +98,8 @@ class FailureService {
         failureLog('JE details: encrypted id not found ($e)');
       }
     }
-    final serverId = numeric && (token ?? '').isNotEmpty ? token! : failureNo;
-    try {
-      final r = await _getFailureDetailsFromServer(serverId)
-          .timeout(const Duration(seconds: 20));
-      if (r.responseOutput?.getCreateVMModel != null) return r;
-    } catch (e) {
-      failureLog('JE details: server not used ($e), using the local copy');
-    }
+    // The details come from the synced GetAllFailuresTransactionData copy, not
+    // from the details API: what the sync did not carry stays empty.
     return local.response;
   }
 
@@ -285,10 +280,14 @@ class FailureService {
     var dismantle = <dynamic>[];
     var measurementPoints = list('measurementPoint');
     if (ov != null) {
+      // An update saved on this device and not sent yet is newer than the
+      // synced copy: it wins. Otherwise it only fills what the copy lacks.
+      final unsent = row['pendingAction'] != null;
       void fill(String k) {
         final cur = model[k];
         final v = ov[k];
-        if (v != null && (cur == null || (cur is String && cur.trim().isEmpty))) {
+        if (v != null &&
+            (unsent || cur == null || (cur is String && cur.trim().isEmpty))) {
           model[k] = v;
         }
       }
@@ -297,6 +296,11 @@ class FailureService {
         'userStatus', 'failureRectificationDetails', 'failureAttendedDate',
         'actualFailureRectifiedDate', 'underObservationDate', 'failureType',
         'failureTypeId', 'ptwNo', 'isPTWReq', 'isHardwareReplaced',
+        'isJointInspectionReq', 'isServiceAffected', 'trainDelayInMin',
+        'trainDelayInNo', 'noOfTranWithdrawal', 'noOfTranCancel',
+        'noOfTrainReplace', 'isPassengerDeboarding', 'noofTrainDeboarded',
+        'isPassengerAffected', 'noOfPassengerAffected', 'trappedDuration',
+        'rescuedDuration', 'locationFailure', 'description',
       ]) {
         fill(k);
       }
@@ -304,7 +308,11 @@ class FailureService {
         rca = [for (final r in ov['rca'] as List) if (r is Map) Map<String, dynamic>.from(r)];
       }
       // The update body names them differently from the details lists.
-      materials = [
+      final serverMat = ov['serverMaterials'];
+      final serverDis = ov['serverDismantle'];
+      materials = serverMat is List
+          ? [for (final m in serverMat) if (m is Map) Map<String, dynamic>.from(m)]
+          : [
         for (final m in (ov['materials'] as List? ?? const []))
           if (m is Map)
             {
@@ -320,7 +328,9 @@ class FailureService {
               'unitOfMeasurement': m['UnitMeasurement'],
             }
       ];
-      dismantle = [
+      dismantle = serverDis is List
+          ? [for (final m in serverDis) if (m is Map) Map<String, dynamic>.from(m)]
+          : [
         for (final m in (ov['dismantle'] as List? ?? const []))
           if (m is Map && '${m['InsertUpdateStatusId']}' != '3')
             {...Map<String, dynamic>.from(m), 'id': m['Id']}
@@ -351,10 +361,34 @@ class FailureService {
       'responseOutput': {
         'getCreateVMModel': model,
         'getNotificationActionUserHistory': history,
-        'getNotificationHistory': const [],
+        // Earlier descriptions of the failure, as the server sends them.
+        'getNotificationHistory': list('jeNotificationHistory'),
         'getMaterialReqDetails': materials,
         'getMaterialDismantleDetails': dismantle,
         'measurementPoint': measurementPoints,
+        // The pictures sent with the failure (server address, saved on the
+        // device once seen) and those added offline and not sent yet.
+        'getImageBefor': [
+          for (final d in list('jeDoc'))
+            if (d is Map && '${d['fileName'] ?? ''}'.trim().isNotEmpty)
+              {
+                ...Map<String, dynamic>.from(d),
+                'fileName': '${d['fileName']}'.trim().startsWith('http')
+                    ? '${d['fileName']}'.trim()
+                    : '${AppUrls.imageUrl}${'${d['fileName']}'.trim().replaceFirst(RegExp(r'^/+'), '')}',
+              },
+          if (ov?['localFiles'] is Map)
+            for (final e in (ov!['localFiles'] as Map).entries)
+              if (File('${e.value}').existsSync())
+                {
+                  'fileName': '${e.value}',
+                  'documentType': switch ('${e.key}') {
+                    'afterImage' => 'AFTER_NOT',
+                    'rcaImage' => 'RCA_NOT',
+                    _ => 'BEFORE_NOT',
+                  },
+                },
+        ],
         'getJoinInspectionHistory': [
           ...list('joinInspectionHistory'),
           // Added offline and not sent yet.
@@ -373,6 +407,11 @@ class FailureService {
     token: token2,
     );
   }
+
+  /// The failure as the server holds it (used to learn the ids of the
+  /// material rows after an update was sent).
+  Future<FailureDetailResponse> fetchJeDetailsFromServer(String failureNo) =>
+      _getFailureDetailsFromServer(failureNo);
 
   Future<FailureDetailResponse> _getFailureDetailsFromServer(
       String failureNo) async {
@@ -538,6 +577,66 @@ class FailureService {
     }
   }
 
+  /// IBL request form lists (web: getAllDDLRSTIBLPage): IBL lines and train sets.
+  /// The last answer is kept so the form still opens without internet.
+  Future<({List<LabelValue> lines, List<LabelValue> trainSets})> getIblLookups() async {
+    const cacheKey = 'iblRequestLookups';
+    final db = LocalDatabaseService();
+    List<LabelValue> parse(dynamic raw) {
+      final list = raw is Map ? raw.values.toList() : (raw is List ? raw : const []);
+      final out = <LabelValue>[
+        for (final e in list)
+          if (e is Map) LabelValue.fromJson(Map<String, dynamic>.from(e))
+      ];
+      out.sort((a, b) => (int.tryParse(a.value ?? '') ?? 0)
+          .compareTo(int.tryParse(b.value ?? '') ?? 0));
+      return out;
+    }
+
+    Map<String, dynamic>? output;
+    try {
+      final response = await _apiClient.post(
+        AppUrls.getIblRequestDetails,
+        headers: await _authHeaders(),
+        body: {'Id': '0', 'UserId': await _userId(), 'Action': 'getAllDDLRSTIBLPage'},
+      );
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        if (body['responseOutput'] is Map) {
+          output = Map<String, dynamic>.from(body['responseOutput'] as Map);
+          await db.setAppSetting(cacheKey, jsonEncode(output));
+        }
+      }
+    } catch (e) {
+      failureLog('getIblLookups: server not reached: $e');
+    }
+    if (output == null) {
+      final saved = await db.getAppSetting(cacheKey);
+      if (saved != null && saved.isNotEmpty) {
+        output = Map<String, dynamic>.from(jsonDecode(saved) as Map);
+      }
+    }
+    return (
+    lines: parse(output?['getTrainLineList']),
+    trainSets: parse(output?['getTrainSetList']),
+    );
+  }
+
+  /// Creates the IBL request. Returns the server's responseMessage
+  /// ("Success", "Line Busy", ...).
+  Future<String> insertIblRequest(Map<String, dynamic> request) async {
+    final response = await _apiClient.postMultipart(
+      AppUrls.insertIblRequest,
+      headers: await _authHeaders(),
+      fields: {'IBLRequestDetails': jsonEncode(request)},
+      files: const [],
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return '${body['responseMessage'] ?? ''}';
+  }
   /// Returns the fault list for the given object-part ID.
   Future<List<LabelValue>> getFaults(String objectPartId) async {
     final response = await _apiClient.post(
@@ -695,8 +794,12 @@ class FailureService {
     }
   }
 
-  /// Creates a new station failure. Returns the created failure number.
-  Future<String?> createStationFailure(Map<String, dynamic> payload) async {
+  /// Creates a new station failure. Returns the created failure number. The
+  /// "before" images go in `beforImage` (spelling is the server's).
+  Future<String?> createStationFailure(
+    Map<String, dynamic> payload, {
+    List<http.MultipartFile> files = const [],
+  }) async {
     final headers = await _authHeaders();
     failureLog(
         "createStationFailure: API endpoint: ${AppUrls.createStationFailure}");
@@ -705,6 +808,7 @@ class FailureService {
       AppUrls.createStationFailure,
       headers: headers,
       fields: {'StationFailureCreationDetails': jsonEncode(payload)},
+      files: files,
     );
     failureLog("createStationFailure: Response status: ${response.statusCode}");
     failureLog("createStationFailure: Response body: ${response.body}");
@@ -1467,6 +1571,8 @@ class FailureService {
   List<Map<String, dynamic>> jeRecords,
   List<Map<String, dynamic>> jiRecords,
   List<Map<String, dynamic>> depotRecords,
+  List<Map<String, dynamic>> occRecords,
+  List<Map<String, dynamic>> fmcRecords,
   String? downloadedAt
   })> getFailureTransactions({String? lastSyncDate}) async {
     final userId = await _userId();
@@ -1501,6 +1607,8 @@ class FailureService {
       jeRecords: <Map<String, dynamic>>[],
       jiRecords: <Map<String, dynamic>>[],
       depotRecords: <Map<String, dynamic>>[],
+      occRecords: <Map<String, dynamic>>[],
+      fmcRecords: <Map<String, dynamic>>[],
       downloadedAt: null
       );
     }
@@ -1522,6 +1630,30 @@ class FailureService {
             out.add(Map<String, dynamic>.from(e));
           }
         }
+      }
+      return out;
+    }
+
+    // occFailures / fmcFailures: every item is kept, whatever its actionType
+    // (OCC, FMC, TPC, CSS) or wrapper key: the failure is the "failure" map, or
+    // else the first map that has an id, or the item itself.
+    List<Map<String, dynamic>> occRecords(String listKey) {
+      final list = data is Map ? data[listKey] : null;
+      final out = <Map<String, dynamic>>[];
+      if (list is! List) return out;
+      for (final e in list) {
+        if (e is! Map) continue;
+        final item = Map<String, dynamic>.from(e);
+        Map? failure = item['failure'] is Map ? item['failure'] as Map : null;
+        failure ??= item.values
+            .whereType<Map>()
+            .firstWhere((m) => m['id'] != null, orElse: () => const {});
+        if (failure.isEmpty && item['id'] != null) failure = item;
+        if (failure == null || failure['id'] == null) {
+          failureLog('getFailureTransactions: $listKey item skipped, no id: ${item.keys.toList()}');
+          continue;
+        }
+        out.add({...item, 'failure': Map<String, dynamic>.from(failure)});
       }
       return out;
     }
@@ -1633,6 +1765,8 @@ class FailureService {
     jeRecords: records('jeInboxFailureList', 'jeFailure'),
     jiRecords: await jointRecords(),
     depotRecords: records('depotFailuresList', 'depotFailures'),
+    occRecords: occRecords('occFailures'),
+    fmcRecords: occRecords('fmcFailures'),
     downloadedAt: data is Map ? data['downloadedAt']?.toString() : null,
     );
   }
@@ -1926,6 +2060,143 @@ class FailureService {
     return body;
   }
 
+
+
+
+  // ── RST (offline copy + create / assign / queued replay) ───────────────────
+
+  /// mobileAppAPI/GetRstFailureTrasactionDetails: every RST failure of the
+  /// logged-in user with its details, in one call. Without [lastSyncDate] it
+  /// asks for everything (syncType ALL), with it only what changed
+  /// (Incremental). Each record is {failure, documents, history, sicDetails,
+  /// joinInspectionDetails, workAllotedDetails, objectANDFault..., ...}.
+  Future<({List<Map<String, dynamic>> records, String? downloadedAt})>
+  getRstFailureTransactions({String? lastSyncDate}) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getRstFailureTransactions,
+      headers: headers,
+      body: {
+        'userId': userId,
+        if (lastSyncDate != null) 'lastSyncDate': lastSyncDate,
+        'syncType': lastSyncDate == null ? 'ALL' : 'Incremental',
+      },
+    );
+    // 204 / an empty body: the server had nothing to send (no changes).
+    if (response.statusCode == 204 ||
+        (response.statusCode == 200 && response.body.trim().isEmpty)) {
+      return (records: <Map<String, dynamic>>[], downloadedAt: null);
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    if (json['success'] != true) {
+      throw Exception(json['message'] ?? 'Failed to load RST failures');
+    }
+    final data = json['data'];
+    final list = data is Map ? data['rstFailures'] : null;
+    final out = <Map<String, dynamic>>[];
+    if (list is List) {
+      for (final e in list) {
+        if (e is Map && e['failure'] is Map) {
+          out.add(Map<String, dynamic>.from(e));
+        }
+      }
+    }
+    return (
+    records: out,
+    downloadedAt: data is Map ? data['downloadedAt']?.toString() : null
+    );
+  }
+
+  /// The dropdown lists of the RST forms (the web's getRSTNotificationDetailsById
+  /// with an [action]: getAllDDLRSTPage for the create page,
+  /// getRSTNotificationDetailsById for an existing failure (Part B lists),
+  /// getJoinInspectionUserDetails for the users of a department). Returns
+  /// responseOutput.
+  Future<Map<String, dynamic>> getRstLookups(String id, String action) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getRstDetailsById,
+      headers: headers,
+      body: {'Id': id, 'UserId': userId, 'Action': action},
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseOutput'] is! Map) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load RST lists');
+    }
+    return Map<String, dynamic>.from(body['responseOutput'] as Map);
+  }
+
+  /// Functional locations and equipment of a department (RST create form).
+  Future<Map<String, dynamic>> getRstDepartmentLists(String deptId) async {
+    final userId = await _userId();
+    final headers = await _authHeaders();
+    final response = await _apiClient.post(
+      AppUrls.getRstDepartmentLists,
+      headers: headers,
+      body: {
+        'DepartmentId': deptId,
+        'UserId': userId,
+        'Action': 'getEquipmentListAndFunctinalListByDeptId',
+      },
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    if (body['responseOutput'] is! Map) {
+      throw Exception(body['responseMessage'] ?? 'Failed to load locations');
+    }
+    return Map<String, dynamic>.from(body['responseOutput'] as Map);
+  }
+
+  /// Sends one RST call (create, update, assign, accept, RCA / material,
+  /// completion, close, delete). [fields] is the multipart text fields (the
+  /// JSON in the field the endpoint reads), or a plain JSON [jsonBody] for the
+  /// calls the web sends as JSON. [files] is [(field, path)]. Returns the
+  /// server's answer (the new failure number for a create).
+  Future<String?> sendRstCall(
+      String endpoint, {
+        Map<String, String>? fields,
+        Map<String, dynamic>? jsonBody,
+        List<http.MultipartFile> files = const [],
+      }) async {
+    final headers = await _authHeaders();
+    final http.Response response;
+    if (jsonBody != null) {
+      response = await _apiClient.post(endpoint, headers: headers, body: jsonBody);
+    } else {
+      response = await _apiClient.postMultipart(
+        endpoint,
+        headers: headers,
+        fields: fields ?? const {},
+        files: files,
+      );
+    }
+    if (response.statusCode != 200) {
+      throw Exception('Server error: ${response.statusCode}');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    failureLog('sendRstCall $endpoint response---$body');
+    if (body['responseCode'] == 200 ||
+        body['responseMessage'] == 'Success' ||
+        body['success'] == true) {
+      return (body['responseOutput'] ??
+          body['responseMessage'] ??
+          body['message'] ??
+          'Submitted successfully')
+          .toString();
+    }
+    throw Exception(
+        body['responseMessage'] ?? body['message'] ?? 'Submission failed');
+  }
   /// Returns the full RST failure response (rstFetchData + related lists)
   Future<RstFailureFullResponse> getRstFailureFullData(
       int notificationId) async {
@@ -2380,7 +2651,8 @@ class FailureService {
 
   /// Submits maintenance failure notification for Section Incharge
   Future<Map<String, dynamic>> submitMaintenanceNotificationForm(
-      Map<String, dynamic> formData) async {
+      Map<String, dynamic> formData,
+      {List<http.MultipartFile> files = const []}) async {
     final userId = await _userId();
     final userName = await _userName();
 
@@ -2455,7 +2727,7 @@ class FailureService {
     failureLog("Formatted Request Body: $requestBody");
 
     // ACTUAL API CALL
-    final failureNo = await createMaintenanceFailure(requestBody);
+    final failureNo = await createMaintenanceFailure(requestBody, files: files);
 
     failureLog("Created Maintenance Failure No: $failureNo");
 
@@ -2647,7 +2919,40 @@ class FailureService {
         'getMaterialDismantleDetails': list('siMaterialDismentle').isNotEmpty
             ? list('siMaterialDismentle')
             : list('siMaterialDismantle'),
-        'measurementPoint': list('siMeasurementPoint'),
+        'measurementPoint': () {
+          final saved = list('siMeasurementPoint');
+          // An update saved offline (not sent yet): the points ticked on the
+          // form are in the local copy as MeasurementPointIds.
+          if (row['pendingAction'] == null ||
+              !si.containsKey('measurementPointIds')) {
+            return saved;
+          }
+          final ids = <int>{
+            for (final t in '${si['measurementPointIds'] ?? ''}'.split(','))
+              if ((int.tryParse(t.trim()) ?? 0) > 0) int.parse(t.trim()),
+          };
+          return [
+            for (final m in saved)
+              if (m is Map && ids.contains(int.tryParse('${m['measId']}')))
+                m,
+            for (final id in ids)
+              if (!saved.any(
+                  (m) => m is Map && int.tryParse('${m['measId']}') == id))
+                {'measId': id, 'isRequired': true},
+          ];
+        }(),
+        // The pictures sent with the failure (server address, saved on the
+        // device once seen).
+        'getImageBefor': [
+          for (final d in [...list('siDoc'), ...list('documents')])
+            if (d is Map && '${d['fileName'] ?? ''}'.trim().isNotEmpty)
+              {
+                ...Map<String, dynamic>.from(d),
+                'fileName': '${d['fileName']}'.trim().startsWith('http')
+                    ? '${d['fileName']}'.trim()
+                    : '${AppUrls.imageUrl}${'${d['fileName']}'.trim().replaceFirst(RegExp(r'^/+'), '')}',
+              }
+        ],
       },
     });
     return (
@@ -2663,7 +2968,8 @@ class FailureService {
 
 
   Future<Map<String, dynamic>> updateMaintenanceFailure(
-      Map<String, dynamic> payload) async {
+      Map<String, dynamic> payload,
+      {List<http.MultipartFile> files = const []}) async {
     final headers = await _authHeaders();
 
     failureLog("updateMaintenanceFailure: API endpoint: ${AppUrls.editNotificationDetails}");
@@ -2675,6 +2981,7 @@ class FailureService {
       fields: {
         'CreateNotificationVM': jsonEncode(payload),
       },
+      files: files,
     );
 
     failureLog("updateMaintenanceFailure: Response status: ${response.statusCode}");
@@ -2694,7 +3001,8 @@ class FailureService {
   }
 
   Future<String?> createMaintenanceFailure(
-      Map<String, dynamic> payload) async {
+      Map<String, dynamic> payload,
+      {List<http.MultipartFile> files = const []}) async {
     final headers = await _authHeaders();
 
     failureLog(
@@ -2707,6 +3015,7 @@ class FailureService {
       fields: {
         'CreateNotificationVM': jsonEncode(payload),
       },
+      files: files,
     );
 
     failureLog(

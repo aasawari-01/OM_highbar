@@ -88,11 +88,15 @@ class NotificationHistory {
   final String createdBy;
   final String createdOn;
 
+  /// Every description the failure has had: [{description, createdBy, createdOn}].
+  final List<Map<String, String>> descriptionItems;
+
   NotificationHistory({
     required this.historyId,
     required this.description,
     required this.createdBy,
     required this.createdOn,
+    this.descriptionItems = const [],
   });
 
   factory NotificationHistory.fromJson(Map<String, dynamic> json) {
@@ -101,6 +105,15 @@ class NotificationHistory {
       description: json['description'] as String,
       createdBy: json['createdBy'] as String,
       createdOn: json['createdOn'] as String,
+      descriptionItems: [
+        for (final e in (json['descriptionItems'] as List? ?? const []))
+          if (e is Map)
+            {
+              'description': '${e['description'] ?? ''}',
+              'createdBy': '${e['createdBy'] ?? ''}',
+              'createdOn': '${e['createdOn'] ?? ''}',
+            }
+      ],
     );
   }
 
@@ -110,6 +123,7 @@ class NotificationHistory {
       'description': description,
       'createdBy': createdBy,
       'createdOn': createdOn,
+      'descriptionItems': descriptionItems,
     };
   }
 }

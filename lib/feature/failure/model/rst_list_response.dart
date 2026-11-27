@@ -45,7 +45,19 @@ class RstItem {
   final String? natureOfWorkName;
   final String? id;
 
+  /// An action saved on the device and not sent yet (see RstOfflineService), and
+  /// why the last try failed.
+  final String? pendingAction;
+  final String? pendingError;
+
+  /// Created on the device without internet: no server record yet. Its
+  /// [notificationId] is the negative id of the local list entry.
+  final bool isOfflineCreate;
+
   RstItem({
+    this.pendingAction,
+    this.pendingError,
+    this.isOfflineCreate = false,
     this.notificationId,
     this.notificationCode,
     this.notificationEncryptId,

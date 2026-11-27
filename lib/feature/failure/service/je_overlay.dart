@@ -13,7 +13,8 @@ class JeOverlay {
   static String _key(int notificationId) => 'jeOverlay:$notificationId';
 
   /// [payload] is the body of the update call (updateChangeNotificationJE).
-  static Future<void> save(int notificationId, Map<String, dynamic> payload) async {
+  static Future<void> save(int notificationId, Map<String, dynamic> payload,
+      {Map<String, String>? localFiles}) async {
     if (notificationId <= 0) return;
     try {
       final je = payload['changeNotifictionJE'] is Map
@@ -41,6 +42,8 @@ class JeOverlay {
 
       final m = <String, dynamic>{
         'userStatus': number('UserStatus'),
+        // The failure description typed on the form.
+        'description': text('Description'),
         'failureRectificationDetails': text('FailureRectificationDetails'),
         'failureAttendedDate': text('FailureAttendedDate'),
         'actualFailureRectifiedDate': text('ActualFailureRectifiedDate'),
@@ -50,15 +53,53 @@ class JeOverlay {
         'ptwNo': text('PTWNo'),
         'isPTWReq': flag('PTWRequired'),
         'isHardwareReplaced': flag('IsHardwareReplaced'),
+        // The Joint Inspection Required toggle, so it opens as it was saved.
+        'isJointInspectionReq': flag('IsJointInspectionReq'),
+        // Service / passenger part and sub location of the form.
+        'isServiceAffected': flag('IsServiceAffected'),
+        'trainDelayInMin': number('TrainDelayInMin'),
+        'trainDelayInNo': number('TrainDelayInNo'),
+        'noOfTranWithdrawal': number('NoOfTranWithdrawal'),
+        'noOfTranCancel': number('NoOfTranCancel'),
+        'noOfTrainReplace': number('NoOfTrainReplace'),
+        'isPassengerDeboarding': flag('IsPassengerDeboarding'),
+        'noofTrainDeboarded': number('NoofTrainDeboarded'),
+        'isPassengerAffected': flag('IsPassengerAffected'),
+        'noOfPassengerAffected': number('NoOfPassengerAffected'),
+        'trappedDuration': number('TrappedDuration'),
+        'rescuedDuration': number('RescuedDuration'),
+        'locationFailure': text('LocationFailure'),
         'rca': list(je['FailureRectificationJson']),
         'materials': list(payload['materialRequiredDetails']),
         'dismantle': list(payload['materialDismantleDetails']),
         'readings': list(readings),
+        // Pictures kept on the device while the update waits to be sent
+        // (field name -> path), so the failure shows them when opened again.
+        'localFiles': (localFiles == null || localFiles.isEmpty) ? null : localFiles,
       };
       m.removeWhere((k, v) => v == null);
       await LocalDatabaseService().setAppSetting(_key(notificationId), jsonEncode(m));
     } catch (e) {
       failureLog('JeOverlay.save error: $e');
+    }
+  }
+
+  /// After the update reached the server: the materials / dismantle rows as the
+  /// server now holds them (with their ids), so the next submit updates those
+  /// rows instead of adding them again.
+  static Future<void> saveServerLists(int notificationId,
+      {List<Map<String, dynamic>>? materials,
+      List<Map<String, dynamic>>? dismantle}) async {
+    if (notificationId <= 0) return;
+    try {
+      final m = await load(notificationId) ?? <String, dynamic>{};
+      m['serverMaterials'] = materials ?? const [];
+      m['serverDismantle'] = dismantle ?? const [];
+      m.remove('materials');
+      m.remove('dismantle');
+      await LocalDatabaseService().setAppSetting(_key(notificationId), jsonEncode(m));
+    } catch (e) {
+      failureLog('JeOverlay.saveServerLists error: $e');
     }
   }
 
