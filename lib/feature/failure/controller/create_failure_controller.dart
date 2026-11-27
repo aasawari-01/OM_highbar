@@ -6573,7 +6573,23 @@ class CreateFailureController extends GetxController
       beforeImagesList.clear();
       afterImagesList.clear();
       rcaImagesList.clear();
-      for (final img in output.getImageBefor ?? const <Map<String, dynamic>>[]) {
+      var images = output.getImageBefor ?? const <Map<String, dynamic>>[];
+      // The local copy has no image list: ask the server for it (a failure
+      // that is not created offline).
+      if (images.isEmpty && offlineResult == null) {
+        try {
+          final remote = await _failureService.getMaintenanceFailureDetails([
+            failureNo,
+            item?.id?.toString() ?? '',
+            item?.notificationCode ?? '',
+            code ?? '',
+          ], allowLocal: false);
+          images = remote.responseOutput?.getImageBefor ?? images;
+        } catch (e) {
+          failureLog('SI details: could not load images: $e');
+        }
+      }
+      for (final img in images) {
         final fileName = img['fileName']?.toString() ?? '';
         if (fileName.isEmpty) continue;
         final imgMap = {

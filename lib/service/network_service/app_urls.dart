@@ -57,7 +57,17 @@ class AppUrls {
   static const String masterDataSync = 'mobileAppAPI/getMasterDataSync';
   static const String rstNotificationInbox = 'CorrectiveNotification/getRSTNotificationInboxJE';
   static const String getRSTFailureData = 'mobileAppAPI/GetRSTFailureData';
+  // All RST failures of the user with their details (login sync, offline copy).
+  static const String getRstFailureTransactions = 'mobileAppAPI/GetRstFailureTrasactionDetails';
+  static const String getRstDetailsById = 'CorrectiveNotification/getRSTNotificationDetailsById';  static const String getRstDepartmentLists = 'CorrectiveNotification/getEquipmentListAndFunctinalListByDeptId';
+  static const String createRSTNotificationDetails = 'CorrectiveNotification/createRSTNotificationDetails';
+  static const String updateRSTNotificationDetails = 'CorrectiveNotification/UpdateRSTNotificationDetails';
+  static const String updateRSTNotificationAssignment = 'CorrectiveNotification/updateRSTNotificationAssignment';
+  static const String updateRSTNotificationDeleteStatus = 'CorrectiveNotification/updateRSTNotificationDeleteStatus';
   static const String updateRSTNotificationAccept = "JECorrectivesMaintenance/updateRSTNotificationAccept";
+  /// IBL (power block) request made from the RST list: dropdown lists + create.
+  static const String getIblRequestDetails = 'IBLRequest/getIBLRequestDetails';
+  static const String insertIblRequest = 'IBLRequest/InsertIBLRequest';
   static const String getMCDRequiredQuantity = 'JECorrectivesMaintenance/getMCDRequiredQuantity';
   static const String getMaterialBalancedQty = 'Common/GetMaterialBalancedQty';
   static const String updateNotificationRSTRCAMaterialJE = "JECorrectivesMaintenance/updateNotificationRSTRCAMaterialJE";

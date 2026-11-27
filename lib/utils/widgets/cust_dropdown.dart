@@ -47,7 +47,11 @@ class CustDropdown extends StatelessWidget {
         builder: (formFieldState) {
           if (formFieldState.value != selectedValue) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!formFieldState.mounted) return;
+              final hadError = formFieldState.hasError;
               formFieldState.didChange(selectedValue);
+              // A value now exists: drop a stale "please select" error.
+              if (hadError) formFieldState.validate();
             });
           }
 
@@ -66,8 +70,10 @@ class CustDropdown extends StatelessWidget {
                   enabled: enabled,
                   selectedItem: selectedValue,
                   onChanged: (value) {
+                    final hadError = formFieldState.hasError;
                     onChanged(value);
                     formFieldState.didChange(value);
+                    if (hadError) formFieldState.validate();
                   },
                   // No validator here — the outer FormField above owns
                   // validation + error display now, so it isn't rendered twice.

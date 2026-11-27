@@ -1,4 +1,4 @@
-import 'package:om_mobile/feature/failure/view/shared/attachment_cropper.dart';
+﻿import 'package:om_mobile/feature/failure/view/shared/attachment_cropper.dart';
 import 'package:path/path.dart' as p;
 import 'package:om_mobile/feature/failure/view/shared/failure_toast.dart';
 import 'package:om_mobile/feature/failure/service/failure_log.dart';
@@ -24,11 +24,17 @@ import '../../../../utils/widgets/cust_date_time_picker.dart';
 import '../../../../utils/widgets/cust_loader.dart';
 import '../../../../utils/widgets/horizontal_paginated_view.dart';
 import '../../controller/rst_failure_controller.dart';
+import 'sic_checklist_screen.dart';
+import 'package:om_mobile/utils/widgets/sync_icon_button.dart';
+import '../../service/rst_offline_service.dart';
 import '../../../../service/master_data_sync_service.dart';
 
 class RstFailureScreen extends StatefulWidget {
   final int? notificationId;
-  const RstFailureScreen({super.key, this.notificationId});
+
+  /// The PPIO creates a new failure (Part A only).
+  final bool createMode;
+  const RstFailureScreen({super.key, this.notificationId, this.createMode = false});
 
   @override
   State<RstFailureScreen> createState() => _RstFailureScreenState();
@@ -39,6 +45,10 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
   final _matReqFormKeys = <int, GlobalKey<FormState>>{};
   final _partCFormKey = GlobalKey<FormState>();
   final _partDFormKey = GlobalKey<FormState>();
+  // Each "Add" block validates only its own fields.
+  final _faultFormKey = GlobalKey<FormState>();
+  final _materialFormKey = GlobalKey<FormState>();
+  final _dismantleFormKey = GlobalKey<FormState>();
   final _partEFormKey = GlobalKey<FormState>();
 
   @override
@@ -54,7 +64,9 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
     controller = Get.put(RstFailureController());
     failureLog("_RstFailureScreenState.initState: Controller created");
 
-    if (widget.notificationId != null) {
+    if (widget.createMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => controller.initCreate());
+    } else if (widget.notificationId != null) {
       failureLog("_RstFailureScreenState.initState: Scheduling fetchRstFailureData with id=${widget.notificationId}");
       WidgetsBinding.instance.addPostFrameCallback((_) {
         failureLog("_RstFailureScreenState.initState: Calling fetchRstFailureData");
@@ -261,7 +273,9 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                 ],
               ),
             ),
-            if (!controller.isViewOnly.value)
+            // Files already saved on the server cannot be removed (as on the
+            // web); only files added in this session can.
+            if (!controller.isViewOnly.value && file['isNetwork'] != true)
               GestureDetector(
                 onTap: () => targetList.remove(file),
                 child: const Icon(Icons.close, size: 20, color: Colors.black54),
@@ -339,7 +353,21 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
       ),
     );
   }
-  Widget _buildToggleSwitch(String title, bool value, ValueChanged<bool> onChanged) {
+  Future<void> _confirmDelete(String question, VoidCallback onYes) async {
+    final yes = await Get.defaultDialog<bool>(
+      title: 'Confirm',
+      middleText: question,
+      textConfirm: 'Yes',
+      textCancel: 'No',
+      confirmTextColor: Colors.white,
+      buttonColor: AppColors.orangeColor,
+      onConfirm: () => Get.back(result: true),
+      onCancel: () {},
+    );
+    if (yes == true) onYes();
+  }
+
+  Widget _buildToggleSwitch(String title, bool value, ValueChanged<bool> onChanged, {bool? enabled}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
@@ -349,7 +377,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
           YesNoToggle(
             value: value,
             onChanged: onChanged,
-            enabled: !controller.isViewOnly.value,
+            enabled: enabled ?? !controller.isViewOnly.value,
           ),
         ],
       ),
@@ -358,7 +386,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
 
   Widget _buildPartA() {
     return Obx(() => CustSection(
-      title: 'Part A',
+      title: widget.createMode ? 'Failure Information' : 'Part A',
       isVisible: controller.isPartAExpanded.value,
       trailing: GestureDetector(
         onTap: () => controller.isPartAExpanded.toggle(),
@@ -370,8 +398,10 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          CustText.body("Failure Creation By PPIO/RSC", color: AppColors.textMutedLight, fontWeightName: FontWeight.bold),
-          const SizedBox(height: AppConstants.elementSpacing),
+          if (!widget.createMode) ...[
+            CustText.body("Failure Creation By PPIO/RSC", color: AppColors.textMutedLight, fontWeightName: FontWeight.bold),
+            const SizedBox(height: AppConstants.elementSpacing),
+          ],
           Row(
             children: [
               Expanded(
@@ -380,7 +410,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                   hint: "Select",
                   items: controller.priorityStrings,
                   selectedValue: controller.selectedPriority.value,
-                  onChanged: (v) => controller.selectedPriority.value = v,
+                  onChanged: controller.onPriorityChanged,
                   enabled: !controller.isViewOnly.value,
                 ),
               ),
@@ -391,7 +421,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                   hint: "Select",
                   items: controller.departmentStrings,
                   selectedValue: controller.selectedDepartment.value,
-                  onChanged: (v) {},
+                  onChanged: controller.onDepartmentChanged,
                   enabled: !controller.isViewOnly.value,
                 ),
               ),
@@ -401,27 +431,127 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
           CustDropdown(
             label: "Failure Type",
             hint: "Select",
-            items: [],
+            items: controller.notificationTypeStrings,
             selectedValue: controller.selectedFailureType.value,
-            onChanged: (v) => controller.selectedFailureType.value = v,
+            onChanged: controller.onFailureTypeChanged,
             enabled: !controller.isViewOnly.value,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
-          CustomTextField(
-            label: "Failure Description",
-            hintText: "Enter description",
-            controller: controller.failureDescriptionController,
-            maxLines: 3,
-            enabled: !controller.isViewOnly.value,
-            readOnly: controller.isViewOnly.value,
-          ),
+          // Existing failure: its earlier descriptions (read-only), then a box
+          // for a new one while the failure can still be edited (web).
+          if (!widget.createMode && controller.descriptionHistory.isNotEmpty) ...[
+            CustText.detailLabel("Failure Description"),
+            const SizedBox(height: 6),
+            for (final d in controller.descriptionHistory)
+              Container(
+                width: double.infinity,
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF7F7F7),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    CustText(name: d['description'] ?? '', size: 14, color: Colors.black87),
+                    if ((d['createdBy'] ?? '').isNotEmpty || (d['createdOn'] ?? '').isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: CustText(
+                          name: [d['createdBy'], d['createdOn']]
+                              .where((e) => (e ?? '').isNotEmpty)
+                              .join('  •  '),
+                          size: 12,
+                          color: Colors.black54,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 4),
+          ],
+          if (widget.createMode || !controller.isViewOnly.value)
+            CustomTextField(
+              label: widget.createMode ? "Failure Description" : "New Description",
+              hintText: "Enter description",
+              controller: controller.failureDescriptionController,
+              maxLines: 3,
+              enabled: !controller.isViewOnly.value,
+              readOnly: controller.isViewOnly.value,
+            ),
           const SizedBox(height: AppConstants.elementSpacing),
+          // Appears once a department is chosen (as on the web).
+          if (controller.showLocationFilter.value && !controller.isViewOnly.value) ...[
+            CustDropdown(
+              label: "Search By Superior Functional Location OR Asset Tag",
+              hint: "Select",
+              items: RstFailureController.searchByOptions,
+              selectedValue: controller.selectedSearchBy.value,
+              onChanged: controller.onSearchByChanged,
+            ),
+            const SizedBox(height: AppConstants.elementSpacing),
+            if (controller.selectedSearchBy.value != null) ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: CustDropdown(
+                      label: "Line",
+                      hint: "Select",
+                      items: controller.planningPlantStrings,
+                      selectedValue: controller.selectedPlanningPlant.value,
+                      onChanged: controller.onPlanningPlantChanged,
+                      enabled: controller.selectedSearchBy.value != null,
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.elementSpacing),
+                  Expanded(
+                    child: CustDropdown(
+                      label: "TrainSet No",
+                      hint: "Select",
+                      items: controller.trainSetNoFilterStrings,
+                      selectedValue: controller.selectedTrainSetNoFilter.value,
+                      onChanged: controller.onTrainSetNoChanged,
+                      enabled: controller.selectedPlanningPlant.value != null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+              Row(
+                children: [
+                  Expanded(
+                    child: CustDropdown(
+                      label: "Room",
+                      hint: "Select",
+                      items: controller.roomFilterStrings,
+                      selectedValue: controller.selectedRoomFilter.value,
+                      onChanged: controller.onRoomChanged,
+                      enabled: controller.selectedTrainSetNoFilter.value != null,
+                    ),
+                  ),
+                  const SizedBox(width: AppConstants.elementSpacing),
+                  Expanded(
+                    child: CustDropdown(
+                      label: "System",
+                      hint: "Select",
+                      items: controller.systemFilterStrings,
+                      selectedValue: controller.selectedSystemFilter.value,
+                      onChanged: controller.onSystemChanged,
+                      enabled: controller.selectedRoomFilter.value != null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+            ],
+          ],
           CustDropdown(
-            label: "Functional Location",
+            label: "Functional Location *",
             hint: "Select",
             items: controller.functionalLocationStrings,
             selectedValue: controller.selectedFunctionalLocation.value,
-            onChanged: (v) => controller.selectedFunctionalLocation.value = v,
+            onChanged: controller.onFunctionalLocationChanged,
             enabled: !controller.isViewOnly.value,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
@@ -439,10 +569,24 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             hint: "Select",
             items: controller.natureOfWorkStrings,
             selectedValue: controller.selectedNatureOfWork.value,
-            onChanged: (value) { },
+            onChanged: controller.onNatureOfWorkChanged,
             enabled: !controller.isViewOnly.value,
           ),
-          const SizedBox(height: AppConstants.elementSpacing),
+          // const SizedBox(height: AppConstants.elementSpacing),
+          // Actual failure occurrence for a DEQ failure (Nature of Work 27).
+          Obx(() => controller.selectedNatureOfWorkId.value == '27'
+              ? Padding(
+                  padding: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
+                  child: CustDateTimePicker(
+                    label: "Actual Failure Occurrence On",
+                    hint: "DD/MM/YYYY hh:mm",
+                    selectedDateTime: controller.actualFailureOccuranceOn.value,
+                    enabled: !controller.isViewOnly.value,
+                    lastDate: DateTime.now(),
+                    onDateTimeSelected: (dt) => controller.actualFailureOccuranceOn.value = dt,
+                  ),
+                )
+              : const SizedBox.shrink()),
           // Main Line Fault Fields (shown when WorkNatureId == 10)
           Obx(() => controller.selectedNatureOfWorkId.value == '10' ? Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -455,23 +599,13 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                 readOnly: controller.isViewOnly.value,
               ),
               const SizedBox(height: AppConstants.elementSpacing),
-              CustomTextField(
+              CustDateTimePicker(
                 label: "Actual Failure Occurrence On",
-                hintText: "Select date",
-                controller: TextEditingController(text: controller.actualFailureOccuranceOn.value?.toString() ?? ''),
+                hint: "DD/MM/YYYY hh:mm",
+                selectedDateTime: controller.actualFailureOccuranceOn.value,
                 enabled: !controller.isViewOnly.value,
-                readOnly: controller.isViewOnly.value,
-                onTap: controller.isViewOnly.value ? null : () async {
-                  final date = await showDatePicker(
-                    context: Get.context!,
-                    initialDate: DateTime.now(),
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2100),
-                  );
-                  if (date != null) {
-                    controller.actualFailureOccuranceOn.value = date;
-                  }
-                },
+                lastDate: DateTime.now(),
+                onDateTimeSelected: (dt) => controller.actualFailureOccuranceOn.value = dt,
               ),
               const SizedBox(height: AppConstants.elementSpacing),
               CustomTextField(
@@ -501,6 +635,9 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             ],
           ) : const SizedBox.shrink()),
           const SizedBox(height: AppConstants.elementSpacing),
+          // Service Affected, Train Replace and Passenger Deboarding belong to
+          // the Main Line Fault block on the web: only shown for that nature.
+          if (controller.selectedNatureOfWorkId.value == '10') ...[
           // Service Affected Toggle
           _buildToggleSwitch("Service Affected", controller.isServiceAffected.value, (val) => controller.isServiceAffected.value = val),
           Obx(() => controller.isServiceAffected.value ? Column(
@@ -570,6 +707,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               // ),
             ],
           ) : const SizedBox.shrink()),
+          if (controller.isServiceAffected.value) ...[
           // Train Replace Toggle
           _buildToggleSwitch("Train Replace", controller.isTrainReplace.value, (val) => controller.isTrainReplace.value = val),
           // Passenger Deboarding Toggle
@@ -587,6 +725,8 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               ),
             ],
           ) : const SizedBox.shrink()),
+          ],
+          ],
           const SizedBox(height: AppConstants.sectionSpacing),
           CustText(
             name: "Attachments: ",
@@ -595,10 +735,9 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             color: AppColors.textMutedLight,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
-          _buildViewOnlyImageRow(
-            "Before",
-            controller.beforeFiles,
-          ),
+          controller.isViewOnly.value
+              ? _buildViewOnlyImageRow("Before", controller.beforeFiles)
+              : _buildAttachmentRow("Before", controller.beforeFiles),
           const SizedBox(height: AppConstants.elementSpacing),
           CustDropdown(
             label: "Do not Report",
@@ -632,53 +771,68 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
           CustDropdown(
             label: "Responsible Person",
             hint: "Select",
-            items: const [],
+            items: controller.responsiblePersonStrings,
             selectedValue: controller.selectedResponsiblePerson.value,
             onChanged: (v) => controller.selectedResponsiblePerson.value = v,
-            enabled: !controller.isViewOnly.value,
+            enabled: controller.canEditPartB,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
           CustomTextField(
             label: "Train Running KM",
             hintText: "Enter KM",
             controller: controller.trainRunningKmController,
-            enabled: !controller.isViewOnly.value,
-            readOnly: controller.isViewOnly.value,
+            keyboardType: TextInputType.number,
+            enabled: controller.canEditPartB,
+            readOnly: !controller.canEditPartB,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
-          _buildToggleSwitch("SIC Type", controller.isSicType.value, (val) => controller.isSicType.value = val),
+          // Locked once a SIC row is added (web), so it cannot be set back to No.
+          _buildToggleSwitch("SIC Type", controller.isSicType.value, (val) => controller.isSicType.value = val,
+              enabled: controller.canEditPartB && controller.sicTypeList.isEmpty),
           if (controller.isSicType.value) ...[
             const SizedBox(height: AppConstants.elementSpacing),
-            CustDropdown(
-              label: "SIC Type",
-              hint: "Select",
-              items: const [],
-              selectedValue: controller.selectedSicType.value,
-              onChanged: (v) => controller.selectedSicType.value = v,
-              enabled: !controller.isViewOnly.value,
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
-            CustDropdown(
-              label: "Responsible Person",
-              hint: "Select",
-              items: const [],
-              selectedValue: controller.selectedSicResponsiblePerson.value,
-              onChanged: (v) => controller.selectedSicResponsiblePerson.value = v,
-              enabled: !controller.isViewOnly.value,
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
-            Align(
-              alignment: Alignment.centerRight,
-              child: CustButton(
-                name: "Add",
-                size: 100,
-                color1: AppColors.orangeColor,
-                color2: AppColors.orangeColor,
-                textDarkPrimary: Colors.white,
-                onSelected: (_) => controller.addSicType(),
+            if (controller.canEditPartB) ...[
+              CustDropdown(
+                label: "SIC Type",
+                hint: "Select",
+                items: controller.sicTypeStrings,
+                selectedValue: controller.selectedSicType.value,
+                onChanged: (v) => controller.selectedSicType.value = v,
+                enabled: true,
               ),
-            ),
-            const SizedBox(height: AppConstants.elementSpacing),
+              const SizedBox(height: AppConstants.elementSpacing),
+              CustDropdown(
+                label: "Responsible Person",
+                hint: "Select",
+                items: controller.sicPersonStrings,
+                selectedValue: controller.selectedSicResponsiblePerson.value,
+                onChanged: (v) => controller.selectedSicResponsiblePerson.value = v,
+                enabled: true,
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (controller.editingSicIndex.value != null) ...[
+                    CustOutlineButton(
+                      name: "Cancel",
+                      size: 100,
+                      onSelected: (_) => controller.cancelSicEdit(),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  CustButton(
+                    name: controller.editingSicIndex.value != null ? "Update" : "Add",
+                    size: 100,
+                    color1: AppColors.orangeColor,
+                    color2: AppColors.orangeColor,
+                    textDarkPrimary: Colors.white,
+                    onSelected: (_) => controller.addSicType(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+            ],
             Obx(() => controller.sicTypeList.isNotEmpty
                 ? Column(
               children: controller.sicTypeList.asMap().entries.map((entry) {
@@ -689,17 +843,73 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                     DataCardItem(label: 'SIC Type', value: item['sicType'] ?? ""),
                     DataCardItem(label: 'Responsible Person', value: item['responsiblePerson'] ?? "", isFullWidth: true),
                   ],
-                  onEdit: () {},
-                  onDelete: () => controller.removeSicType(index),
+                  onEdit: () {
+                    if (!controller.canEditPartB) return;
+                    controller.editSicType(index);
+                  },
+                  onDelete: controller.canEditPartB
+                      ? () => _confirmDelete('Do you want to delete this SIC detail?',
+                          () => controller.removeSicType(index))
+                      : null,
                 );
               }).toList(),
             )
                 : const SizedBox.shrink()),
           ],
           const SizedBox(height: AppConstants.elementSpacing),
-          _buildToggleSwitch("Joint Inspection Required", controller.isJointInspection.value, (val) => controller.isJointInspection.value = val),
+          _buildToggleSwitch("Joint Inspection Required", controller.isJointInspection.value, (val) => controller.isJointInspection.value = val,
+              enabled: controller.canEditPartB && controller.jointInspectionList.isEmpty),
           if (controller.isJointInspection.value) ...[
             const SizedBox(height: AppConstants.elementSpacing),
+            if (controller.canEditPartB) ...[
+              CustDropdown(
+                label: "Joint Inspection Department",
+                hint: "Select",
+                items: controller.jointDeptStrings,
+                selectedValue: controller.selectedJointInspectionDept.value,
+                onChanged: controller.onJointDeptChanged,
+                enabled: true,
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+              CustDropdown(
+                label: "Responsible Person",
+                hint: "Select",
+                items: controller.jointUserStrings,
+                selectedValue: controller.selectedJointInspectionResponsiblePerson.value,
+                onChanged: (v) => controller.selectedJointInspectionResponsiblePerson.value = v,
+                enabled: true,
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+              CustomTextField(
+                label: "Remark",
+                hintText: "Enter remark",
+                controller: controller.jointInspectionRemarksController,
+                maxLines: 3,
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  if (controller.editingJointIndex.value != null) ...[
+                    CustOutlineButton(
+                      name: "Cancel",
+                      size: 100,
+                      onSelected: (_) => controller.cancelJointEdit(),
+                    ),
+                    const SizedBox(width: 12),
+                  ],
+                  CustButton(
+                    name: controller.editingJointIndex.value != null ? "Update" : "Add",
+                    size: 100,
+                    color1: AppColors.orangeColor,
+                    color2: AppColors.orangeColor,
+                    textDarkPrimary: Colors.white,
+                    onSelected: (_) => controller.addJointInspection(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppConstants.elementSpacing),
+            ],
             Obx(() => controller.jointInspectionList.isNotEmpty
                 ? Column(
               children: controller.jointInspectionList.asMap().entries.map((entry) {
@@ -712,16 +922,61 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                     DataCardItem(label: 'Remark', value: item['remark'] ?? "", isFullWidth: true),
                     DataCardItem(label: 'Status', value: item['status'] ?? "", isFullWidth: true),
                   ],
-                  onEdit: () {},
-                  onDelete: () => controller.removeJointInspection(index),
+                  onEdit: () {
+                    if (!controller.canEditPartB ||
+                        !(item['statusId'] == '40' || item['id'] == '0')) {
+                      FailureToast.show('Not allowed',
+                          'Only a pending joint inspection can be edited.');
+                      return;
+                    }
+                    controller.editJointInspection(index);
+                  },
+                  onDelete: controller.canEditPartB && (item['statusId'] == '40' || item['id'] == '0')
+                      ? () => _confirmDelete('Do you want to delete this joint inspection?',
+                          () => controller.removeJointInspection(index))
+                      : null,
                 );
               }).toList(),
             )
                 : const SizedBox.shrink()),
-          ]
+          ],
         ],
       ),
     ));
+  }
+
+  /// Cancel / Submit for the parts the PPIO can fill in. Shown once: right
+  /// after Part A when only A is open (create), or after Part B when B is open
+  /// (A and B are then submitted together).
+  Widget _buildActionBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppConstants.screenPadding, 0, AppConstants.screenPadding, AppConstants.sectionSpacing),
+      child: Row(
+        children: [
+          Expanded(
+            child: CustOutlineButton(
+              name: "Cancel",
+              size: double.infinity,
+              sHeight: AppConstants.buttonHeight,
+              borderRadius: AppConstants.inputRadius,
+              onSelected: (_) => Get.back(),
+            ),
+          ),
+          const SizedBox(width: AppConstants.elementSpacing),
+          Expanded(
+            child: CustButton(
+              // An existing failure is updated (web: "Update"); a new one is submitted.
+              name: controller.createMode.value ? "Submit" : "Update",
+              size: double.infinity,
+              sHeight: AppConstants.buttonHeight,
+              borderRadius: AppConstants.inputRadius,
+              onSelected: (_) => controller.submitPpioParts(),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   String _formatDate(dynamic dateValue) {
@@ -1162,6 +1417,12 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             ),
           ),
           if (controller.isFailureRectification.value) ...[
+            Form(
+              key: _faultFormKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             CustDropdown(
               label: "Object Part:",
               hint: "Select Object",
@@ -1239,10 +1500,13 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               color2: AppColors.orangeColor,
               textDarkPrimary: Colors.white,
               onSelected: (_) {
-                if (_partDFormKey.currentState?.validate() ?? false) {
+                if (_faultFormKey.currentState?.validate() ?? false) {
                   controller.addFault();
                 }
               },
+            ),
+                ],
+              ),
             ),
             const SizedBox(height: AppConstants.elementSpacing),
             if (controller.faultList.isNotEmpty)
@@ -1288,6 +1552,12 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
 
           if (controller.isMaterialRequired.value) ...[
             const SizedBox(height: AppConstants.elementSpacing),
+            Form(
+              key: _materialFormKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             Row(
               children: [
                 Expanded(
@@ -1297,18 +1567,23 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                     items: controller.rstMaterialStrings,
                     selectedValue: controller.selectedMaterialCode.value,
                     onChanged: (v) {
+                      // Keep the store location the user already chose (as on the
+                      // other failure forms); only the unit and balance follow
+                      // the new material.
                       controller.selectedMaterialCode.value = v;
-                      controller.selectedStoreLocation.value = null;
-                      controller.requiredQuantityController.text = '';
                       controller.uomController.clear();
-                      controller.balanceQtyController.clear();
+                      controller.balanceQtyController.text = '0.00';
 
                       if (v != null) {
                         final material = controller.rstMaterialList.firstWhereOrNull((e) => e.label == v);
-                        if (material != null && material.value != null) {
-                          final materialRowId = int.tryParse(material.value!) ?? 0;
-                          if (materialRowId > 0) {
-                            controller.fetchMCDRequiredQuantity(materialRowId, 0);
+                        final materialRowId = int.tryParse(material?.value ?? '') ?? 0;
+                        if (materialRowId > 0) {
+                          controller.fetchMCDRequiredQuantity(materialRowId, 0);
+                          final store = controller.storageLocationList
+                              .firstWhereOrNull((e) => e.label == controller.selectedStoreLocation.value);
+                          final storeId = int.tryParse(store?.value ?? '') ?? 0;
+                          if (storeId > 0) {
+                            controller.fetchMaterialBalancedQty(materialRowId, storeId);
                           }
                         }
                       }
@@ -1393,13 +1668,11 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                 if (value == null || value.isEmpty) {
                   return 'Please enter required quantity';
                 }
-                final qty = int.tryParse(value);
+                // Same as the other failure forms: any positive number (the
+                // balance is informational and is 0.00 while offline).
+                final qty = double.tryParse(value.trim());
                 if (qty == null || qty <= 0) {
                   return 'Please enter a valid quantity';
-                }
-                final balanceQty = int.tryParse(controller.balanceQtyController.text) ?? 0;
-                if (qty > balanceQty) {
-                  return 'Required quantity must be less than or equal to balance quantity';
                 }
                 return null;
               },
@@ -1412,10 +1685,13 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               color2: AppColors.orangeColor,
               textDarkPrimary: Colors.white,
               onSelected: (_) {
-                if (_partDFormKey.currentState?.validate() ?? false) {
+                if (_materialFormKey.currentState?.validate() ?? false) {
                   controller.addMaterialRequired();
                 }
               },
+            ),
+                ],
+              ),
             ),
             const SizedBox(height: AppConstants.elementSpacing),
 
@@ -1551,6 +1827,7 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                                     buildCol("Unit of Measurement", item['uom'] ?? ''),
                                     buildCol("Balance Quantity", item['balanceQty'] ?? ''),
                                     buildCol("Required Quantity", item['requiredQty'] ?? ''),
+                                    buildCol("Issued Qty", item['issuedQty'] ?? '0'),
                                   ],
                                 );
                               }),
@@ -1579,6 +1856,12 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
 
           if (controller.isMaterialDismantle.value) ...[
             const SizedBox(height: AppConstants.elementSpacing),
+            Form(
+              key: _dismantleFormKey,
+              autovalidateMode: AutovalidateMode.onUserInteraction,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
             Builder(builder: (context) {
               final sparePartItems = controller.materialRequiredList
                   .map((e) => e['materialCode']?.toString() ?? '')
@@ -1640,10 +1923,13 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
               name: controller.editingDismantleMaterialIndex.value >= 0 ? "Update" : "Add",
               size: 100,
               onSelected: (_) {
-                if (_partDFormKey.currentState?.validate() ?? false) {
+                if (_dismantleFormKey.currentState?.validate() ?? false) {
                   controller.addDismantleMaterial();
                 }
               },
+            ),
+                ],
+              ),
             ),
             const SizedBox(height: AppConstants.elementSpacing),
 
@@ -1750,13 +2036,18 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             color2: AppColors.orangeColor,
             textDarkPrimary: Colors.white,
             onSelected: (_) {
-              if (_partDFormKey.currentState?.validate() ?? false) {
-                // ✅ Validates every material's Used Qty (both live check + form validators)
-                bool allValid = _matReqFormKeys.values.every((key) => key.currentState?.validate() ?? true);
-                if (!allValid) return;
-                if (!controller.validateMaterialRequiredUsedQty()) return;
-                controller.submitPartD();
+              // Explicit Part D rules instead of the field validators, so a
+              // dropdown never shows a stale "please select" error on Submit.
+              final problem = controller.partDValidationError();
+              if (problem != null) {
+                FailureToast.show('Part D', problem);
+                return;
               }
+              // Each material's Used Qty (live check + form validators).
+              final allValid = _matReqFormKeys.values.every((key) => key.currentState?.validate() ?? true);
+              if (!allValid) return;
+              if (!controller.validateMaterialRequiredUsedQty()) return;
+              controller.submitPartD();
             },
           ),
         ],
@@ -1811,7 +2102,14 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             selectedDateTime: controller.actualWorkStart.value,
             enabled: true,
             lastDate: DateTime.now(),
-            onDateTimeSelected: (dt) => controller.actualWorkStart.value = dt,
+            onDateTimeSelected: (dt) {
+              controller.actualWorkStart.value = dt;
+              // A completion earlier than the new start is no longer valid.
+              final done = controller.actualWorkComplete.value;
+              if (done != null && dt != null && done.isBefore(dt)) {
+                controller.actualWorkComplete.value = null;
+              }
+            },
           ),
           const SizedBox(height: AppConstants.elementSpacing),
           CustDateTimePicker(
@@ -1825,11 +2123,12 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
           const SizedBox(height: AppConstants.elementSpacing),
 
           CustDropdown(
+            key: ValueKey('trainStatus${controller.trainStatusResetKey.value}'),
             label: "Train Status *",
             hint: "Select",
             items: controller.rstTrainStatusStrings,
             selectedValue: controller.selectedTrainStatus.value,
-            onChanged: (v) => controller.selectedTrainStatus.value = v,
+            onChanged: controller.onTrainStatusChanged,
             enabled: true,
           ),
           const SizedBox(height: AppConstants.elementSpacing),
@@ -1867,9 +2166,9 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
                 FailureToast.show("Error", "Please accept the declaration",backgroundColor: AppColors.red,colorText: AppColors.white1);
                 return;
               }
-              if (_partEFormKey.currentState?.validate() ?? false) {
-                controller.submitPartE();
-              }
+              // Part E's rules are checked in submitPartE (as on the web), so
+              // no field shows a stale validation error.
+              controller.submitPartE();
             },
           ),
         ],
@@ -1960,66 +2259,125 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
         children: [
           CustText.body("SIC Completion Report (to be filled by SIC Supervisor)", color: AppColors.textMutedLight, fontWeightName: FontWeight.bold),
           const SizedBox(height: AppConstants.elementSpacing),
-          CustText.body("Need to Display SIC Checklist which is selected by earlier", fontWeightName: FontWeight.w600),
-          // const SizedBox(height: AppConstants.elementSpacing),
-          // CustDataCard(
-          //   items: [
-          //     DataCardItem(label: "SIC Type", value: "Battery Box"),
-          //     DataCardItem(label: "Responsible", value: "Mr.Virat Kohli"),
-          //     DataCardItem(
-          //       label: "Status",
-          //       value: "Assigned",
-          //       valueWidget: CustText(name: "Assigned", color: Colors.orange, size: 14, fontWeightName: FontWeight.bold),
-          //     ),
-          //   ],
-          //   bottomAction: Align(
-          //     alignment: Alignment.centerRight,
-          //     child: CustButton(
-          //       name: "Checksheet",
-          //       size: 150,
-          //       textDarkPrimary: Colors.white,
-          //       onSelected: (_) {
-          //         // Get.to(() => const SicChecklistScreen())
-          //       },
-          //     ),
-          //   ),
-          // ),
-          // const SizedBox(height: AppConstants.elementSpacing),
-          // Row(
-          //   crossAxisAlignment: CrossAxisAlignment.start,
-          //   children: [
-          //     Checkbox(
-          //       value: controller.isSicPerformed.value,
-          //       onChanged: (val) => controller.isSicPerformed.value = val ?? false,
-          //       activeColor: AppColors.orangeColor,
-          //     ),
-          //     Expanded(
-          //       child: Padding(
-          //         padding: const EdgeInsets.only(top: 10.0),
-          //         child: CustText.body("I Hereby declare, that SIC has been performed on concerned equipement.", size: 12),
-          //       ),
-          //     ),
-          //   ],
-          // ),
-          // Row(
-          //   crossAxisAlignment: CrossAxisAlignment.start,
-          //   children: [
-          //     Checkbox(
-          //       value: controller.isFollowUpActionCompleted.value,
-          //       onChanged: (val) => controller.isFollowUpActionCompleted.value = val ?? false,
-          //       activeColor: AppColors.orangeColor,
-          //     ),
-          //     Expanded(
-          //       child: Padding(
-          //         padding: const EdgeInsets.only(top: 10.0),
-          //         child: CustText.body("I Hereby declare, that All the necessary follow up action as described in Part F above and final Inspection, including SIC(if any), have been completed.", size: 12),
-          //       ),
-          //     ),
-          //   ],
-          // ),
+          _buildSicChecks(),
         ],
       ),
     ));
+  }
+
+  /// Part F body: the SIC rows chosen in Part B, each with its read-only
+  /// checksheet, and the two declarations (as on the web, only when SIC is
+  /// required for the failure).
+  Widget _buildSicChecks() {
+    return Obx(() {
+      if (!controller.isSicType.value && controller.sicChecks.isEmpty) {
+        return CustText.body('SIC is not required for this failure.');
+      }
+      if (controller.sicChecks.isEmpty) {
+        return CustText.body('No SIC checklist has been assigned yet.');
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final item in controller.sicChecks)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.only(bottom: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.white1,
+                borderRadius: BorderRadius.circular(AppConstants.cardRadius),
+                border: Border.all(color: AppColors.textFieldFillColor.withValues(alpha: 0.5)),
+                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 10, offset: const Offset(0, 4))],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  CustText.detailLabel('SIC Type'),
+                  const SizedBox(height: 2),
+                  CustText.detailValue(item['sicType'] ?? ''),
+                  const SizedBox(height: 10),
+                  CustText.detailLabel('SIC Responsible'),
+                  const SizedBox(height: 2),
+                  CustText.detailValue(item['responsiblePerson'] ?? ''),
+                  const SizedBox(height: 10),
+                  CustText.detailLabel('Status'),
+                  const SizedBox(height: 2),
+                  CustText.detailValue(item['status'] ?? ''),
+                  const SizedBox(height: 12),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: CustButton(
+                      name: 'View Checksheet',
+                      size: 160,
+                      color1: AppColors.orangeColor,
+                      color2: AppColors.orangeColor,
+                      textDarkPrimary: Colors.white,
+                      onSelected: (_) {
+                        controller.openSicChecksheet(item);
+                        Get.to(() => const SicChecklistScreen());
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          _declarationRow('I Hereby declare, that SIC has been performed on concerned equipement.',
+              controller.isSicWorkCompleted.value),
+          _declarationRow(
+              'I Hereby declare, that All the necessary follow up action as described in Part F above and final Inspection, including SIC(if any), have been completed.',
+              controller.isSicWorkCompleted.value),
+        ],
+      );
+    });
+  }
+
+  Widget _declarationRow(String text, bool checked) => Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Checkbox(
+            value: checked,
+            onChanged: null, // read-only here, as on the web
+            activeColor: AppColors.orangeColor,
+          ),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 10.0),
+              child: CustText.body(text, size: 12),
+            ),
+          ),
+        ],
+      );
+
+  /// Part G: acknowledgement of the returned job card by the PPIO (the failure
+  /// is closed from the list; this shows who closed it and when).
+  Widget _buildPartG() {
+    return Obx(() {
+      final data = controller.rstFailureData.value;
+      final closed = (data?.statusId ?? 0) == 39;
+      return CustSection(
+        title: 'Part G',
+        isVisible: controller.isPartGExpanded.value,
+        trailing: GestureDetector(
+          onTap: () => controller.isPartGExpanded.toggle(),
+          child: Icon(
+            controller.isPartGExpanded.value ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+            color: Colors.grey,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            CustText.body("Acknowledgement of return Job Card By PPIO",
+                color: AppColors.textMutedLight, fontWeightName: FontWeight.bold),
+            const SizedBox(height: AppConstants.elementSpacing),
+            CustText.body("Name of PPIO: ${closed ? (data?.updatedByName ?? '') : ''}"),
+            const SizedBox(height: 4),
+            CustText.body("Date & Time: ${closed ? (data?.updatedDateTime ?? '') : ''}"),
+          ],
+        ),
+      );
+    });
   }
 
   Widget _buildViewOnlyImageRow(
@@ -2065,12 +2423,31 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
   }
 
 
+  /// Read-only for roles that do not fill this part.
+  Widget _roleGate(Widget part) {
+    return Obx(() => AbsorbPointer(
+          absorbing: !controller.canEditPartsCDE,
+          child: Opacity(
+            opacity: controller.canEditPartsCDE ? 1 : 0.65,
+            child: part,
+          ),
+        ));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.appBarColor,
-      appBar: const CustomAppBar(
-        title: 'Create Failure',
+      appBar: CustomAppBar(
+        title: widget.createMode ? 'Create Failure' : 'RST Failure',
+        showDrawer: false,
+        onLeadingPressed: () => Get.back(),
+        actions: const [
+          Padding(
+            padding: EdgeInsets.only(right: 12.0),
+            child: SyncIconButton(),
+          ),
+        ],
       ),
       body: Stack(
         children: [
@@ -2086,16 +2463,80 @@ class _RstFailureScreenState extends State<RstFailureScreen> {
             ),
             child: SafeArea(
               child: SingleChildScrollView(
-                padding: const EdgeInsets.all(AppConstants.screenPadding),
+                // CustSection already has the side margin (as on the other forms).
+                padding: const EdgeInsets.symmetric(vertical: AppConstants.screenPadding),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (widget.createMode)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(AppConstants.screenPadding, 0,
+                            AppConstants.screenPadding, AppConstants.sectionSpacing),
+                        child: CustText.sectionHeader("Failure Details", color: AppColors.orangeColor),
+                      ),
+                    Obx(() => controller.pendingAction.value == null
+                        ? const SizedBox.shrink()
+                        : Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: AppConstants.elementSpacing),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF4E5),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: CustText(
+                              name:
+                                  'Pending: ${RstOfflineService.label(controller.pendingAction.value)} is saved on this device and is sent when the internet is back.',
+                              size: 13,
+                              color: AppColors.orangeColor,
+                            ),
+                          )),
+                    // Existing failure: its number above Part A.
+                    if (!widget.createMode)
+                      Obx(() {
+                        final code = controller.rstFailureData.value?.notificationCode ?? '';
+                        if (code.isEmpty) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(left:AppConstants.elementSpacing,bottom: AppConstants.elementSpacing),
+                          child: Row(
+                            children: [
+                              CustText(
+                                  name: 'Failure No: ',
+                                  size: 14,
+                                  color: AppColors.textDarkSecondary),
+                              CustText(
+                                  name: code,
+                                  size: 14,
+                                  fontWeightName: FontWeight.bold,
+                                  color: AppColors.orangeColor),
+                            ],
+                          ),
+                        );
+                      }),
                     _buildPartA(),
-                    _buildPartB(),
-                    _buildPartC(),
-                    _buildPartD(),
-                    _buildPartE(),
-                    _buildPartF(),
+                    // Only Part A open (creating): Cancel / Submit right after it.
+                    Obx(() => controller.canEditPartA && !controller.canEditPartB
+                        ? _buildActionBar()
+                        : const SizedBox.shrink()),
+                    // All parts are shown (as on the web); the ones this user
+                    // cannot fill in are read-only.
+                    Obx(() => AbsorbPointer(
+                          absorbing: !controller.canEditPartB,
+                          child: Opacity(
+                            opacity: controller.canEditPartB ? 1 : 0.65,
+                            child: _buildPartB(),
+                          ),
+                        )),
+                    // Part B open (alone, or together with A): Cancel / Submit after it.
+                    Obx(() => controller.canEditPartB
+                        ? _buildActionBar()
+                        : const SizedBox.shrink()),
+                    _roleGate(_buildPartC()),
+                    _roleGate(_buildPartD()),
+                    _roleGate(_buildPartE()),
+                    _roleGate(_buildPartF()),
+                    _buildPartG(),
+                    const SizedBox(height: 24),
                   ],
                 ),
               ),

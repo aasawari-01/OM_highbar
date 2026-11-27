@@ -20,6 +20,9 @@ import '../feature/failure/service/si_offline_service.dart';
 import '../feature/failure/service/je_offline_service.dart';
 import '../feature/failure/service/depot_offline_service.dart';
 import '../feature/failure/service/occ_offline_service.dart';
+import '../feature/failure/service/rst_offline_service.dart';
+import '../feature/failure/service/rst_lookups.dart';
+import '../feature/failure/controller/rst_list_controller.dart';
 import '../feature/failure/service/station_overlay.dart';
 import '../service/auth_manager.dart';
 import 'network_service/app_urls.dart';
@@ -166,6 +169,64 @@ class MasterDataSyncService extends GetxController {
         });
   }
 
+  Future<bool>? _rstSyncRunning;
+
+  /// RST has its own call (GetRstFailureTrasactionDetails) and its own local
+  /// copy: only the RST screens, login and the sync button ask for it, so the
+  /// other failure lists never trigger it (and it never triggers theirs).
+  Future<bool> syncRstFailures() {
+    return _rstSyncRunning ??= _syncRstTransactions().whenComplete(() {
+      _rstSyncRunning = null;
+    });
+  }
+
+  // RST failures the server stops listing (a closed one) are never mentioned by
+  // the incremental sync: after a sent action the next sync takes everything.
+  static const String _rstFullNeededKey = 'rstTxnFullNeeded';
+
+  /// Downloads the RST failures of the logged-in user into the local copy (the
+  /// RST list and details work offline). Same full / incremental rule as the
+  /// other failure lists. Returns false if the server could not be reached.
+  Future<bool> _syncRstTransactions() async {
+    const userKey = 'rstTxnUserId';
+    try {
+      final userId = await AuthManager().getUserId() ?? '';
+      // A different user on this device must not see the previous user's copy.
+      if (await _dbService.getAppSetting(userKey) != userId) {
+        await _dbService.clearRstFailureCache();
+        await _dbService.setAppSetting(userKey, userId);
+      }
+      // Always syncType ALL ({"userId":..,"syncType":"ALL"}): the copy is
+      // replaced with what the server lists (a closed failure drops out), and
+      // a failure with a change waiting to be sent is kept.
+      final res = await _failureService
+          .getRstFailureTransactions()
+          .timeout(const Duration(seconds: 90));
+      await _dbService.replaceRstFailureCache(res.records);
+      await _dbService.setAppSetting(_rstFullNeededKey, '');
+      debugPrint('syncRstTransactions: ALL sync done, rst=${res.records.length}');
+      // The RST forms' dropdown lists, saved for offline use.
+      try {
+        final rows = await _dbService.getRstFailureCache();
+        String? anyId;
+        if (rows.isNotEmpty) {
+          final f = rows.first['record']['failure'];
+          anyId = (f['notificationEncryptId'] ?? f['id'] ?? f['notificationId'])
+              ?.toString();
+        }
+        await RstLookups(failureService: _failureService)
+            .prefetch(anyFailureId: anyId)
+            .timeout(const Duration(seconds: 40));
+      } catch (e) {
+        debugPrint('syncRstTransactions: lookups not saved: $e');
+      }
+      return true;
+    } catch (e) {
+      debugPrint('syncRstTransactions: failed, keeping the local copy: $e');
+      return false;
+    }
+  }
+
   // The incremental sync only brings what changed: a failure the server stops
   // listing (a closed one leaves the Junior Engineer inbox) is never mentioned,
   // so it stays in the local copy. After such an action this flag makes the
@@ -271,6 +332,7 @@ class MasterDataSyncService extends GetxController {
   Future<void> syncMasterAndPending() async {
     await syncMasterDataFromAPI();
     await syncFailureTransactions();
+    await syncRstFailures();
     await syncPendingSubmissions(force: true);
   }
 
@@ -570,6 +632,10 @@ class MasterDataSyncService extends GetxController {
       var occSynced = 0; // OCC failures (create / update): sent and failed
       var occFailed = 0;
       final occNumbers = <String>[];
+      final rstOffline = RstOfflineService(failureService: _failureService);
+      var rstSynced = 0; // RST failures (create / assign / work details ...)
+      var rstFailed = 0;
+      final rstNumbers = <String>[];
       var depotSynced = 0; // DCC depot failures: sent and failed
       var depotFailed = 0;
       final depotNumbers = <String>[];
@@ -849,6 +915,65 @@ class MasterDataSyncService extends GetxController {
           continue;
         }
 
+        // RST failure created / changed offline (PPIO, Junior Engineer).
+        if (submission['failureType'] == RstOfflineService.queueType) {
+          final sid = submission['id'] as int;
+          final payload = Map<String, dynamic>.from(submission['payload'] as Map);
+          final action = payload['action']?.toString() ?? '';
+          final failureId = int.tryParse('${payload['notificationId']}') ?? 0;
+          final attempts = int.tryParse('${submission['attempts']}') ?? 0;
+          // Never send what another user saved on this device.
+          final me = await AuthManager().getUserId() ?? '';
+          final owner = payload['queuedBy']?.toString() ?? '';
+          if (owner.isNotEmpty && me.isNotEmpty && owner != me) continue;
+          if (!force &&
+              (attempts >= _autoRetryLimit ||
+                  (_retryAfter[sid]?.isAfter(DateTime.now()) ?? false))) {
+            continue;
+          }
+          try {
+            final no = await rstOffline
+                .replay(payload)
+                .timeout(const Duration(seconds: 90));
+            await _dbService.deletePendingSubmission(sid);
+            if (action == RstOfflineService.actionCreate) {
+              // The real failure comes back with the next list sync.
+              await _dbService.deleteRstOfflineEntries(sid);
+            } else if (failureId > 0) {
+              await _dbService.clearRstPending(failureId);
+            }
+            _retryAfter.remove(sid);
+            syncedCount++;
+            rstSynced++;
+            resync = true;
+            if (action == RstOfflineService.actionClose ||
+                action == RstOfflineService.actionDelete) {
+              await _dbService.setAppSetting(_rstFullNeededKey, '1');
+            }
+            if (action == RstOfflineService.actionCreate && (no ?? '').trim().isNotEmpty) {
+              rstNumbers.add(no!.trim());
+            }
+          } catch (e) {
+            if (isNetworkError(e)) {
+              debugPrint('syncPendingSubmissions: server not reached, stopping');
+              break; // still offline: the rest waits
+            }
+            // The server answered with an error: keep it, show why.
+            final reason = e.toString().replaceFirst('Exception: ', '');
+            final n = await _dbService.recordSubmissionFailure(sid, reason);
+            if (action == RstOfflineService.actionCreate) {
+              await _dbService.markRstOfflineEntries(sid, failed: true, error: reason);
+            } else if (failureId > 0) {
+              await _dbService.setRstPending(failureId, action, error: reason);
+            }
+            _retryAfter[sid] =
+                DateTime.now().add(Duration(seconds: (15 * (1 << n.clamp(0, 6))).clamp(15, 600)));
+            rstFailed++;
+            debugPrint('syncPendingSubmissions: RST submission $sid failed ($n): $reason');
+          }
+          continue;
+        }
+
         final isJe = submission['failureType'] == JeOfflineService.queueType;
         if (isJe) {
           // Section Incharge actions (assign, close, update, create, ...)
@@ -1003,15 +1128,31 @@ class MasterDataSyncService extends GetxController {
           duration: const Duration(seconds: 6),
         );
       }
-      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced + occSynced) {
+      if (rstSynced > 0 || rstFailed > 0) {
+        final lines = <String>[
+          if (rstSynced > 0)
+            '$rstSynced RST submission${rstSynced == 1 ? '' : 's'} synced'
+                '${rstNumbers.isEmpty ? '' : ': ${rstNumbers.join(', ')}'}',
+          if (rstFailed > 0)
+            '$rstFailed could not be sent. Open the list to retry or discard.',
+        ];
+        Get.snackbar(
+          rstFailed > 0 ? 'Sync finished with errors' : 'Sync Complete',
+          lines.join('\n'),
+          backgroundColor: rstFailed > 0 ? AppColors.red : AppColors.green,
+          colorText: AppColors.white1,
+          duration: const Duration(seconds: 6),
+        );
+      }
+      if (syncedCount > stationSynced + siSynced + ackSynced + depotSynced + occSynced + rstSynced) {
         Get.snackbar(
           'Sync Complete',
-          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced - occSynced} pending submissions',
+          'Successfully synced ${syncedCount - stationSynced - siSynced - ackSynced - depotSynced - occSynced - rstSynced} pending submissions',
           backgroundColor: AppColors.green,
           colorText: AppColors.white1,
         );
       }
-      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0 || occFailed > 0) {
+      if (syncedCount > 0 || resync || stationFailed > 0 || siFailed > 0 || ackFailed > 0 || depotFailed > 0 || occFailed > 0 || rstFailed > 0) {
         debugPrint("syncPendingSubmissions: Reloading lists after offline submissions");
         // Bring the server's state of what was just sent (a dropped action gets a
         // full reload so its local change disappears).
@@ -1026,6 +1167,14 @@ class MasterDataSyncService extends GetxController {
           } catch (e) {
             debugPrint("Could not refresh $tag list: $e");
           }
+        }
+        try {
+          if (rstSynced > 0 || rstFailed > 0) await syncRstFailures();
+          if (Get.isRegistered<RstListController>()) {
+            await Get.find<RstListController>().fetchRstList();
+          }
+        } catch (e) {
+          debugPrint("Could not refresh the RST list: $e");
         }
       }
     });
